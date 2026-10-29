@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: build
+  cancel-in-progress: true
+
 jobs:
   windows:
     runs-on: windows-latest
@@ -54,7 +58,7 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: 搬工 最新版
+          tag_name: build-${{ github.run_number }}
+          name: 搬工 build ${{ github.run_number }}
           files: dist/bangong.exe
           make_latest: true

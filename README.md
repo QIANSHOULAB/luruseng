@@ -2,7 +2,7 @@
 
 把一个文件夹里的图片（照片、扫描件、HEIC 都行）一张一张送给 Gemini，把图片里的全部内容按原来的表格样子转写出来，边干边写进 Excel。
 
-- 下载：Releases 里的 `bangong.exe`，双击就能用，不用装 Python。
+- 下载：https://github.com/oilsongchengmin-svg/bangong/releases/latest/download/bangong.exe，双击就能用，不用装 Python。
 - 用法：选文件夹，填钥匙（Google AI Studio 的 API Key，可以填两把），点「开始工作」。
 - 每批 5 张，每张单独一次请求，5 张同时发。
 - 干完的图片挪进 `已识别`，结果在 `识别结果\识别结果_日期_时间.xlsx`（「识别结果」表 + 「清单」表），日志在 `识别结果\搬工日志.txt`。
