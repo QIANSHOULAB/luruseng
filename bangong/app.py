@@ -7,6 +7,7 @@ import queue
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 from datetime import datetime
 from tkinter import filedialog, ttk
@@ -313,6 +314,7 @@ class App:
         self.updating = False
         self.started_at = datetime.now().isoformat(timespec='seconds')
         self.last_run: dict = {}
+        self.next_canon = 0.0
         args = autopilot.startup_args()
         if '--after-update' in args:
             self.write(f'✓ 换上新版 v{engine.VERSION}')
@@ -454,11 +456,40 @@ class App:
                 self.updating = True
                 threading.Thread(target=self._update, args=(upd,), daemon=True).start()
                 return
+        if getattr(sys, 'frozen', False) and time.time() >= self.next_canon:
+            self.next_canon = time.time() + 300
+            if self._canonicalize(d):
+                return
         if self.auto.get() and (self.key1.get().strip() or self.key2.get().strip()):
             snap = autopilot.image_snapshot(self.folder.get())
             if self.watcher.poll(snap):
                 self.watcher.started(snap)
                 self.start(auto=True)
+
+    def _canonicalize(self, d: str) -> bool:
+        """正名：从「录入僧测试版.exe」之类的别名跑起来时，等 录入僧.exe 没人占着了，就把自己抄过去、从正名重开。
+        已经是正名的：把旁边的别名 exe 挪进 待删除。"""
+        canon = autopilot.canonical_exe(d)
+        me = os.path.abspath(sys.executable)
+        if os.path.normcase(me) == os.path.normcase(os.path.abspath(canon)):
+            for p in autopilot.stray_exes(d, me):
+                if not autopilot.is_locked(p):
+                    threading.Thread(target=autopilot.retire_file, args=(p,), daemon=True).start()
+            return False
+        if os.path.basename(me) == autopilot.UPDATE_NAME or autopilot.is_locked(canon):
+            return False
+        self.updating = True
+        autopilot.log_update(d, f'从 {os.path.basename(me)} 正名回 {os.path.basename(canon)}')
+
+        def go():
+            try:
+                autopilot.install_update(me, canon, wait=20)
+                self.q.put(('quit', None))
+            except Exception as e:
+                autopilot.log_update(d, f'正名没成：{type(e).__name__}：{e}')
+                self.updating = False
+        threading.Thread(target=go, daemon=True).start()
+        return True
 
     def _update(self, upd: str):
         ver = autopilot.probe_version(upd)

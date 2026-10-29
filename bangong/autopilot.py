@@ -216,5 +216,51 @@ def take_show_request(app_dir: str) -> bool:
     return False
 
 
+def canonical_exe(app_dir: str) -> str:
+    return os.path.join(app_dir, engine.APP_NAME + '.exe')
+
+
+def is_locked(path: str) -> bool:
+    """别的进程（比如还没退干净的旧版）占着这个文件吗。"""
+    try:
+        with open(path, 'r+b'):
+            return False
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+
+
+def stray_exes(app_dir: str, me: str) -> list[str]:
+    """exe 旁边别的「录入僧xxx.exe」（测试版之类）：正名之后挪进 待删除。"""
+    out = []
+    for name in os.listdir(app_dir):
+        p = os.path.join(app_dir, name)
+        if (name.lower().endswith('.exe') and name.startswith(engine.APP_NAME) and name != engine.APP_NAME + '.exe'
+                and name != UPDATE_NAME and os.path.normcase(os.path.abspath(p)) != os.path.normcase(os.path.abspath(me))):
+            out.append(p)
+    return out
+
+
+def retire_file(path: str, wait: float = 30) -> str:
+    bin_ = BIN_DIR if os.path.isdir(os.path.dirname(BIN_DIR)) else os.path.join(os.path.dirname(path), '待删除')
+    deadline = time.time() + wait
+    while True:
+        try:
+            os.makedirs(bin_, exist_ok=True)
+            base, ext = os.path.splitext(os.path.basename(path))
+            dst = os.path.join(bin_, base + ext)
+            n = 1
+            while os.path.exists(dst):
+                n += 1
+                dst = os.path.join(bin_, f'{base}_{n}{ext}')
+            os.replace(path, dst)
+            return dst
+        except OSError:
+            if time.time() > deadline:
+                return ''
+            time.sleep(2)
+
+
 def startup_args() -> list[str]:
     return [a for a in sys.argv[1:] if a in ('--background', '--after-update')]

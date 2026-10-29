@@ -160,3 +160,18 @@ def test_status_and_show_request(tmp_path):
     assert not autopilot.take_show_request(str(tmp_path))
     autopilot.ask_running_to_show(str(tmp_path))
     assert autopilot.take_show_request(str(tmp_path)) and not autopilot.take_show_request(str(tmp_path))
+
+
+def test_stray_exes_and_lock(tmp_path):
+    me = tmp_path / '录入僧测试版.exe'
+    me.write_bytes(b'x')
+    (tmp_path / '录入僧.exe').write_bytes(b'y')
+    (tmp_path / autopilot.UPDATE_NAME).write_bytes(b'z')
+    (tmp_path / '别的.exe').write_bytes(b'w')
+    canon = autopilot.canonical_exe(str(tmp_path))
+    assert autopilot.stray_exes(str(tmp_path), str(me)) == []
+    strays = autopilot.stray_exes(str(tmp_path), canon)
+    assert [os.path.basename(p) for p in strays] == ['录入僧测试版.exe']
+    assert not autopilot.is_locked(canon) and not autopilot.is_locked(str(tmp_path / 'nope.exe'))
+    dst = autopilot.retire_file(strays[0], wait=1)
+    assert dst and not me.exists()
