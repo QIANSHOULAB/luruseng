@@ -26,20 +26,20 @@ jobs:
       - name: Tests (Windows)
         run: python -m pytest -q tests
       - name: Build exe
-        run: pyinstaller --noconfirm --onefile --windowed --name bangong --icon assets/bangong.ico --add-data "assets/bangong.ico;assets" --collect-all pillow_heif main.py
+        run: pyinstaller --noconfirm --onefile --windowed --name luruseng --icon assets/bangong.ico --add-data "assets/bangong.ico;assets" --collect-all pillow_heif main.py
       - name: Smoke test the exe against the mock server
         shell: pwsh
         run: |
           $mock = Start-Process python -ArgumentList 'tests/mock_server.py','8765' -PassThru -WindowStyle Hidden
           Start-Sleep 3
-          $dir = Join-Path $env:RUNNER_TEMP '搬工测试'
+          $dir = Join-Path $env:RUNNER_TEMP '录入僧测试'
           New-Item -ItemType Directory -Force $dir | Out-Null
           python -c "from PIL import Image; [Image.new('RGB',(900,700),'white').save(r'$dir\p%d.jpg'%i) for i in range(7)]"
           $env:BANGONG_API = 'http://127.0.0.1:8765/v1beta'
           $env:BANGONG_KEY1 = 'AIzaSMOKE'
-          $p = Start-Process dist/bangong.exe -ArgumentList '--cli',$dir -Wait -PassThru
+          $p = Start-Process dist/luruseng.exe -ArgumentList '--cli',$dir -Wait -PassThru
           Stop-Process $mock.Id
-          Get-Content (Join-Path $dir '识别结果\搬工日志.txt') -Encoding UTF8
+          Get-Content (Join-Path $dir '识别结果\录入僧日志.txt') -Encoding UTF8
           if ($p.ExitCode -ne 0) { throw "exe exit $($p.ExitCode)" }
           $x = Get-ChildItem (Join-Path $dir '识别结果') -Filter *.xlsx
           if ($x.Count -ne 1) { throw 'no xlsx' }
@@ -55,30 +55,30 @@ jobs:
         run: |
           $book = Join-Path $env:RUNNER_TEMP 'TOOL BROKEN RECORD.xlsx'
           python -c "import sys; sys.path.insert(0, 'tests'); from test_kb import company_book; company_book(r'$book')"
-          $p = Start-Process dist/bangong.exe -ArgumentList '--feed',"`"$book`"" -Wait -PassThru
+          $p = Start-Process dist/luruseng.exe -ArgumentList '--feed',"`"$book`"" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "feed exit $($p.ExitCode)" }
           if (-not (Test-Path 'dist/数据库.sqlite')) { throw 'no database file' }
           python -c "import sqlite3; c = sqlite3.connect('dist/数据库.sqlite'); n = c.execute('select count(*) from records').fetchone()[0]; print('records', n); assert n == 8"
       - name: Shortcut test
         shell: pwsh
         run: |
-          $p = Start-Process dist/bangong.exe -ArgumentList '--shortcuts' -Wait -PassThru
-          Get-Content (Join-Path $env:APPDATA '搬工\shortcut.log') -ErrorAction SilentlyContinue
-          $lnk = Join-Path ([Environment]::GetFolderPath('Desktop')) '搬工.lnk'
+          $p = Start-Process dist/luruseng.exe -ArgumentList '--shortcuts' -Wait -PassThru
+          Get-Content (Join-Path $env:APPDATA '录入僧\shortcut.log') -ErrorAction SilentlyContinue
+          $lnk = Join-Path ([Environment]::GetFolderPath('Desktop')) '录入僧.lnk'
           if ($p.ExitCode -ne 0 -or -not (Test-Path $lnk)) { throw "no shortcut ($($p.ExitCode))" }
           $sh = New-Object -ComObject Shell.Application
           $item = $sh.NameSpace((Split-Path $lnk)).ParseName((Split-Path $lnk -Leaf))
           $target = $item.GetLink.Path
           Write-Output "target: $target"
-          if (-not $target.EndsWith('bangong.exe')) { throw "bad target $target" }
+          if (-not $target.EndsWith('luruseng.exe')) { throw "bad target $target" }
       - uses: actions/upload-artifact@v4
         with:
-          name: bangong-exe
-          path: dist/bangong.exe
+          name: luruseng-exe
+          path: dist/luruseng.exe
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: 搬工 build ${{ github.run_number }}
-          files: dist/bangong.exe
+          name: 录入僧 build ${{ github.run_number }}
+          files: dist/luruseng.exe
           make_latest: true

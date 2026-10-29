@@ -149,7 +149,7 @@ def test_hints_go_into_prompt(tmp_path):
 
 
 def test_feed_a_checked_bangong_result(tmp_path):
-    """核对过的搬工结果表也能喂（A 列是 No.，B–N 是记录）。"""
+    """核对过的录入僧结果表也能喂（A 列是 No.，B–N 是记录）。"""
     book = engine.RecordBook(str(tmp_path / 'r.xlsx'))
     book.add(1, [dict(rec(), machine='HM-3', part_number='AB-5089924H')])
     book.save()

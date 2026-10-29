@@ -1,4 +1,4 @@
-"""搬工入口。双击 = 窗口；--cli 文件夹 = 无窗口跑一轮（给大管家/计划任务用）。"""
+"""录入僧入口。双击 = 窗口；--cli 文件夹 = 无窗口跑一轮（给大管家/计划任务用）。"""
 import os
 import sys
 
@@ -34,7 +34,7 @@ if __name__ == '__main__':
         cfg = load_config()
         ensure_shortcuts(cfg)
         sys.exit(0 if cfg.get('shortcut_for') else 1)
-    if a and a[0] == '--feed':                     # 搬工.exe --feed 表1.xlsx 表2.xlsx（给大管家/计划任务用）
+    if a and a[0] == '--feed':                     # 录入僧.exe --feed 表1.xlsx 表2.xlsx（给大管家/计划任务用）
         from bangong.app import kb_path
         from bangong.kb import KnowledgeBase
         kb = KnowledgeBase(kb_path())

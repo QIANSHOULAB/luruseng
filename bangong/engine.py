@@ -1,4 +1,4 @@
-"""搬工 — 文件夹里的照片按拍摄顺序编号，5 张一批送 Gemini，认出刀具破损记录（TOOL BROKEN RECORD），边干边写 Excel。"""
+"""录入僧（原名搬工）— 文件夹里的照片按拍摄顺序编号，5 张一批送 Gemini，认出刀具破损记录（TOOL BROKEN RECORD），边干边写 Excel。"""
 from __future__ import annotations
 
 import base64
@@ -30,7 +30,10 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-VERSION = '1.5.3'
+VERSION = '1.6.0'
+APP_NAME = '录入僧'
+SUBTITLE = '施主去玩，贫僧填表'
+OLD_NAME = '搬工'                   # 改名前的名字：旧账本、旧配置照样认
 API_BASE = os.environ.get('BANGONG_API', 'https://generativelanguage.googleapis.com/v1beta').rstrip('/')
 DEFAULT_MODEL = 'gemini-3.5-flash-lite'
 MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro']
@@ -44,7 +47,8 @@ DUP_DIR = '重复'
 NAMES_FILE = '名单.txt'
 STAMP_SIDE = 2560                   # 编号照片最长边（够放大看手写）
 OUT_DIR = '识别结果'
-LEDGER = '.搬工账本.json'
+LEDGER = '.录入僧账本.json'
+OLD_LEDGER = '.搬工账本.json'
 MINUTE_WAIT = 60
 TIMEOUT = 180
 RETRY_WAITS = [10, 30, 60]          # 5xx / 断网重试间隔
@@ -845,7 +849,7 @@ class Engine:
         done_root = os.path.join(self.folder, DONE_DIR)
         os.makedirs(out_dir, exist_ok=True)
         os.makedirs(done_root, exist_ok=True)
-        logfile = os.path.join(out_dir, '搬工日志.txt')
+        logfile = os.path.join(out_dir, '录入僧日志.txt')
         outer = self.log
 
         def log(msg):
@@ -871,6 +875,12 @@ class Engine:
                 self.log(f'数据库打不开，这次不用它：{type(e).__name__}：{e}')
                 self.snapshot, self.hints = None, ''
         ledger_path = os.path.join(out_dir, LEDGER)
+        old_ledger = os.path.join(out_dir, OLD_LEDGER)
+        if not os.path.exists(ledger_path) and os.path.exists(old_ledger):
+            try:
+                os.replace(old_ledger, ledger_path)      # 改名前干过的照片照样认得
+            except OSError:
+                ledger_path = old_ledger
         try:
             with open(ledger_path, encoding='utf-8') as fh:
                 ledger = json.load(fh)

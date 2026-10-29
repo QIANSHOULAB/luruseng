@@ -118,7 +118,7 @@ def test_twelve_photos_numbered_in_order(tmp_path):
     ledger = json.load(open(tmp_path / '识别结果' / engine.LEDGER, encoding='utf-8'))
     assert sorted(v['no'] for v in ledger.values()) == list(range(1, 13))
     assert any('按拍摄顺序编号 1–12' in m for m in logs)
-    assert (tmp_path / '识别结果' / '搬工日志.txt').exists()
+    assert (tmp_path / '识别结果' / '录入僧日志.txt').exists()
 
 
 def test_exif_shot_time_beats_file_time(tmp_path):

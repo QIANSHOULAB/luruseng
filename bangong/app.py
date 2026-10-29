@@ -1,4 +1,4 @@
-"""搬工 窗口：选文件夹、填钥匙、点「开始工作」，其余自己干。"""
+"""录入僧 窗口：选文件夹、填钥匙、点「开始工作」，其余自己干。"""
 from __future__ import annotations
 
 import json
@@ -15,7 +15,21 @@ from . import engine
 
 def config_dir() -> str:
     base = os.environ.get('APPDATA') or os.path.join(os.path.expanduser('~'), '.config')
-    d = os.path.join(base, '搬工')
+    d = os.path.join(base, engine.APP_NAME)
+    old = os.path.join(base, engine.OLD_NAME)
+    if not os.path.isdir(d) and os.path.isfile(os.path.join(old, 'config.json')):
+        try:                                   # 改名前的配置（文件夹、钥匙、模型）原样搬过来，不用重填
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(old, 'config.json'), encoding='utf-8') as f:
+                cfg = json.load(f)
+            cfg.pop('shortcut_for', None)          # 让新名字的快捷方式重新放一遍
+            fo = cfg.get('folder', '')
+            if fo.replace('/', '\\').lower().startswith('f:\\songchengmin\\' + engine.OLD_NAME):
+                cfg['folder'] = 'F:\\songchengmin\\' + engine.APP_NAME + fo[len('F:\\songchengmin\\' + engine.OLD_NAME):]
+            with open(os.path.join(d, 'config.json'), 'w', encoding='utf-8') as f:
+                json.dump(cfg, f, ensure_ascii=False, indent=1)
+        except Exception:
+            pass
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -25,8 +39,8 @@ CONFIG = os.path.join(config_dir(), 'config.json')
 
 def default_folder() -> str:
     if os.name == 'nt' and os.path.isdir('F:\\'):
-        return 'F:\\songchengmin\\搬工\\待识别'
-    return os.path.join(os.path.expanduser('~'), '搬工', '待识别')
+        return 'F:\\songchengmin\\' + engine.APP_NAME + '\\待识别'
+    return os.path.join(os.path.expanduser('~'), engine.APP_NAME, '待识别')
 
 
 def app_dir() -> str:
@@ -36,7 +50,7 @@ def app_dir() -> str:
 
 
 def kb_path() -> str:
-    """数据库跟 搬工.exe 放在一起（公司记录，只在本机，不上 GitHub）。"""
+    """数据库跟 录入僧.exe 放在一起（公司记录，只在本机，不上 GitHub）。"""
     from .kb import DB_FILE
     return os.path.join(app_dir(), DB_FILE)
 
@@ -53,7 +67,7 @@ def feed_dir() -> str:
 
 
 def names_path() -> str:
-    """名单.txt 跟 搬工.exe 放在一起，一行一个「工号/名字」，用记事本就能改。"""
+    """名单.txt 跟 录入僧.exe 放在一起，一行一个「工号/名字」，用记事本就能改。"""
     return os.path.join(app_dir(), engine.NAMES_FILE)
 
 
@@ -82,8 +96,67 @@ def open_path(p: str):
         pass
 
 
+def retire(path: str) -> str:
+    """不再用的旧文件不直接删：F 盘有「待删除」就挪进去，没有就删（只用于旧快捷方式）。"""
+    try:
+        bin_ = 'F:\\songchengmin\\待删除'
+        if os.name == 'nt' and os.path.isdir('F:\\songchengmin'):
+            os.makedirs(bin_, exist_ok=True)
+            dst = os.path.join(bin_, os.path.basename(path))
+            n = 1
+            while os.path.exists(dst):
+                n += 1
+                dst = os.path.join(bin_, f'{n}_' + os.path.basename(path))
+            os.replace(path, dst)
+            return '旧快捷方式挪到：' + dst
+        os.remove(path)
+        return '旧快捷方式已删：' + path
+    except OSError as e:
+        return f'旧快捷方式没挪动：{path}（{e}）'
+
+
+def migrate_old_home(new_dir: str | None = None) -> list[str]:
+    """改名：exe 在 ...\\录入僧 里时，把旁边旧的 ...\\搬工 里的东西（名单、数据库、投喂的表、
+    待识别里的照片和结果）搬过来，然后把旧文件夹整个挪进 F:\\songchengmin\\待删除（不直接删）。"""
+    new_dir = new_dir or app_dir()
+    parent = os.path.dirname(new_dir)
+    old_dir = os.path.join(parent, engine.OLD_NAME)
+    if os.path.basename(new_dir) != engine.APP_NAME or not os.path.isdir(old_dir):
+        return []
+    done = []
+    try:
+        from .kb import DB_FILE, FEED_DIR
+        for name in (engine.NAMES_FILE, DB_FILE):
+            src, dst = os.path.join(old_dir, name), os.path.join(new_dir, name)
+            if os.path.isfile(src) and not os.path.exists(dst):
+                os.replace(src, dst)
+                done.append('搬过来：' + name)
+        for sub in (FEED_DIR, '待识别'):
+            so, sn = os.path.join(old_dir, sub), os.path.join(new_dir, sub)
+            if not os.path.isdir(so):
+                continue
+            os.makedirs(sn, exist_ok=True)
+            for e in os.listdir(so):
+                src, dst = os.path.join(so, e), os.path.join(sn, e)
+                if not os.path.exists(dst):
+                    os.replace(src, dst)
+                    done.append(f'搬过来：{sub}\\{e}')
+        bin_ = os.path.join(parent, '待删除')
+        os.makedirs(bin_, exist_ok=True)
+        dst = os.path.join(bin_, engine.OLD_NAME)
+        n = 1
+        while os.path.exists(dst):
+            n += 1
+            dst = os.path.join(bin_, f'{engine.OLD_NAME}_{n}')
+        os.replace(old_dir, dst)
+        done.append('旧文件夹挪到：' + dst)
+    except OSError as e:
+        done.append(f'旧文件夹没搬完：{e}')
+    return done
+
+
 def ensure_shortcuts(cfg: dict):
-    """打包版第一次打开时，自己在桌面和开始菜单放「搬工」快捷方式（以后不用再找 exe）。
+    """打包版第一次打开时，自己在桌面和开始菜单放「录入僧」快捷方式（以后不用再找 exe），顺手把改名前的「搬工」快捷方式挪走。
     用 Windows 自带的 Unicode 版 IShellLink，中文文件名、中文路径都不会变问号。"""
     if os.name != 'nt' or not getattr(sys, 'frozen', False) or cfg.get('shortcut_for') == sys.executable:
         return
@@ -103,9 +176,12 @@ def ensure_shortcuts(cfg: dict):
                 link.SetWorkingDirectory(os.path.dirname(sys.executable))
                 link.SetIconLocation(sys.executable, 0)
                 link.SetDescription('刀具破损记录照片识别成 Excel')
-                target = os.path.join(d, '搬工.lnk')
+                target = os.path.join(d, engine.APP_NAME + '.lnk')
                 link.QueryInterface(pythoncom.IID_IPersistFile).Save(target, 0)
                 lines.append('已放：' + target)
+                old = os.path.join(d, engine.OLD_NAME + '.lnk')
+                if os.path.exists(old):
+                    lines.append(retire(old))
         finally:
             pythoncom.CoUninitialize()
         cfg['shortcut_for'] = sys.executable
@@ -130,7 +206,7 @@ class App:
         self.viewer = None
         cfg = load_config()
 
-        root.title(f'搬工 · 刀具破损记录 → Excel  v{engine.VERSION}')
+        root.title(f'{engine.APP_NAME} —— {engine.SUBTITLE}  v{engine.VERSION}')
         try:
             base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             root.iconbitmap(os.path.join(base, 'assets', 'bangong.ico'))
@@ -150,24 +226,31 @@ class App:
         f.pack(fill='both', expand=True)
         f.columnconfigure(1, weight=1)
 
-        ttk.Label(f, text='图片文件夹').grid(row=0, column=0, sticky='w', pady=3)
+        head = ttk.Frame(f)
+        head.grid(row=0, column=0, columnspan=3, sticky='w', pady=(0, 8))
+        big = ('Microsoft YaHei UI', 16, 'bold') if os.name == 'nt' else ('TkDefaultFont', 16, 'bold')
+        small = ('Microsoft YaHei UI', 10) if os.name == 'nt' else ('TkDefaultFont', 10)
+        ttk.Label(head, text=engine.APP_NAME, font=big).pack(side='left')
+        ttk.Label(head, text='  —— ' + engine.SUBTITLE, font=small, foreground='#666').pack(side='left', pady=(6, 0))
+
+        ttk.Label(f, text='图片文件夹').grid(row=1, column=0, sticky='w', pady=3)
         self.folder = tk.StringVar(value=cfg.get('folder') or default_folder())
-        ttk.Entry(f, textvariable=self.folder).grid(row=0, column=1, sticky='ew', padx=6)
-        ttk.Button(f, text='选择…', command=self.pick).grid(row=0, column=2)
+        ttk.Entry(f, textvariable=self.folder).grid(row=1, column=1, sticky='ew', padx=6)
+        ttk.Button(f, text='选择…', command=self.pick).grid(row=1, column=2)
 
         self.key1 = tk.StringVar(value=cfg.get('key1', ''))
         self.key2 = tk.StringVar(value=cfg.get('key2', ''))
-        ttk.Label(f, text='钥匙 1').grid(row=1, column=0, sticky='w', pady=3)
-        ttk.Entry(f, textvariable=self.key1, show='•').grid(row=1, column=1, columnspan=2, sticky='ew', padx=(6, 0))
-        ttk.Label(f, text='钥匙 2（可空）').grid(row=2, column=0, sticky='w', pady=3)
-        ttk.Entry(f, textvariable=self.key2, show='•').grid(row=2, column=1, columnspan=2, sticky='ew', padx=(6, 0))
+        ttk.Label(f, text='钥匙 1').grid(row=2, column=0, sticky='w', pady=3)
+        ttk.Entry(f, textvariable=self.key1, show='•').grid(row=2, column=1, columnspan=2, sticky='ew', padx=(6, 0))
+        ttk.Label(f, text='钥匙 2（可空）').grid(row=3, column=0, sticky='w', pady=3)
+        ttk.Entry(f, textvariable=self.key2, show='•').grid(row=3, column=1, columnspan=2, sticky='ew', padx=(6, 0))
 
-        ttk.Label(f, text='模型').grid(row=3, column=0, sticky='w', pady=3)
+        ttk.Label(f, text='模型').grid(row=4, column=0, sticky='w', pady=3)
         self.model = tk.StringVar(value=cfg.get('model') or engine.DEFAULT_MODEL)
-        ttk.Combobox(f, textvariable=self.model, values=engine.MODELS).grid(row=3, column=1, sticky='w', padx=6)
+        ttk.Combobox(f, textvariable=self.model, values=engine.MODELS).grid(row=4, column=1, sticky='w', padx=6)
 
         bar = ttk.Frame(f)
-        bar.grid(row=4, column=0, columnspan=3, sticky='ew', pady=(10, 6))
+        bar.grid(row=5, column=0, columnspan=3, sticky='ew', pady=(10, 6))
         self.start_btn = ttk.Button(bar, text='开始工作', command=self.start)
         self.start_btn.pack(side='left')
         self.stop_btn = ttk.Button(bar, text='停止', command=self.halt, state='disabled')
@@ -180,12 +263,15 @@ class App:
         ttk.Label(bar, textvariable=self.status).pack(side='left', padx=10)
 
         self.pb = ttk.Progressbar(f, mode='determinate')
-        self.pb.grid(row=5, column=0, columnspan=3, sticky='ew')
+        self.pb.grid(row=6, column=0, columnspan=3, sticky='ew')
 
         self.text = tk.Text(f, height=16, wrap='word', state='disabled', relief='flat', background='#f6f6f6')
-        self.text.grid(row=6, column=0, columnspan=3, sticky='nsew', pady=(8, 0))
-        f.rowconfigure(6, weight=1)
+        self.text.grid(row=7, column=0, columnspan=3, sticky='nsew', pady=(8, 0))
+        f.rowconfigure(7, weight=1)
 
+        if getattr(sys, 'frozen', False):
+            for line in migrate_old_home():
+                self.write(line)
         self.refresh_count()
         n = len(engine.load_names(names_path()))
         self.write(f'名单：{n} 人（{names_path()}）' if n else f'没找到名单：{names_path()}（没有也能用，SETTER 就照单子抄）')
@@ -260,7 +346,7 @@ class App:
         open_path(d if os.path.isdir(d) else self.folder.get())
 
     def feed(self):
-        """投喂数据：选公司的 TOOL BROKEN RECORD（或核对过的搬工结果表），一次可以选好几本。"""
+        """投喂数据：选公司的 TOOL BROKEN RECORD（或核对过的录入僧结果表），一次可以选好几本。"""
         paths = filedialog.askopenfilenames(title='选要喂给数据库的表（可以多选）',
                                             filetypes=[('Excel', '*.xlsx *.xlsm'), ('全部', '*.*')])
         if not paths:
