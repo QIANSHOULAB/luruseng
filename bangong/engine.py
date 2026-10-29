@@ -31,7 +31,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-VERSION = '1.7.2'
+VERSION = '1.7.3'
 APP_NAME = '录入僧'
 SUBTITLE = '施主去玩，贫僧填表'
 OLD_NAME = '搬工'                   # 改名前的名字：旧账本、旧配置照样认
@@ -95,17 +95,18 @@ PROMPT = """你是工厂的刀具破损记录（TOOL BROKEN RECORD）录入员�
 - 图片歪斜或横着拍的，按正确方向读。
 - unsure：每条记录里你拿不准的字段名（字迹潦草、被挡住、反光、可能看错的），只列真拿不准的；全都看得清就给空数组。
 - 一条记录都没有就输出空数组。
-- 只输出 JSON：{"records": [{"date": "", "machine": "", ..., "unsure": []}]}，不要任何解释。"""
+- title_side：单子的标题（最上面那行印刷的大字，比如 TOOL REQUEST FORM 换刀调试单、TOOL BROKEN RECORD）在这张照片的哪一边，照片原样看，不要先在脑子里转正：top（上边）、right（右边）、bottom（下边）、left（左边）。
+- 只输出 JSON：{"title_side": "top", "records": [{"date": "", "machine": "", ..., "unsure": []}]}，不要任何解释。"""
 
 SCHEMA = {
     'type': 'OBJECT',
-    'properties': {'records': {'type': 'ARRAY', 'items': {
+    'properties': {'title_side': {'type': 'STRING'}, 'records': {'type': 'ARRAY', 'items': {
         'type': 'OBJECT',
         'properties': {**{f: {'type': 'STRING'} for f in FIELDS},
                        'unsure': {'type': 'ARRAY', 'items': {'type': 'STRING'}}},
         'required': FIELDS + ['unsure'],
     }}},
-    'required': ['records'],
+    'required': ['records', 'title_side'],
 }
 
 # ---------------------------------------------------------------- 错误
@@ -226,10 +227,19 @@ def _font(size: int):
         return ImageFont.load_default()
 
 
-def stamp_number(src: str, no: int, out: str) -> str:
+TURN = {'right': Image.Transpose.ROTATE_90, 'bottom': Image.Transpose.ROTATE_180, 'left': Image.Transpose.ROTATE_270}
+
+
+def upright(im: Image.Image, side: str) -> Image.Image:
+    """标题在右边就逆时针转 90°，在左边就顺时针转 90°，在下边就转 180°：转完标题在上，字是正的。"""
+    t = TURN.get(side or '')
+    return im.transpose(t) if t is not None else im
+
+
+def stamp_number(src: str, no: int, out: str, side: str = '') -> str:
     """在照片最空的那个角写上大红编号（白底红框），给人核对用；四个角都有字就在顶上加一条白边写。
-    只给人看：送去识别的是原图，编号不会被当成内容。"""
-    im = _shrink(_load_rgb(src), STAMP_SIDE)
+    先按单子标题的位置把照片转正（人看着舒服）。只给人看：送去识别的是原图，编号不会被当成内容。"""
+    im = upright(_shrink(_load_rgb(src), STAMP_SIDE), side)
     w, h = im.size
     short = min(w, h)
     text = str(no)
@@ -406,8 +416,24 @@ def response_json(data: dict):
         raise ValueError(f'finishReason = {finish}，JSON 解析不了：{text[:200]}')
 
 
+SIDES = {'top': 'top', 'up': 'top', 'upper': 'top', '上': 'top', '上边': 'top', '上面': 'top', '顶': 'top', '顶部': 'top',
+         'right': 'right', '右': 'right', '右边': 'right', '右侧': 'right',
+         'bottom': 'bottom', 'down': 'bottom', 'lower': 'bottom', '下': 'bottom', '下边': 'bottom', '下面': 'bottom', '底': 'bottom', '底部': 'bottom',
+         'left': 'left', '左': 'left', '左边': 'left', '左侧': 'left'}
+
+
+def norm_side(v) -> str:
+    return SIDES.get(str(v or '').strip().lower(), '')
+
+
 def parse_records(data: dict) -> list[dict]:
+    return parse_response(data)[0]
+
+
+def parse_response(data: dict) -> tuple[list[dict], str]:
+    """返回 (记录, 标题在照片哪一边)。"""
     obj = response_json(data)
+    side = norm_side(obj.get('title_side', '')) if isinstance(obj, dict) else ''
     recs = obj
     if isinstance(obj, dict):
         recs = obj.get('records', obj.get('rows', obj))
@@ -433,7 +459,7 @@ def parse_records(data: dict) -> list[dict]:
         if any(rec[f] for f in FIELDS):
             rec['unsure'] = sorted(unsure)
             out.append(rec)
-    return out
+    return out, side
 
 
 MONTHS = {'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6, 'jul': 7, 'aug': 8,
@@ -894,7 +920,7 @@ class Engine:
             self.log(f'⏸ {why}，等 {int(secs)} 秒')
         self.wait(secs)
 
-    def recognize(self, path: str) -> list[dict]:
+    def recognize(self, path: str) -> tuple[list[dict], str]:
         try:
             return self._recognize(path)
         except Fatal as e:
@@ -903,17 +929,21 @@ class Engine:
             self.stop.set()          # 同批其他几张别再傻等
             raise
 
-    def _recognize(self, path: str) -> list[dict]:
-        """认一张：先认两遍（第二遍用拉过对比度的图），对得上就收；对不上认第三遍，按多数定。"""
+    def _recognize(self, path: str) -> tuple[list[dict], str]:
+        """认一张：先认两遍（第二遍用拉过对比度的图），对得上就收；对不上认第三遍，按多数定。
+        顺便按多数定单子标题在照片哪一边（印编号的那份照片拿它转正）。"""
         jpeg = prepare_image(path)
         if self.reads == 1:
-            return vote([[clean_record(r) for r in self._read(jpeg, path)]])
+            recs, side = self._read(jpeg, path)
+            return vote([[clean_record(r) for r in recs]]), side
         plan = [jpeg, prepare_image(path, enhance=True)]
-        reads, errs = [], []
+        reads, errs, sides = [], [], []
         while plan:
             img = plan.pop(0)
             try:
-                reads.append([clean_record(r) for r in self._read(img, path)])
+                recs, side = self._read(img, path)
+                reads.append([clean_record(r) for r in recs])
+                sides.append(side)
             except (Stopped, Fatal):
                 raise
             except Exception as e:              # 某一遍没认成：再补一遍，凑够两遍对答案
@@ -929,9 +959,15 @@ class Engine:
         if len(reads) == 1:
             for r in out:
                 r['single'] = True
-        return out
+        known = [x for x in sides if x]
+        side = ''
+        if known:
+            c = Counter(known)
+            top = c.most_common(1)[0][1]
+            side = known[0] if c[known[0]] == top else c.most_common(1)[0][0]
+        return out, side
 
-    def _read(self, jpeg: bytes, path: str) -> list[dict]:
+    def _read(self, jpeg: bytes, path: str) -> tuple[list[dict], str]:
         body = build_body(jpeg, self.model, self.use_schema, self.names, self.hints)
         minute_hits = 0
         net_tries = 0
@@ -949,7 +985,7 @@ class Engine:
                     self.res.requests += 1
                 data = call_api(self.model, key, body)
                 self.keys.used[i] += 1
-                return parse_records(data)
+                return parse_response(data)
             except ApiError as e:
                 if e.status == 429:
                     kind = classify_429(e)
@@ -1068,7 +1104,7 @@ class Engine:
         def one(item):
             no, p, h = item
             try:
-                recs = self.recognize(p)
+                recs, side = self.recognize(p)
             except (Stopped, Fatal):
                 raise
             except ApiError as e:
@@ -1077,7 +1113,7 @@ class Engine:
                 return no, p, h, None, f'{type(e).__name__}：{e}'
             try:                                    # 认完了才印编号：送去识别的永远是原图
                 os.makedirs(done_dir, exist_ok=True)
-                stamp_number(p, no, os.path.join(done_dir, f'{no:0{width}d}.jpg'))
+                stamp_number(p, no, os.path.join(done_dir, f'{no:0{width}d}.jpg'), side)
             except Exception as e:
                 self.log(f'{no:0{width}d} 编号照片没印成：{type(e).__name__}：{e}')
             return no, p, h, recs, ''

@@ -180,3 +180,42 @@ def test_stray_exes_and_lock(tmp_path):
 def test_retry_delay_from_google():
     d = '[{"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "37s"}]'
     assert engine.retry_delay(d) == 37.0 and engine.retry_delay('[]') is None and engine.retry_delay('') is None
+
+
+# ---------------------------------------------------------------- 照片转正
+def test_side_parsing():
+    wrap = lambda t: {'candidates': [{'content': {'parts': [{'text': t}]}, 'finishReason': 'STOP'}]}
+    recs, side = engine.parse_response(wrap('{"title_side": "Right", "records": [{"date": "1/10"}]}'))
+    assert side == 'right' and recs[0]['date'] == '1/10'
+    assert engine.parse_response(wrap('{"title_side": "左边", "records": []}'))[1] == 'left'
+    assert engine.parse_response(wrap('[{"date": "1/10"}]'))[1] == ''
+    assert engine.SCHEMA['required'] == ['records', 'title_side']
+
+
+def test_stamped_photo_is_turned_upright(tmp_path):
+    from PIL import Image
+    res, _ = run2(tmp_path, 'side_right', 2)
+    for name in ('01.jpg', '02.jpg'):
+        w, h = Image.open(os.path.join(res.photos_dir, name)).size
+        assert h > w                                     # 横着拍的 800×600，标题在右：逆时针转 90° 变竖的
+    orig = os.path.join(res.photos_dir, '原图')
+    assert all(Image.open(os.path.join(orig, f)).size[0] > Image.open(os.path.join(orig, f)).size[1] for f in os.listdir(orig))
+
+
+def test_side_vote_and_upright_helper(tmp_path):
+    from PIL import Image
+    res, _ = run2(tmp_path, 'side_flip')                  # 第 1、3 遍说右边，第 2 遍说上边……但两遍记录一样不会有第 3 遍
+    w, h = Image.open(os.path.join(res.photos_dir, '01.jpg')).size
+    assert h > w                                          # 平票用第一遍的
+    im = Image.new('RGB', (40, 20))
+    assert engine.upright(im, 'left').size == (20, 40) and engine.upright(im, 'bottom').size == (40, 20)
+    assert engine.upright(im, '').size == (40, 20)
+
+
+def test_viewer_rotate_button_helper(tmp_path):
+    from PIL import Image
+    from bangong import viewer
+    p = tmp_path / '01.jpg'
+    Image.new('RGB', (40, 20), 'white').save(p)
+    viewer.rotate_photo(str(p), clockwise=True)
+    assert Image.open(p).size == (20, 40)

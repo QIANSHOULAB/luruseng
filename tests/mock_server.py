@@ -75,7 +75,8 @@ def answer(mode, body):
             recs = [{'DATE': '28/10', 'M/C': 'VM-07', 'Part No.': 'TD-524613-5', 'MO': '82664580', 'OPR NO.': '150',
                      'T NO.': 'T4', 'Description': 'EM2.5', 'BTMP': '1', 'Total Screened': '1', 'Passed': '1',
                      'Failed': '0', 'Shift': 'Day', 'Setter': '639/Lee Ah Kow'}]
-        text = json.dumps({'records': recs}, ensure_ascii=False)
+        side = {'side_right': 'right', 'side_left': '左边', 'side_flip': 'right' if nth != 2 else 'top'}.get(mode, 'top')
+        text = json.dumps({'title_side': side, 'records': recs}, ensure_ascii=False)
     return 200, {'candidates': [{'content': {'parts': [{'text': text}]}, 'finishReason': 'STOP'}]}
 
 

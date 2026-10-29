@@ -84,6 +84,13 @@ def load_rows(xlsx: str) -> dict[int, list[dict]]:
     return rows
 
 
+def rotate_photo(path: str, clockwise: bool) -> None:
+    """自动转正万一转错了：把这张编号照片在硬盘上转 90°（原图不动）。"""
+    with Image.open(path) as im:
+        im = im.convert('RGB').transpose(Image.Transpose.ROTATE_270 if clockwise else Image.Transpose.ROTATE_90)
+    im.save(path, 'JPEG', quality=90)
+
+
 def run_label(run_id: str, n: int) -> str:
     d = datetime.strptime(run_id, '%Y%m%d_%H%M%S')
     return f'{d:%Y-%m-%d %H:%M} 这批（{n} 张）'
@@ -133,6 +140,8 @@ class Viewer(tk.Toplevel):
         self.entry.bind('<Return>', lambda e: self.jump())
         ttk.Button(top, text='看', width=4, command=self.jump).pack(side='left', padx=4)
         ttk.Button(top, text='下一张 ▶', command=lambda: self.step(1)).pack(side='left')
+        ttk.Button(top, text='↺', width=3, command=lambda: self.turn(False)).pack(side='left', padx=(12, 2))
+        ttk.Button(top, text='↻', width=3, command=lambda: self.turn(True)).pack(side='left')
         self.info = tk.StringVar()
         ttk.Label(top, textvariable=self.info).pack(side='left', padx=12)
 
@@ -207,6 +216,16 @@ class Viewer(tk.Toplevel):
             self.info.set(f'第 {no} 张打不开：{e}')
         self.render()
         self.fill_panel(no)
+
+    def turn(self, clockwise: bool):
+        """这张转得不对：转 90° 存回去，下次打开也是转好的。"""
+        if self.cur in self.photos:
+            try:
+                rotate_photo(self.photos[self.cur], clockwise)
+            except Exception as e:
+                self.info.set(f'转不了：{e}')
+                return
+            self.show(self.cur)
 
     def _later_render(self):
         if self._after:
