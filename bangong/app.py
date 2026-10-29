@@ -55,47 +55,40 @@ def open_path(p: str):
 
 
 def ensure_shortcuts(cfg: dict):
-    """打包版第一次打开时，自己在桌面和开始菜单放「搬工」快捷方式（以后不用再找 exe）。"""
+    """打包版第一次打开时，自己在桌面和开始菜单放「搬工」快捷方式（以后不用再找 exe）。
+    用 Windows 自带的 Unicode 版 IShellLink，中文文件名、中文路径都不会变问号。"""
     if os.name != 'nt' or not getattr(sys, 'frozen', False) or cfg.get('shortcut_for') == sys.executable:
         return
-    exe = sys.executable.replace("'", "''")
-    work = os.path.dirname(sys.executable).replace("'", "''")
-    script = os.path.join(config_dir(), 'make_shortcut.ps1')
     log = os.path.join(config_dir(), 'shortcut.log')
-    ps = f"""$ErrorActionPreference = 'Stop'
-$ws = New-Object -ComObject WScript.Shell
-$made = 0
-foreach ($name in @('Desktop', 'Programs')) {{
-  $d = [Environment]::GetFolderPath($name)
-  if (-not $d) {{ Write-Output "$name 没有路径"; continue }}
-  if (-not (Test-Path -LiteralPath $d)) {{ New-Item -ItemType Directory -Force -Path $d | Out-Null }}
-  $l = $ws.CreateShortcut((Join-Path $d '搬工.lnk'))
-  $l.TargetPath = '{exe}'
-  $l.WorkingDirectory = '{work}'
-  $l.IconLocation = '{exe},0'
-  $l.Description = '图片识别成 Excel'
-  $l.Save()
-  Write-Output "已放：$d\\搬工.lnk"
-  $made++
-}}
-if ($made -eq 0) {{ exit 3 }}
-"""
+    lines = []
     try:
-        with open(script, 'w', encoding='utf-8-sig') as f:      # PowerShell 5.1 认中文要带 BOM
-            f.write(ps)
-        r = subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script],
-                           creationflags=0x08000000, timeout=60, capture_output=True, stdin=subprocess.DEVNULL)
-        with open(log, 'wb') as f:
-            f.write(r.stdout + b'\r\n' + r.stderr + f'\r\nexit {r.returncode}'.encode())
-        if r.returncode == 0:
-            cfg['shortcut_for'] = sys.executable
-            save_config(cfg)
-    except Exception as e:
+        import pythoncom
+        from win32com.shell import shell, shellcon
+        pythoncom.CoInitialize()
         try:
-            with open(log, 'a', encoding='utf-8') as f:
-                f.write(f'{type(e).__name__}: {e}\n')
-        except OSError:
-            pass
+            for csidl in (shellcon.CSIDL_DESKTOPDIRECTORY, shellcon.CSIDL_PROGRAMS):
+                d = shell.SHGetFolderPath(0, csidl, None, 0)
+                os.makedirs(d, exist_ok=True)
+                link = pythoncom.CoCreateInstance(shell.CLSID_ShellLink, None,
+                                                  pythoncom.CLSCTX_INPROC_SERVER, shell.IID_IShellLink)
+                link.SetPath(sys.executable)
+                link.SetWorkingDirectory(os.path.dirname(sys.executable))
+                link.SetIconLocation(sys.executable, 0)
+                link.SetDescription('图片识别成 Excel')
+                target = os.path.join(d, '搬工.lnk')
+                link.QueryInterface(pythoncom.IID_IPersistFile).Save(target, 0)
+                lines.append('已放：' + target)
+        finally:
+            pythoncom.CoUninitialize()
+        cfg['shortcut_for'] = sys.executable
+        save_config(cfg)
+    except Exception as e:
+        lines.append(f'{type(e).__name__}: {e}')
+    try:
+        with open(log, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines) + '\n')
+    except OSError:
+        pass
 
 
 class App:
