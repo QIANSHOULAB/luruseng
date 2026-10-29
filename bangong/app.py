@@ -74,7 +74,7 @@ def ensure_shortcuts(cfg: dict):
                 link.SetPath(sys.executable)
                 link.SetWorkingDirectory(os.path.dirname(sys.executable))
                 link.SetIconLocation(sys.executable, 0)
-                link.SetDescription('图片识别成 Excel')
+                link.SetDescription('刀具破损记录照片识别成 Excel')
                 target = os.path.join(d, '搬工.lnk')
                 link.QueryInterface(pythoncom.IID_IPersistFile).Save(target, 0)
                 lines.append('已放：' + target)
@@ -100,7 +100,7 @@ class App:
         self.last_xlsx = ''
         cfg = load_config()
 
-        root.title(f'搬工 · 图片转 Excel  v{engine.VERSION}')
+        root.title(f'搬工 · 刀具破损记录 → Excel  v{engine.VERSION}')
         try:
             base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             root.iconbitmap(os.path.join(base, 'assets', 'bangong.ico'))

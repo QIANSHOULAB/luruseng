@@ -1,4 +1,4 @@
-"""搬工 — 文件夹里的图片 5 张一批送 Gemini，全部内容转成表格，边干边写 Excel。"""
+"""搬工 — 文件夹里的照片按拍摄顺序编号，5 张一批送 Gemini，认出刀具破损记录（TOOL BROKEN RECORD），边干边写 Excel。"""
 from __future__ import annotations
 
 import base64
@@ -7,7 +7,6 @@ import io
 import json
 import os
 import re
-import shutil
 import threading
 import time
 import urllib.error
@@ -15,7 +14,7 @@ import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from PIL import Image, ImageOps
 
@@ -28,8 +27,9 @@ except Exception:  # pragma: no cover
 from openpyxl import Workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 
-VERSION = '1.0.2'
+VERSION = '1.1.0'
 API_BASE = os.environ.get('BANGONG_API', 'https://generativelanguage.googleapis.com/v1beta').rstrip('/')
 DEFAULT_MODEL = 'gemini-3.5-flash-lite'
 MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro']
@@ -38,6 +38,7 @@ BATCH = 5
 MAX_SIDE = 2048
 JPEG_Q = 92
 DONE_DIR = '已识别'
+DUP_DIR = '重复'
 OUT_DIR = '识别结果'
 LEDGER = '.搬工账本.json'
 MINUTE_WAIT = 60
@@ -45,23 +46,48 @@ TIMEOUT = 180
 RETRY_WAITS = [10, 30, 60]          # 5xx / 断网重试间隔
 MAX_MINUTE_WAITS = 30               # 同一张连续撞每分钟上限的次数上限
 
-PROMPT = """你是表格转写引擎。把图片里的全部文字（印刷体和手写都要）按原件版面转写成表格行。
+# 公司那本 TOOL BROKEN RECORD 的 13 列（顺序一格不差）
+FIELDS = ['date', 'machine', 'part_number', 'mo', 'opr_no', 't_no', 'description',
+          'btmp', 'total_screened', 'passed', 'failed', 'shift', 'setter']
+NUM_FIELDS = {'btmp', 'total_screened', 'passed', 'failed'}
+
+PROMPT = """你是工厂的刀具破损记录（TOOL BROKEN RECORD）录入员。从图片里找出每一条刀具破损记录，每条记录填下面 13 个字段。
+图片可能是一张单子（一条记录），也可能是一页登记表（好几行，每行一条记录）。
+
+字段（括号里是单子上可能出现的写法和真实例子）：
+- date：日期（DATE）。照单子上写的抄，例如 28/10、28-10-26、1-Oct。新加坡写法，日在前、月在后。
+- machine：机台（MACHINE、M/C）。例如 VM-07、VM-14、4X-9、4X-16、5X-3、HM-3。
+- part_number：零件号（PART NUMBER、PART NO.）。例如 TD-524613-5、AB-5313706C、TD-HAR8308G-05、TD-722-771-00-C。
+- mo：工单号（MO、W/O）。通常是 8 位数字，例如 82664580、82665285。
+- opr_no：工序号（OPR NO.、OP）。例如 110、130、150、170。
+- t_no：刀号（T NO.、TOOL NO.）。例如 T4、T9、T58、T343。
+- description：刀具描述（DESCRIPTION）。例如 EM2.5、EM6、EM1.5、BU10、SD3、DR09、FC6.4、M3、BM1。
+- btmp：BTMP，数字。
+- total_screened：检查总数（TOTAL SCREENED），数字。
+- passed：合格数（PASSED），数字。
+- failed：不合格数（FAILED），数字。
+- shift：班次（SHIFT），只有 D（白班）或 N（夜班）。
+- setter：设定员（SETTER），写法是「工号/名字」，例如 639/Tan Bao Hong、535/GANESAN RANJITH。
+
 规则：
-- 原件里有表格：表格的每一行输出为一行，每个格子是一个单元格，从左到右；合并格只写一次，被合并掉的位置填空字符串，保证列对齐。
-- 表格以外的文字（标题、说明、页眉页脚、备注）：每一行文字单独输出为一行，只占一个单元格。
-- 从上到下、从左到右按阅读顺序输出。
-- 原样照抄，不翻译、不纠错、不补全、不总结；中英双语都保留。
-- 手写内容照抄；实在看不清的字用 □ 代替；打勾写 √，打叉写 ×；空格子写空字符串。
-- 被划掉（删除线、涂黑、圈掉作废）的内容不要。
-- 图片歪斜或横着拍的，按正确方向阅读。
-- 只输出 JSON：{"rows": [["格1", "格2"], ["下一行"]]}，不要任何解释。"""
+- 照单子上写的抄，不猜、不补、不纠错；某个字实在看不清就用 □ 代替那个字。
+- 单子上没写的字段填空字符串。
+- 印刷的栏目名（DATE、MACHINE 之类）不是内容，不要抄进值里。
+- 分清 0 和 O、1 和 I、5 和 S、8 和 B：数字字段只会是数字；机台和零件号照上面例子的样子判断。
+- 被划掉、涂掉作废的内容不要。
+- 图片歪斜或横着拍的，按正确方向读。
+- 一条记录都没有就输出空数组。
+- 只输出 JSON：{"records": [{"date": "", "machine": "", ...}]}，不要任何解释。"""
 
 SCHEMA = {
     'type': 'OBJECT',
-    'properties': {'rows': {'type': 'ARRAY', 'items': {'type': 'ARRAY', 'items': {'type': 'STRING'}}}},
-    'required': ['rows'],
+    'properties': {'records': {'type': 'ARRAY', 'items': {
+        'type': 'OBJECT',
+        'properties': {f: {'type': 'STRING'} for f in FIELDS},
+        'required': FIELDS,
+    }}},
+    'required': ['records'],
 }
-
 
 # ---------------------------------------------------------------- 错误
 class ApiError(Exception):
@@ -175,7 +201,7 @@ def build_body(jpeg: bytes, model: str, schema: bool = True) -> dict:
     return {
         'systemInstruction': {'parts': [{'text': PROMPT}]},
         'contents': [{'role': 'user', 'parts': [
-            {'text': '把这张图片的全部内容转写成表格行。'},
+            {'text': '把这张图片里的刀具破损记录逐条填好。'},
             {'inline_data': {'mime_type': 'image/jpeg', 'data': base64.b64encode(jpeg).decode()}},
         ]}],
         'generationConfig': gen,
@@ -207,7 +233,27 @@ def call_api(model: str, key: str, body: dict) -> dict:
         raise ApiError(0, '返回的不是 JSON：' + raw[:300]) from None
 
 
-def parse_rows(data: dict) -> list[list[str]]:
+ALIASES = {
+    'date': 'date', '日期': 'date',
+    'machine': 'machine', 'm_c': 'machine', 'mc': 'machine', 'machine_no': 'machine',
+    'part_number': 'part_number', 'part_no': 'part_number', 'partno': 'part_number', 'part': 'part_number',
+    'mo': 'mo', 'mo_no': 'mo', 'w_o': 'mo', 'wo': 'mo',
+    'opr_no': 'opr_no', 'opr': 'opr_no', 'op': 'opr_no', 'opr_number': 'opr_no',
+    't_no': 't_no', 'tno': 't_no', 'tool_no': 't_no',
+    'description': 'description', 'tool_description': 'description', 'desc': 'description',
+    'btmp': 'btmp',
+    'total_screened': 'total_screened', 'total': 'total_screened', 'screened': 'total_screened',
+    'passed': 'passed', 'pass': 'passed', 'failed': 'failed', 'fail': 'failed',
+    'shift': 'shift', 'setter': 'setter',
+}
+
+
+def norm_key(k) -> str:
+    k = re.sub(r'[\s./\-]+', '_', str(k).strip().lower()).strip('_')
+    return ALIASES.get(k, k)
+
+
+def response_json(data: dict):
     cands = data.get('candidates') or []
     if not cands:
         br = (data.get('promptFeedback') or {}).get('blockReason')
@@ -215,26 +261,92 @@ def parse_rows(data: dict) -> list[list[str]]:
     c = cands[0]
     text = ''.join(p.get('text', '') for p in (c.get('content') or {}).get('parts', []) if not p.get('thought'))
     finish = c.get('finishReason', '')
-    t = text.strip()
-    t = re.sub(r'^```(?:json)?\s*|\s*```$', '', t)
+    t = re.sub(r'^```(?:json)?\s*|\s*```$', '', text.strip())
     try:
-        obj = json.loads(t)
+        return json.loads(t)
     except Exception:
         raise ValueError(f'finishReason = {finish}，JSON 解析不了：{text[:200]}')
-    rows = obj.get('rows') if isinstance(obj, dict) else obj
-    if not isinstance(rows, list):
-        raise ValueError('JSON 里没有 rows：' + text[:200])
+
+
+def parse_records(data: dict) -> list[dict]:
+    obj = response_json(data)
+    recs = obj
+    if isinstance(obj, dict):
+        recs = obj.get('records', obj.get('rows', obj))
+    if isinstance(recs, dict):
+        recs = [recs]
+    if not isinstance(recs, list):
+        raise ValueError('JSON 里没有 records：' + json.dumps(obj, ensure_ascii=False)[:200])
     out = []
-    for r in rows:
-        if isinstance(r, list):
-            out.append(['' if v is None else str(v) for v in r])
-        elif isinstance(r, dict):
-            out.append([str(v) for v in r.values()])
-        else:
-            out.append([str(r)])
-    while out and not any(c.strip() for c in out[-1]):
-        out.pop()
+    for r in recs:
+        rec = {f: '' for f in FIELDS}
+        if isinstance(r, dict):
+            for k, v in r.items():
+                nk = norm_key(k)
+                if nk in rec and v is not None:
+                    rec[nk] = re.sub(r'\s+', ' ', str(v)).strip()
+        elif isinstance(r, list):
+            for f, v in zip(FIELDS, r):
+                rec[f] = '' if v is None else re.sub(r'\s+', ' ', str(v)).strip()
+        if any(rec.values()):
+            out.append(rec)
     return out
+
+
+MONTHS = {'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6, 'jul': 7, 'aug': 8,
+          'sep': 9, 'sept': 9, 'oct': 10, 'nov': 11, 'dec': 12}
+
+
+def _month(name: str):
+    name = name.lower().rstrip('.')
+    return MONTHS.get(name[:4]) or MONTHS.get(name[:3])
+
+
+def parse_date(s: str, today: date | None = None) -> date | None:
+    """新加坡写法：日在前。没写年份就补今年；补出来是将来的日子（破损记录不可能写将来），算去年的。"""
+    today = today or date.today()
+    t = (s or '').strip().lower()
+    if not t:
+        return None
+    y = m = d = None
+    if mm := re.fullmatch(r'(\d{4})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{1,2})', t):
+        y, m, d = map(int, mm.groups())
+    elif mm := re.fullmatch(r'(\d{1,2})\s*[-/. ]?\s*([a-z]{3,9})\.?(?:\s*[-/., ]\s*(\d{2,4}))?', t):
+        d, m = int(mm.group(1)), _month(mm.group(2))
+        y = int(mm.group(3)) if mm.group(3) else None
+    elif mm := re.fullmatch(r'([a-z]{3,9})\.?\s*(\d{1,2})(?:\s*,?\s*(\d{2,4}))?', t):
+        m, d = _month(mm.group(1)), int(mm.group(2))
+        y = int(mm.group(3)) if mm.group(3) else None
+    elif mm := re.fullmatch(r'(\d{1,2})\s*[-/.]\s*(\d{1,2})(?:\s*[-/.]\s*(\d{2,4}))?', t):
+        d, m = int(mm.group(1)), int(mm.group(2))
+        y = int(mm.group(3)) if mm.group(3) else None
+    if not m or not d:
+        return None
+    guessed = y is None
+    if y is None:
+        y = today.year
+    elif y < 100:
+        y += 2000
+    try:
+        out = date(y, m, d)
+    except ValueError:
+        return None
+    if guessed and out > today + timedelta(days=2):
+        try:
+            out = date(y - 1, m, d)
+        except ValueError:
+            return None
+    return out
+
+
+def to_int(s: str):
+    t = (s or '').strip().replace(',', '')
+    return int(t) if re.fullmatch(r'\d{1,12}', t) else None
+
+
+def norm_shift(s: str) -> str:
+    t = (s or '').strip().upper()
+    return {'DAY': 'D', 'NIGHT': 'N', 'D/S': 'D', 'N/S': 'N', 'DS': 'D', 'NS': 'N'}.get(t, t)
 
 
 def classify_429(e: ApiError) -> str:
@@ -247,10 +359,23 @@ def classify_429(e: ApiError) -> str:
 
 
 # ---------------------------------------------------------------- Excel
-THIN = Side(style='thin', color='BBBBBB')
-BOX = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
-TITLE_FILL = PatternFill('solid', fgColor='DDEBF7')
-WRAP = Alignment(wrap_text=True, vertical='top')
+BLACK = Side(style='thin', color='808080')
+BOX = Border(left=BLACK, right=BLACK, top=BLACK, bottom=BLACK)
+HEAD_FILL = PatternFill('solid', fgColor='DDEBF7')
+YELLOW = PatternFill('solid', fgColor='FFE699')
+RED_FILL = PatternFill('solid', fgColor='FFC7CE')
+RED_FONT = Font(name='Calibri', size=11, color='9C0006')
+GREY_FILL = PatternFill('solid', fgColor='EDEDED')
+BASE_FONT = Font(name='Calibri', size=11)
+BOLD = Font(name='Calibri', size=11, bold=True)
+CENTER = Alignment(horizontal='center', vertical='center', wrap_text=True)
+LEFT = Alignment(horizontal='left', vertical='center')
+
+# A = 照片编号；B..N = 公司那本的 13 列；O = 核对提示（复制 B..N 贴进公司表即可）
+COL_NO, COL_FIRST, COL_NOTE = 1, 2, 15
+WIDTHS = [6, 9, 10, 22, 11, 9, 7, 13, 7, 16, 9, 9, 7, 28, 40]
+LEFT_FIELDS = {'part_number', 'mo', 'opr_no', 'setter'}
+MONTH_TAB = ['', 'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
 
 
 def put(ws, row: int, col: int, value):
@@ -263,50 +388,148 @@ def put(ws, row: int, col: int, value):
     return cell
 
 
-class Book:
-    """边干边写：每批干完就存一次盘。"""
+class RecordBook:
+    """长得跟公司那本 TOOL BROKEN RECORD 一样。边干边写：每批干完就存一次盘。"""
 
-    def __init__(self, path: str):
+    def __init__(self, path: str, today: date | None = None):
         self.path = path
+        self.today = today
         self.wb = Workbook()
-        self.main = self.wb.active
-        self.main.title = '识别结果'
-        self.listing = self.wb.create_sheet('清单')
-        self.listing.append(['序号', '文件名', '状态', '行数', '说明', '时间'])
-        for c in self.listing[1]:
-            c.font = Font(bold=True)
-        for col, w in zip('ABCDEF', [6, 34, 8, 6, 60, 20]):
-            self.listing.column_dimensions[col].width = w
-        self.maxcols = 1
-        self.n = 0
-
-    def add(self, name: str, rows: list[list[str]] | None, error: str = ''):
-        self.n += 1
-        ws = self.main
-        r0 = ws.max_row + (2 if ws.max_row > 1 else 0)
-        title = put(ws, r0, 1, f'第 {self.n} 张　{name}' + ('　✗ 识别失败' if rows is None else ''))
-        title.font = Font(bold=True, size=12, color='9C0006' if rows is None else '1F3864')
-        width = max([len(r) for r in rows] + [1]) if rows else 1
-        for c in range(1, width + 1):
-            ws.cell(row=r0, column=c).fill = TITLE_FILL
-        if rows is None:
-            put(ws, r0 + 1, 1, error).alignment = WRAP
-        else:
-            for i, row in enumerate(rows, start=1):
-                for j, v in enumerate(row, start=1):
-                    cell = put(ws, r0 + i, j, v)
-                    cell.alignment = WRAP
+        ws = self.ws = self.wb.active
+        ws.title = 'RECORD'
+        self.named = False
+        self.n_rows = 0
+        self.photos = 0
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=14)
+        t = put(ws, 1, 1, 'TOOL BROKEN RECORD')
+        t.font = Font(name='Calibri', size=26)
+        t.alignment = CENTER
+        ws.row_dimensions[1].height = 40
+        single = [(1, 'No.'), (2, 'DATE'), (3, 'MACHINE'), (4, 'PART NUMBER'), (5, 'MO'), (6, 'OPR NO.'),
+                  (9, 'BTMP'), (13, 'SHIFT'), (14, 'SETTER'), (15, '核对提示（不用贴进公司表）')]
+        for col, name in single:
+            ws.merge_cells(start_row=2, start_column=col, end_row=3, end_column=col)
+            put(ws, 2, col, name)
+        ws.merge_cells(start_row=2, start_column=7, end_row=2, end_column=8)
+        put(ws, 2, 7, 'TOOL')
+        put(ws, 3, 7, 'T NO.')
+        put(ws, 3, 8, 'DESCRIPTION')
+        ws.merge_cells(start_row=2, start_column=10, end_row=2, end_column=12)
+        put(ws, 2, 10, 'CONTAINMENT/SCREENING DETAIL')
+        put(ws, 3, 10, 'TOTAL SCREENED')
+        put(ws, 3, 11, 'PASSED')
+        put(ws, 3, 12, 'FAILED')
+        for r in (1, 2, 3):
+            for c in range(1, 15):
+                cell = ws.cell(row=r, column=c)
+                cell.fill = HEAD_FILL
+                if r > 1:
+                    cell.font = BOLD
+                    cell.alignment = CENTER
                     cell.border = BOX
-        self.maxcols = max(self.maxcols, width)
-        for j in range(1, self.maxcols + 1):
-            letter = ws.cell(row=1, column=j).column_letter
-            ws.column_dimensions[letter].width = 34 if j == 1 else 18
-        r = self.listing.max_row + 1
-        for j, v in enumerate([self.n, name, '成功' if rows is not None else '失败',
-                               len(rows) if rows is not None else 0, error, datetime.now().strftime('%Y-%m-%d %H:%M:%S')], start=1):
-            put(self.listing, r, j, v).alignment = WRAP
+        for r in (2, 3):
+            ws.cell(row=r, column=COL_NOTE).font = Font(name='Calibri', size=10, color='808080')
+            ws.cell(row=r, column=COL_NOTE).alignment = CENTER
+        for i, w in enumerate(WIDTHS, start=1):
+            ws.column_dimensions[get_column_letter(i)].width = w
+        ws.freeze_panes = 'B4'
+        ws.page_setup.orientation = 'landscape'        # 打印：横向、一页宽
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 0
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
+        ws.print_title_rows = '1:3'
+
+    def _next(self) -> int:
+        self.n_rows += 1
+        return 3 + self.n_rows
+
+    def _name_sheet(self, d: date):
+        if not self.named:
+            self.ws.title = MONTH_TAB[d.month]
+            self.named = True
+
+    def _blank_row(self, no: int, note: str, fill):
+        r = self._next()
+        c = put(self.ws, r, COL_NO, no)
+        c.alignment, c.border, c.font = CENTER, BOX, BOLD
+        for col in range(COL_FIRST, COL_FIRST + len(FIELDS)):
+            cell = self.ws.cell(row=r, column=col)
+            cell.fill, cell.border = fill, BOX
+        n = put(self.ws, r, COL_NOTE, note)
+        n.font, n.alignment = RED_FONT if fill is RED_FILL else BASE_FONT, LEFT
+
+    def add(self, no: int, records: list[dict] | None, error: str = ''):
+        self.photos += 1
+        if records is None:
+            self._blank_row(no, f'✗ 识别失败：{error}（照片还在待识别里，下次点开始会重干）', RED_FILL)
+            return
+        if not records:
+            self._blank_row(no, '这张照片里没认出刀具破损记录', RED_FILL)
+            return
+        for rec in records:
+            self._record_row(no, rec)
+
+    def unfinished(self, no: int, why: str):
+        self._blank_row(no, f'未完成：{why}（照片还在待识别里，下次点开始会重干）', GREY_FILL)
+
+    def _record_row(self, no: int, rec: dict):
+        ws, r = self.ws, self._next()
+        c = put(ws, r, COL_NO, no)
+        c.alignment, c.border, c.font = CENTER, BOX, BOLD
+        notes, red = [], set()
+        values = {}
+        for f in FIELDS:
+            raw = rec.get(f, '')
+            v: object = raw
+            if f == 'date' and raw:
+                d = parse_date(raw, self.today)
+                if d:
+                    v = datetime(d.year, d.month, d.day)
+                    self._name_sheet(d)
+                else:
+                    red.add(f)
+                    notes.append(f'日期认不出：{raw}')
+            elif f in NUM_FIELDS and raw:
+                n = to_int(raw)
+                if n is None:
+                    red.add(f)
+                    notes.append(f'{f.upper()} 不是数字：{raw}')
+                else:
+                    v = n
+            elif f in ('mo', 'opr_no') and raw:
+                n = to_int(raw)
+                v = n if n is not None else raw
+            elif f == 'shift' and raw:
+                v = norm_shift(raw)
+                if v not in ('D', 'N'):
+                    red.add(f)
+                    notes.append(f'SHIFT 不是 D/N：{raw}')
+            if isinstance(v, str) and '□' in v:
+                red.add(f)
+                notes.append(f'{f.upper()} 有看不清的字')
+            values[f] = v
+        t, p, fl = (values.get(k) for k in ('total_screened', 'passed', 'failed'))
+        if all(isinstance(x, int) for x in (t, p, fl)) and p + fl != t:
+            red |= {'total_screened', 'passed', 'failed'}
+            notes.append(f'PASSED {p} + FAILED {fl} ≠ TOTAL {t}')
+        for i, f in enumerate(FIELDS):
+            cell = put(ws, r, COL_FIRST + i, values[f] if values[f] != '' else None)
+            cell.border, cell.font = BOX, BASE_FONT
+            cell.alignment = LEFT if f in LEFT_FIELDS else CENTER
+            if f == 'date' and isinstance(values[f], datetime):
+                cell.number_format = 'd-mmm'
+            if f == 'btmp':
+                cell.fill = YELLOW
+            if f in red:
+                cell.fill, cell.font = RED_FILL, RED_FONT
+        if notes:
+            n = put(ws, r, COL_NOTE, '；'.join(notes))
+            n.font, n.alignment = RED_FONT, LEFT
 
     def save(self):
+        last = max(3 + self.n_rows, 4)
+        self.ws.auto_filter.ref = f'A3:N{last}'
+        self.ws.print_area = f'A1:N{last}'
         tmp = self.path + '.tmp'
         self.wb.save(tmp)
         for _ in range(5):
@@ -324,6 +547,7 @@ class Book:
 @dataclass
 class Result:
     ok: int = 0
+    records: int = 0
     failed: int = 0
     skipped: int = 0
     requests: int = 0
@@ -332,13 +556,26 @@ class Result:
     errors: list = field(default_factory=list)
 
 
+def shot_time(path: str) -> float:
+    """拍摄时间：先看照片里的 EXIF（拍照那一刻），没有就用文件修改时间。"""
+    try:
+        with Image.open(path) as im:
+            ex = im.getexif()
+            raw = ex.get_ifd(0x8769).get(36867) or ex.get(36867) or ex.get(306)
+        if raw:
+            return datetime.strptime(str(raw).strip()[:19], '%Y:%m:%d %H:%M:%S').timestamp()
+    except Exception:
+        pass
+    return os.path.getmtime(path)
+
+
 def scan(folder: str) -> list[str]:
     out = []
     for name in os.listdir(folder):
         p = os.path.join(folder, name)
         if os.path.isfile(p) and os.path.splitext(name)[1].lower() in IMG_EXT and os.path.getsize(p) > 0:
             out.append(p)
-    out.sort(key=lambda p: (os.path.getmtime(p), os.path.basename(p).lower()))
+    out.sort(key=lambda p: (shot_time(p), os.path.basename(p).lower()))
     return out
 
 
@@ -389,7 +626,7 @@ class Engine:
             self.log(f'⏸ {why}，等 {int(secs)} 秒')
         self.wait(secs)
 
-    def recognize(self, path: str) -> list[list[str]]:
+    def recognize(self, path: str) -> list[dict]:
         try:
             return self._recognize(path)
         except Fatal as e:
@@ -398,7 +635,7 @@ class Engine:
             self.stop.set()          # 同批其他几张别再傻等
             raise
 
-    def _recognize(self, path: str) -> list[list[str]]:
+    def _recognize(self, path: str) -> list[dict]:
         jpeg = prepare_image(path)
         body = build_body(jpeg, self.model, self.use_schema)
         minute_hits = 0
@@ -417,7 +654,7 @@ class Engine:
                     self.res.requests += 1
                 data = call_api(self.model, key, body)
                 self.keys.used[i] += 1
-                return parse_rows(data)
+                return parse_records(data)
             except ApiError as e:
                 if e.status == 429:
                     kind = classify_429(e)
@@ -461,9 +698,9 @@ class Engine:
             return res
         os.makedirs(self.folder, exist_ok=True)
         out_dir = os.path.join(self.folder, OUT_DIR)
-        done_dir = os.path.join(self.folder, DONE_DIR)
+        done_root = os.path.join(self.folder, DONE_DIR)
         os.makedirs(out_dir, exist_ok=True)
-        os.makedirs(done_dir, exist_ok=True)
+        os.makedirs(done_root, exist_ok=True)
         logfile = os.path.join(out_dir, '搬工日志.txt')
         outer = self.log
 
@@ -477,64 +714,77 @@ class Engine:
         self.log = log
         ledger_path = os.path.join(out_dir, LEDGER)
         try:
-            ledger = json.load(open(ledger_path, encoding='utf-8'))
+            with open(ledger_path, encoding='utf-8') as fh:
+                ledger = json.load(fh)
         except Exception:
             ledger = {}
 
-        files = scan(self.folder)
         todo = []
-        for p in files:
+        for p in scan(self.folder):
             h = file_hash(p)
             if h in ledger:          # 干过的（改了名也认得出）
-                os.replace(p, unique_dest(done_dir, os.path.basename(p)))
+                dup = os.path.join(done_root, DUP_DIR)
+                os.makedirs(dup, exist_ok=True)
+                os.replace(p, unique_dest(dup, os.path.basename(p)))
                 res.skipped += 1
-                self.log(f'↷ {os.path.basename(p)} 以前干过，跳过')
+                self.log(f'↷ {os.path.basename(p)} 以前干过（{ledger[h].get("xlsx", "")} 第 {ledger[h].get("no", "?")} 张），挪进 已识别\\{DUP_DIR}')
             else:
                 todo.append((p, h))
         total = len(todo)
         if not total:
             self.log('文件夹里没有新图片，收工。')
             return res
-        self.log(f'▶ 开工：{total} 张，每批 {BATCH} 张，模型 {self.model}')
-        res.xlsx = os.path.join(out_dir, f'识别结果_{datetime.now():%Y%m%d_%H%M%S}.xlsx')
-        book = Book(res.xlsx)
+
+        run_id = datetime.now().strftime('%Y%m%d_%H%M%S')
+        width = max(2, len(str(total)))
+        done_dir = os.path.join(done_root, run_id)
+        res.xlsx = os.path.join(out_dir, f'识别结果_{run_id}.xlsx')
+        book = RecordBook(res.xlsx)
+        items = [(i + 1, p, h) for i, (p, h) in enumerate(todo)]      # 按拍摄顺序编号：第 1 张对应表里 No. 1
+        self.log(f'▶ 开工：{total} 张，按拍摄顺序编号 1–{total}，每批 {BATCH} 张，模型 {self.model}')
         done = 0
         self.progress(0, total)
 
         def one(item):
-            p, h = item
+            no, p, h = item
             try:
-                return p, h, self.recognize(p), ''
+                return no, p, h, self.recognize(p), ''
             except (Stopped, Fatal):
                 raise
             except ApiError as e:
-                return p, h, None, e.raw()
+                return no, p, h, None, e.raw()
             except Exception as e:
-                return p, h, None, f'{type(e).__name__}：{e}'
+                return no, p, h, None, f'{type(e).__name__}：{e}'
 
         try:
             with ThreadPoolExecutor(BATCH) as pool:
                 for b in range(0, total, BATCH):
-                    batch = todo[b:b + BATCH]
-                    futures = [pool.submit(one, it) for it in batch]
-                    outcomes, halt = [], None
-                    for f in futures:
+                    batch = items[b:b + BATCH]
+                    futures = [(it, pool.submit(one, it)) for it in batch]
+                    halt = None
+                    for (no, p, h), f in futures:          # 按编号顺序写进表
                         try:
-                            outcomes.append(f.result())
+                            _, _, _, recs, err = f.result()
                         except (Stopped, Fatal) as e:
                             halt = halt or e
-                    for p, h, rows, err in outcomes:     # 原顺序写入
+                            why = '已停止' if isinstance(e, Stopped) and not self.fatal else (self.fatal or str(e))
+                            book.unfinished(no, why)
+                            continue
                         name = os.path.basename(p)
-                        book.add(name, rows, err)
-                        if rows is not None:
+                        tag = f'{no:0{width}d}'
+                        book.add(no, recs, err)
+                        if recs is not None:
                             res.ok += 1
-                            ledger[h] = {'file': name, 'xlsx': os.path.basename(book.path), 'at': datetime.now().isoformat(timespec='seconds')}
-                            os.replace(p, unique_dest(done_dir, name))
-                            self.log(f'✓ {name} · {len(rows)} 行')
+                            res.records += len(recs)
+                            os.makedirs(done_dir, exist_ok=True)
+                            os.replace(p, unique_dest(done_dir, f'{tag}_{name}'))
+                            ledger[h] = {'file': name, 'no': no, 'xlsx': os.path.basename(book.path),
+                                         'at': datetime.now().isoformat(timespec='seconds')}
+                            self.log(f'✓ {tag} {name} · {len(recs)} 条')
                         else:
                             res.failed += 1
                             res.errors.append((name, err))
-                            self.log(f'✗ {name} · {err}')
+                            self.log(f'✗ {tag} {name} · {err}')
                         done += 1
                     book.save()
                     with open(ledger_path, 'w', encoding='utf-8') as fh:
@@ -552,13 +802,13 @@ class Engine:
             else:
                 res.stopped_reason = '手动停止'
                 self.log('■ 已停止，没干完的下次接着干')
-        if book.n == 0:
+        if res.ok == 0 and res.failed == 0:
             try:
                 os.remove(res.xlsx)
             except OSError:
                 pass
             res.xlsx = ''
         used = ' · '.join(f'钥匙{i + 1}×{n}' for i, n in enumerate(self.keys.used) if n)
-        self.log(f'{"✓" if not res.failed and not res.stopped_reason else "⚠"} 成功 {res.ok} 张 · 失败 {res.failed} 张 · '
+        self.log(f'{"✓" if not res.failed and not res.stopped_reason else "⚠"} 成功 {res.ok} 张（{res.records} 条记录）· 失败 {res.failed} 张 · '
                  f'{res.requests} 次请求{" · " + used if used else ""}' + (f'\n结果：{res.xlsx}' if res.xlsx else ''))
         return res

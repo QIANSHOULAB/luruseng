@@ -43,7 +43,10 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "exe exit $($p.ExitCode)" }
           $x = Get-ChildItem (Join-Path $dir '识别结果') -Filter *.xlsx
           if ($x.Count -ne 1) { throw 'no xlsx' }
-          if ((Get-ChildItem (Join-Path $dir '已识别')).Count -ne 7) { throw 'not all moved' }
+          $moved = Get-ChildItem (Join-Path $dir '已识别') -Recurse -File
+          $moved | ForEach-Object { $_.Name }
+          if ($moved.Count -ne 7) { throw 'not all moved' }
+          if (-not ($moved | Where-Object { $_.Name -like '01_*' })) { throw 'not numbered' }
       - name: Shortcut test
         shell: pwsh
         run: |
