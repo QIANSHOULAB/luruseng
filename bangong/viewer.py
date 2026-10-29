@@ -1,0 +1,243 @@
+"""核对窗口：一张一张看编号照片（第一张就是 1），右边列出表里同一号的记录，红的就是要看的。"""
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+import sys
+import tkinter as tk
+from datetime import datetime
+from tkinter import ttk
+
+from openpyxl import load_workbook
+from PIL import Image, ImageTk
+
+from . import engine
+
+LABELS = ['DATE', 'MACHINE', 'PART NUMBER', 'MO', 'OPR NO.', 'T NO.', 'DESCRIPTION', 'BTMP',
+          'TOTAL SCREENED', 'PASSED', 'FAILED', 'SHIFT', 'SETTER']
+RUN_RE = re.compile(r'\d{8}_\d{6}')
+
+
+# ---------------------------------------------------------------- 数据（不碰 Tk，方便测试）
+def load_photos(run_dir: str) -> dict[int, str]:
+    out = {}
+    if os.path.isdir(run_dir):
+        for f in os.listdir(run_dir):
+            m = re.fullmatch(r'(\d+)\.jpg', f, re.I)
+            if m:
+                out[int(m.group(1))] = os.path.join(run_dir, f)
+    return out
+
+
+def find_xlsx(folder: str, run_id: str) -> str:
+    od = os.path.join(folder, engine.OUT_DIR)
+    if not os.path.isdir(od):
+        return ''
+    c = sorted(f for f in os.listdir(od) if f.startswith(f'识别结果_{run_id}') and f.endswith('.xlsx'))
+    return os.path.join(od, c[0]) if c else ''
+
+
+def list_runs(folder: str) -> list[tuple[str, str, str]]:
+    """[(批次号, 编号照片文件夹, 那一批的 Excel)]，新的在前。"""
+    done = os.path.join(folder, engine.DONE_DIR)
+    out = []
+    if os.path.isdir(done):
+        for name in sorted(os.listdir(done), reverse=True):
+            d = os.path.join(done, name)
+            if os.path.isdir(d) and RUN_RE.fullmatch(name) and load_photos(d):
+                out.append((name, d, find_xlsx(folder, name)))
+    return out
+
+
+def fmt(v) -> str:
+    if isinstance(v, datetime):
+        return f'{v.day}-{v.strftime("%b")}'
+    return '' if v is None else str(v)
+
+
+def load_rows(xlsx: str) -> dict[int, list[dict]]:
+    """{编号: [{'values': 13 个字段, 'red': 标红的字段下标, 'note': 核对提示}]}"""
+    rows: dict[int, list[dict]] = {}
+    if not xlsx or not os.path.isfile(xlsx):
+        return rows
+    try:
+        ws = load_workbook(xlsx).worksheets[0]
+    except Exception:
+        return rows
+    for r in range(4, ws.max_row + 1):
+        no = ws.cell(row=r, column=1).value
+        if not isinstance(no, int):
+            continue
+        vals, red = [], set()
+        for i in range(len(LABELS)):
+            c = ws.cell(row=r, column=2 + i)
+            vals.append(fmt(c.value))
+            rgb = c.fill.fgColor.rgb if c.fill is not None and c.fill.fill_type == 'solid' else ''
+            if isinstance(rgb, str) and rgb.upper().endswith('FFC7CE'):
+                red.add(i)
+        note = ws.cell(row=r, column=15).value
+        rows.setdefault(no, []).append({'values': vals, 'red': red, 'note': '' if note is None else str(note)})
+    return rows
+
+
+def run_label(run_id: str, n: int) -> str:
+    d = datetime.strptime(run_id, '%Y%m%d_%H%M%S')
+    return f'{d:%Y-%m-%d %H:%M} 这批（{n} 张）'
+
+
+def _open(p: str):
+    try:
+        if os.name == 'nt':
+            os.startfile(p)  # type: ignore[attr-defined]
+        else:
+            subprocess.Popen(['xdg-open' if sys.platform != 'darwin' else 'open', p])
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------- 窗口
+class Viewer(tk.Toplevel):
+    def __init__(self, master, folder: str, run_dir: str | None = None, start: int | None = None):
+        super().__init__(master)
+        self.folder = folder
+        self.geometry('1100x720')
+        self.minsize(640, 420)
+        self.runs = list_runs(folder)
+        self.photos: dict[int, str] = {}
+        self.nos: list[int] = []
+        self.rows: dict[int, list[dict]] = {}
+        self.cur = 0
+        self._pil = None
+        self._tk = None
+        self._after = None
+        if not self.runs:
+            self.title('核对')
+            ttk.Label(self, text='还没有编号照片：先点「开始工作」干一批。', padding=30).pack()
+            return
+
+        top = ttk.Frame(self, padding=(10, 8))
+        top.pack(fill='x')
+        self.run_var = tk.StringVar()
+        self.run_box = ttk.Combobox(top, textvariable=self.run_var, state='readonly', width=26,
+                                    values=[run_label(r, len(load_photos(d))) for r, d, _ in self.runs])
+        self.run_box.pack(side='left')
+        self.run_box.bind('<<ComboboxSelected>>', lambda e: self.load_run(self.run_box.current()))
+        ttk.Button(top, text='◀ 上一张', command=lambda: self.step(-1)).pack(side='left', padx=(12, 4))
+        self.num = tk.StringVar()
+        self.entry = ttk.Entry(top, textvariable=self.num, width=6, justify='center')
+        self.entry.pack(side='left')
+        self.entry.bind('<Return>', lambda e: self.jump())
+        ttk.Button(top, text='看', width=4, command=self.jump).pack(side='left', padx=4)
+        ttk.Button(top, text='下一张 ▶', command=lambda: self.step(1)).pack(side='left')
+        self.info = tk.StringVar()
+        ttk.Label(top, textvariable=self.info).pack(side='left', padx=12)
+
+        body = ttk.Frame(self, padding=(10, 0, 10, 10))
+        body.pack(fill='both', expand=True)
+        body.columnconfigure(0, weight=1)
+        body.rowconfigure(0, weight=1)
+        self.img = tk.Label(body, background='#2b2b2b', cursor='hand2')
+        self.img.grid(row=0, column=0, sticky='nsew')
+        self.img.bind('<Configure>', lambda e: self._later_render())
+        self.img.bind('<Double-Button-1>', lambda e: self.cur in self.photos and _open(self.photos[self.cur]))
+        font = ('Microsoft YaHei UI', 10) if os.name == 'nt' else None
+        self.panel = tk.Text(body, width=40, wrap='word', relief='flat', background='#f7f7f7', padx=10, pady=8,
+                             font=font, tabs=(130,))
+        self.panel.grid(row=0, column=1, sticky='ns', padx=(10, 0))
+        self.panel.tag_configure('h', font=(font[0], 11, 'bold') if font else None)
+        self.panel.tag_configure('k', foreground='#666666')
+        self.panel.tag_configure('red', foreground='#9C0006', background='#FFC7CE')
+        self.panel.tag_configure('note', foreground='#9C0006')
+        self.panel.tag_configure('dim', foreground='#888888')
+        for key in ('<Left>', '<Prior>'):
+            self.bind(key, lambda e: self._key(-1))
+        for key in ('<Right>', '<Next>'):
+            self.bind(key, lambda e: self._key(1))
+
+        i = 0
+        if run_dir:
+            for k, (_, d, _) in enumerate(self.runs):
+                if os.path.normcase(os.path.abspath(d)) == os.path.normcase(os.path.abspath(run_dir)):
+                    i = k
+        self.load_run(i, start)
+        self.focus_set()
+
+    # ---------- 动作
+    def _key(self, d: int):
+        if self.focus_get() is not self.entry:
+            self.step(d)
+
+    def load_run(self, i: int, start: int | None = None):
+        run_id, d, xlsx = self.runs[i]
+        self.run_box.current(i)
+        self.photos = load_photos(d)
+        self.nos = sorted(self.photos)
+        self.rows = load_rows(xlsx)
+        self.show(start if start in self.photos else self.nos[0])
+
+    def step(self, delta: int):
+        if not self.nos:
+            return
+        i = self.nos.index(self.cur) if self.cur in self.photos else 0
+        self.show(self.nos[max(0, min(len(self.nos) - 1, i + delta))])
+
+    def jump(self):
+        t = self.num.get().strip()
+        if not t.isdigit() or int(t) not in self.photos:
+            self.info.set(f'没有第 {t} 张（这批是 {self.nos[0]}–{self.nos[-1]}）' if t else '先输入编号')
+            return
+        self.show(int(t))
+        self.focus_set()
+
+    def show(self, no: int):
+        self.cur = no
+        self.num.set(str(no))
+        self.title(f'核对 · 第 {no} 张 / 共 {len(self.nos)} 张')
+        self.info.set(f'第 {no} 张 / 共 {len(self.nos)} 张　←→ 翻页，双击照片看原尺寸')
+        try:
+            with Image.open(self.photos[no]) as im:
+                self._pil = im.convert('RGB')
+        except Exception as e:
+            self._pil = None
+            self.info.set(f'第 {no} 张打不开：{e}')
+        self.render()
+        self.fill_panel(no)
+
+    def _later_render(self):
+        if self._after:
+            self.after_cancel(self._after)
+        self._after = self.after(80, self.render)
+
+    def render(self):
+        self._after = None
+        if self._pil is None:
+            self.img.configure(image='')
+            return
+        w = max(50, self.img.winfo_width() - 4)
+        h = max(50, self.img.winfo_height() - 4)
+        im = self._pil.copy()
+        im.thumbnail((w, h), Image.LANCZOS)
+        self._tk = ImageTk.PhotoImage(im)
+        self.img.configure(image=self._tk)
+
+    def fill_panel(self, no: int):
+        p = self.panel
+        p.configure(state='normal')
+        p.delete('1.0', 'end')
+        recs = self.rows.get(no, [])
+        if not recs:
+            p.insert('end', f'No. {no}\n\n', 'h')
+            p.insert('end', '表里没有这一号的记录。\n', 'dim')
+        for k, rec in enumerate(recs, start=1):
+            p.insert('end', f'No. {no}' + (f'　第 {k} 条' if len(recs) > 1 else '') + '\n', 'h')
+            if not any(rec['values']):
+                p.insert('end', rec['note'] + '\n\n', 'note')
+                continue
+            for i, (lab, val) in enumerate(zip(LABELS, rec['values'])):
+                p.insert('end', lab + '\t', 'k')
+                p.insert('end', (val or '—') + '\n', 'red' if i in rec['red'] else ())
+            if rec['note']:
+                p.insert('end', '\n' + rec['note'] + '\n', 'note')
+            p.insert('end', '\n')
+        p.configure(state='disabled')

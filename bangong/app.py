@@ -110,6 +110,7 @@ class App:
         self.worker: threading.Thread | None = None
         self.last_xlsx = ''
         self.last_photos = ''
+        self.viewer = None
         cfg = load_config()
 
         root.title(f'搬工 · 刀具破损记录 → Excel  v{engine.VERSION}')
@@ -155,7 +156,7 @@ class App:
         self.stop_btn = ttk.Button(bar, text='停止', command=self.halt, state='disabled')
         self.stop_btn.pack(side='left', padx=6)
         ttk.Button(bar, text='打开结果文件夹', command=self.open_out).pack(side='left')
-        ttk.Button(bar, text='看编号照片', command=self.open_photos).pack(side='left', padx=6)
+        ttk.Button(bar, text='核对', command=self.check).pack(side='left', padx=6)
         self.status = tk.StringVar(value='')
         ttk.Label(bar, textvariable=self.status).pack(side='left', padx=10)
 
@@ -234,13 +235,12 @@ class App:
         d = os.path.join(self.folder.get(), engine.OUT_DIR)
         open_path(d if os.path.isdir(d) else self.folder.get())
 
-    def open_photos(self):
-        if self.last_photos and os.path.isdir(self.last_photos):
-            open_path(self.last_photos)
-            return
-        d = os.path.join(self.folder.get(), engine.DONE_DIR)
-        runs = sorted(x for x in os.listdir(d) if os.path.isdir(os.path.join(d, x)) and x[:8].isdigit()) if os.path.isdir(d) else []
-        open_path(os.path.join(d, runs[-1]) if runs else (d if os.path.isdir(d) else self.folder.get()))
+    def check(self, run_dir: str | None = None):
+        """核对窗口：编号照片一张一张看，第一张就是 1，←→ 翻页，输入编号直接跳。"""
+        from .viewer import Viewer
+        if self.viewer is not None and self.viewer.winfo_exists():
+            self.viewer.destroy()
+        self.viewer = Viewer(self.root, self.folder.get(), run_dir or self.last_photos or None)
 
     def on_close(self):
         self.save()
@@ -271,9 +271,9 @@ class App:
                         self.last_photos = val.photos_dir
                         self.status.set(f'干完：成功 {val.ok} · 失败 {val.failed}')
                         if val.ok and not self.stop.is_set():
-                            open_path(val.xlsx)                 # 表和编号照片一起打开，对着核
+                            open_path(val.xlsx)                 # 表和核对窗口一起打开，对着核
                             if val.photos_dir and os.path.isdir(val.photos_dir):
-                                open_path(val.photos_dir)
+                                self.check(val.photos_dir)
                     else:
                         self.refresh_count()
         except queue.Empty:
