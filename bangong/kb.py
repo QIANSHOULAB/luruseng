@@ -258,20 +258,10 @@ class Snapshot:
         self.people = people
         self.count = {f: Counter() for f in CAT_FIELDS}
         spell = {f: defaultdict(Counter) for f in CAT_FIELDS}
-        self.mo_part = defaultdict(Counter)
-        self.part_opr = defaultdict(set)
-        self.part_tool = defaultdict(Counter)
         for r in records:
             for f in CAT_FIELDS:
                 if r[f]:
                     spell[f][nkey(r[f])][r[f]] += 1
-            part = nkey(r['part_number'])
-            if r['mo'] and part:
-                self.mo_part[nkey(r['mo'])][r['part_number']] += 1
-            if part and r['opr_no']:
-                self.part_opr[part].add(nkey(r['opr_no']))
-            if part and r['t_no'] and r['description']:
-                self.part_tool[(part, nkey(r['t_no']))][r['description']] += 1
         # 每个值取最常见的写法当标准写法
         self.canon = {f: {k: c.most_common(1)[0][0] for k, c in spell[f].items()} for f in CAT_FIELDS}
         for f in CAT_FIELDS:
@@ -294,7 +284,7 @@ class Snapshot:
             if vals:
                 lines.append(f'{LABEL[f]}：' + '、'.join(vals))
         return ('公司记录里出现过的值（数据库 {} 条记录）：单子上的字跟其中某个很像时，一律以这里的写法为准；'
-                '明显不一样的（新机台、新零件）照单子原样抄。\n'.format(self.n) + '\n'.join(lines))
+                '明显不一样的（新机台、新零件、新刀）照单子原样抄。\n'.format(self.n) + '\n'.join(lines))
 
     def _snap(self, f: str, v: str) -> str | None:
         k = nkey(v)
@@ -310,13 +300,14 @@ class Snapshot:
         return None
 
     def fix(self, rec: dict) -> tuple[dict, dict, dict]:
-        """返回 (改好的记录, {字段: (原来, 改成, 原因)}, {字段: 标红原因})。"""
+        """返回 (改好的记录, {字段: (原来, 改成, 原因)}, {字段: 标红原因})。
+        只做一件事：认出来的值跟库里某个值只差一个容易看错的字，就改成库里的写法。
+        不按零件对历史（Song 定的：零件、刀、MO 之间的老关系不拿来标红；没见过的零件也不标红，新零件常有）。"""
         rec = dict(rec)
         fixed, flags = {}, {}
         if not self.n:
             return rec, fixed, flags
-        # 零件号、机台：先对数据库
-        for f in ('part_number', 'machine'):
+        for f in ('machine', 'part_number', 'description'):
             v = rec.get(f, '')
             if not v:
                 continue
@@ -328,41 +319,6 @@ class Snapshot:
             if c:
                 fixed[f] = (v, c, '按数据库改')
                 rec[f] = c
-            else:
-                flags[f] = f'{LABEL[f]} 数据库里没见过：{v}' + ('（新零件？）' if f == 'part_number' else '')
-        part = nkey(rec.get('part_number', ''))
-        # 刀具描述：这个零件这把刀以前是什么，优先；没有就对整个数据库
-        v = rec.get('description', '')
-        hist = self.part_tool.get((part, nkey(rec.get('t_no', '')))) if part else None
-        if v and hist:
-            want = hist.most_common(1)[0][0]
-            if nkey(v) != nkey(want):
-                if ckey(v) == ckey(want) or lev1(nkey(v), nkey(want)):
-                    fixed['description'] = (v, want, f'这个零件的 {rec.get("t_no")} 在数据库里是 {want}')
-                    rec['description'] = want
-                else:
-                    flags['description'] = f'这个零件的 {rec.get("t_no")} 以前是 {want}，这里认成 {v}'
-            else:
-                rec['description'] = want
-        elif v:
-            k = nkey(v)
-            if k in self.canon['description']:
-                rec['description'] = self.canon['description'][k]
-            else:
-                c = self._snap('description', v)
-                if c:
-                    fixed['description'] = (v, c, '按数据库改')
-                    rec['description'] = c
-                else:
-                    flags['description'] = f'DESCRIPTION 数据库里没见过：{v}'
-        # 工序号：这个零件以前有没有这道工序
-        opr = nkey(rec.get('opr_no', ''))
-        if part in self.part_opr and opr and opr not in self.part_opr[part]:
-            known = '、'.join(sorted(self.part_opr[part]))
-            flags['opr_no'] = f'这个零件以前的 OPR 是 {known}，这里认成 {rec.get("opr_no")}'
-        # MO：以前对的是不是这个零件（MO 不自动改：新工单号常常只差一位）
-        mo = nkey(rec.get('mo', ''))
-        if mo in self.mo_part and part and part not in {nkey(p) for p in self.mo_part[mo]}:
-            was = self.mo_part[mo].most_common(1)[0][0]
-            flags['mo'] = f'MO {rec.get("mo")} 以前对的是 {was}'
+            elif f != 'part_number':
+                flags[f] = f'{LABEL[f]} 数据库里没见过：{v}'
         return rec, fixed, flags

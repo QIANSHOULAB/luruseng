@@ -91,18 +91,20 @@ def test_fix_confusable_and_near_values(tmp_path):
     assert out['machine'] == '4x-16' and not fixed and not flags
 
 
-def test_flags_against_history(tmp_path):
+def test_no_part_based_history_flags(tmp_path):
+    """Song 定的：不按零件对历史标红，没见过的零件也不标红。"""
     s = snapshot(tmp_path)
-    _, fixed, flags = s.fix(rec(description='EM6'))             # 这个零件的 T4 以前是 EM2.5
-    assert 'T4 以前是 EM2.5' in flags['description'] and not fixed
-    _, _, flags = s.fix(rec(part_number='AB-5313706C', t_no='T7', description='BU10', opr_no='130'))
-    assert 'MO 82664580 以前对的是 TD-524613-5' in flags['mo']
-    _, _, flags = s.fix(rec(opr_no='170'))
-    assert '以前的 OPR 是 150' in flags['opr_no']
-    _, _, flags = s.fix(rec(machine='ZZ-99', part_number='XY-0001'))
-    assert '没见过：ZZ-99' in flags['machine'] and '新零件' in flags['part_number']
-    out, fixed, flags = s.fix(rec(mo='82666999', part_number='AB-5313706C', t_no='T7', description='BU10', opr_no='130'))
-    assert not flags and out['mo'] == '82666999'                 # 新 MO 不乱改
+    for r in (rec(description='EM6'),                                   # 这个零件的 T4 以前是 EM2.5：不管
+              rec(part_number='AB-5313706C', t_no='T7', description='BU10', opr_no='130'),   # MO 以前对别的零件：不管
+              rec(opr_no='170'),                                        # 这个零件以前没这道工序：不管
+              rec(part_number='XY-0001'),                               # 没见过的零件：不管
+              rec(mo='82666999')):
+        out, fixed, flags = s.fix(r)
+        assert not flags and not fixed and out['mo'] == r['mo']
+    out, _, flags = s.fix(rec(part_number='XY-0001'))
+    assert out['part_number'] == 'XY-0001'
+    _, _, flags = s.fix(rec(machine='ZZ-99', description='QQ7'))         # 没见过的机台、刀具描述还是标红
+    assert '没见过：ZZ-99' in flags['machine'] and '没见过：QQ7' in flags['description']
 
 
 def test_empty_db_changes_nothing(tmp_path):
