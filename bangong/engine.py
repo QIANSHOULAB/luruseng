@@ -30,7 +30,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-VERSION = '1.5.2'
+VERSION = '1.5.3'
 API_BASE = os.environ.get('BANGONG_API', 'https://generativelanguage.googleapis.com/v1beta').rstrip('/')
 DEFAULT_MODEL = 'gemini-3.5-flash-lite'
 MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro']
@@ -72,7 +72,7 @@ PROMPT = """你是工厂的刀具破损记录（TOOL BROKEN RECORD）录入员�
 - passed：合格数（PASSED），数字。
 - failed：不合格数（FAILED），数字。
 - shift：班次（SHIFT），只有 D（白班）或 N（夜班）。
-- setter：设定员（SETTER），写法是「工号/名字」，例如 639/Tan Bao Hong、535/GANESAN RANJITH。
+- setter：设定员（SETTER），写法是「工号/名字」，例如 639/Lee Ah Kow、535/RAJ KUMAR。
 
 规则：
 - 照单子上写的抄，不猜、不补、不纠错；某个字实在看不清就用 □ 代替那个字。

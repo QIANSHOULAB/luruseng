@@ -102,7 +102,7 @@ def test_twelve_photos_numbered_in_order(tmp_path):
     assert [r[5] for r in rows] == [800 + i for i in range(12)]            # 第 N 张的内容进第 N 行
     r = rows[0]
     assert isinstance(r[1], datetime) and (r[1].month, r[1].day) == (10, 28)
-    assert r[2:5] == ['VM-07', 'TD-524613-5', 82664580] and r[6:14] == ['T4', 'EM2.5', 1, 1, 1, 0, 'D', '639/Tan Bao Hong']
+    assert r[2:5] == ['VM-07', 'TD-524613-5', 82664580] and r[6:14] == ['T4', 'EM2.5', 1, 1, 1, 0, 'D', '639/Lee Ah Kow']
     assert r[14] is None
     assert ws.cell(row=4, column=2).number_format == 'd-mmm'
     assert ws.cell(row=4, column=9).fill.fgColor.rgb.endswith('FFE699')       # BTMP 黄底
@@ -167,7 +167,7 @@ def test_unclear_chars_bad_date_bad_shift(tmp_path):
     mock_server.STATE['modes'] = {K1: 'unclear'}
     res, _, _ = run(tmp_path)
     ws = sheet(res.xlsx)
-    assert ws.cell(row=4, column=14).value == '6□9/Tan Bao Hong' and ws.cell(row=4, column=14).fill.fgColor.rgb.endswith('FFC7CE')
+    assert ws.cell(row=4, column=14).value == '6□9/Lee Ah Kow' and ws.cell(row=4, column=14).fill.fgColor.rgb.endswith('FFC7CE')
     assert ws.cell(row=4, column=2).value == '3□/10' and not ws.cell(row=4, column=2).fill.fgColor.rgb.endswith('FFC7CE')  # 日期不标红
     assert ws.cell(row=4, column=13).fill.fgColor.rgb.endswith('FFC7CE')
     note = ws.cell(row=4, column=15).value
@@ -180,7 +180,7 @@ def test_label_variants_are_mapped(tmp_path):
     mock_server.STATE['modes'] = {K1: 'aliases'}
     res, _, _ = run(tmp_path)
     r = data_rows(res.xlsx)[0]
-    assert r[2:14] == ['VM-07', 'TD-524613-5', 82664580, 150, 'T4', 'EM2.5', 1, 1, 1, 0, 'D', '639/Tan Bao Hong']
+    assert r[2:14] == ['VM-07', 'TD-524613-5', 82664580, 150, 'T4', 'EM2.5', 1, 1, 1, 0, 'D', '639/Lee Ah Kow']
 
 
 def test_photo_with_no_record_keeps_its_row(tmp_path):
@@ -432,18 +432,18 @@ def test_stamp_follows_exif_rotation_and_shrinks_huge_photos(tmp_path):
     assert Image.open(out).size == (1280, 2560)
 
 
-NAMES = [('639', 'Tan Bao Hong'), ('535', 'GANESAN RANJITH'), ('552', 'PANTHALLA VENUGOPAL'), ('232', 'YANG FAN')]
+NAMES = [('639', 'Lee Ah Kow'), ('535', 'RAJ KUMAR'), ('552', 'ARJUN MENON'), ('232', 'ZHANG WEI')]
 
 
 def test_match_setter_rules():
     m = lambda raw: engine.match_setter(raw, NAMES)
-    assert m('535') == ('535/GANESAN RANJITH', '', False)                       # 只写工号：补名字
-    assert m('535/Ganesan') == ('535/GANESAN RANJITH', '', False)               # 名字潦草：按名单
-    assert m('639 Tan B Hong') == ('639/Tan Bao Hong', '', False)
-    v, note, red = m('PANTHALLA VENUGOPAL')                                     # 只写名字：补工号，标红让你看
-    assert v == '552/PANTHALLA VENUGOPAL' and red and '工号补成 552' in note
-    v, note, red = m('535/YANG FAN')                                            # 工号和名字对不上
-    assert v == '535/YANG FAN' and red and '工号 535 在名单上是 GANESAN RANJITH' in note
+    assert m('535') == ('535/RAJ KUMAR', '', False)                       # 只写工号：补名字
+    assert m('535/Raj') == ('535/RAJ KUMAR', '', False)               # 名字潦草：按名单
+    assert m('639 Lee A Kow') == ('639/Lee Ah Kow', '', False)
+    v, note, red = m('ARJUN MENON')                                     # 只写名字：补工号，标红让你看
+    assert v == '552/ARJUN MENON' and red and '工号补成 552' in note
+    v, note, red = m('535/ZHANG WEI')                                            # 工号和名字对不上
+    assert v == '535/ZHANG WEI' and red and '工号 535 在名单上是 RAJ KUMAR' in note
     v, note, red = m('999/NOBODY HERE')
     assert v == '999/NOBODY HERE' and red and note == 'SETTER 不在名单里'
     assert engine.match_setter('535', []) == ('535', '', False)                 # 没名单：照抄
@@ -451,18 +451,18 @@ def test_match_setter_rules():
 
 def test_roster_goes_into_prompt_and_fixes_setter(tmp_path):
     roster = tmp_path / '名单.txt'
-    roster.write_text('# 工号/名字\n639/Tan Bao Hong\n535 / GANESAN RANJITH\n\n', encoding='utf-8')
-    assert engine.load_names(str(roster)) == [('639', 'Tan Bao Hong'), ('535', 'GANESAN RANJITH')]
+    roster.write_text('# 工号/名字\n639/Lee Ah Kow\n535 / RAJ KUMAR\n\n', encoding='utf-8')
+    assert engine.load_names(str(roster)) == [('639', 'Lee Ah Kow'), ('535', 'RAJ KUMAR')]
     imgs = tmp_path / 'in'
     make_images(imgs, 1)
-    mock_server.STATE['modes'] = {K1: 'unclear'}                                # setter 写成 6□9/Tan Bao Hong
+    mock_server.STATE['modes'] = {K1: 'unclear'}                                # setter 写成 6□9/Lee Ah Kow
     logs = []
     res = engine.Engine(str(imgs), [K1], log=logs.append, names_path=str(roster)).run()
     prompt = mock_server.STATE['log'][0]['sys']
     assert any('名单 2 人' in m for m in logs)
     ws = sheet(res.xlsx)
-    assert ws.cell(row=4, column=14).value == '639/Tan Bao Hong'                # □ 按名单补上了
+    assert ws.cell(row=4, column=14).value == '639/Lee Ah Kow'                # □ 按名单补上了
     assert not ws.cell(row=4, column=14).fill.fgColor.rgb.endswith('FFC7CE')
     body = engine.build_body(b'x', 'gemini-3.5-flash-lite', names=engine.load_names(str(roster)))
-    assert '535/GANESAN RANJITH' in body['systemInstruction']['parts'][0]['text']
+    assert '535/RAJ KUMAR' in body['systemInstruction']['parts'][0]['text']
     assert prompt

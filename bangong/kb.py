@@ -129,7 +129,7 @@ def find_header(rows: list[tuple]) -> tuple[int, dict[int, str]] | None:
 
 
 def read_people(rows: list[tuple]) -> list[tuple[str, str]]:
-    """名字页：认「535/GANESAN RANJITH」这种格子，或者一格工号紧跟一格名字。"""
+    """名字页：认「535/RAJ KUMAR」这种格子，或者一格工号紧跟一格名字。"""
     out = []
     for row in rows:
         cells = [cell_text(v) for v in row]

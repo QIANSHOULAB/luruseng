@@ -32,7 +32,7 @@ def test_runs_photos_and_rows(tmp_path):
     rows = viewer.load_rows(xlsx)
     assert sorted(rows) == [1, 2, 3, 4]
     r = rows[1][0]
-    assert r['values'][1] == 'VM-07' and r['values'][0] == '28-Oct' and r['values'][12] == '639/Tan Bao Hong'
+    assert r['values'][1] == 'VM-07' and r['values'][0] == '28-Oct' and r['values'][12] == '639/Lee Ah Kow'
     assert r['red'] == {8, 9, 10}                        # TOTAL / PASSED / FAILED 标红
     assert 'PASSED 9 + FAILED 0 ≠ TOTAL 10' in r['note']
     assert viewer.run_label(run_id, 4).endswith('这批（4 张）')

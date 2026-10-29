@@ -45,7 +45,7 @@ def answer(mode, body):
         width = Image.open(io.BytesIO(raw)).size[0]          # 测试图的宽度 = 编号暗号，用来核对顺序
         rec = {'date': '28/10', 'machine': 'VM-07', 'part_number': 'TD-524613-5', 'mo': '82664580',
                'opr_no': str(width), 't_no': 'T4', 'description': 'EM2.5', 'btmp': '1',
-               'total_screened': '1', 'passed': '1', 'failed': '0', 'shift': 'D', 'setter': '639/Tan Bao Hong'}
+               'total_screened': '1', 'passed': '1', 'failed': '0', 'shift': 'D', 'setter': '639/Lee Ah Kow'}
         recs = [rec]
         if mode == 'two':
             recs = [rec, dict(rec, date='1-Oct', t_no='T9', description='EM1.5', btmp='4', total_screened='4', passed='4', shift='N')]
@@ -54,7 +54,7 @@ def answer(mode, body):
         elif mode == 'mismatch':
             recs = [dict(rec, total_screened='10', passed='9', failed='0')]
         elif mode == 'unclear':
-            recs = [dict(rec, setter='6□9/Tan Bao Hong', date='3□/10', shift='X')]
+            recs = [dict(rec, setter='6□9/Lee Ah Kow', date='3□/10', shift='X')]
         elif mode == 'unsure':
             recs = [dict(rec, machine='VM-99', description='QQ7', btmp='7', setter='777/NEW GUY', unsure=['MACHINE', 'btmp', 'Setter', 'date'])]
         elif mode == 'newsure':
@@ -64,7 +64,7 @@ def answer(mode, body):
         elif mode == 'aliases':
             recs = [{'DATE': '28/10', 'M/C': 'VM-07', 'Part No.': 'TD-524613-5', 'MO': '82664580', 'OPR NO.': '150',
                      'T NO.': 'T4', 'Description': 'EM2.5', 'BTMP': '1', 'Total Screened': '1', 'Passed': '1',
-                     'Failed': '0', 'Shift': 'Day', 'Setter': '639/Tan Bao Hong'}]
+                     'Failed': '0', 'Shift': 'Day', 'Setter': '639/Lee Ah Kow'}]
         text = json.dumps({'records': recs}, ensure_ascii=False)
     return 200, {'candidates': [{'content': {'parts': [{'text': text}]}, 'finishReason': 'STOP'}]}
 

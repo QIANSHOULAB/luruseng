@@ -12,14 +12,14 @@ import mock_server  # noqa: E402
 from test_engine import K1, make_images, server, reset, sheet  # noqa: E402,F401
 
 ROWS = [  # 公司 TOOL BROKEN RECORD 10 月那页的样子
-    (datetime(2026, 10, 1), 'VM-07', 'TD-524613-5', 82664580, 150, 'T4', 'EM2.5', 1, 1, 1, 0, 'D', '639/Tan Bao Hong'),
-    (datetime(2026, 10, 2), '4X-9', 'TD-HAR8230G', 82665285, 130, 'T2', 'EM6', 4, 4, 4, 0, 'D', '535/GANESAN RANJITH'),
-    (datetime(2026, 10, 4), '5X-3', 'AB-5313706C', 82666511, 130, 'T7', 'BU10', 1, 1, 1, 0, 'N', '552/PANTHALLA VENUGOPAL'),
-    (datetime(2026, 10, 4), '5X-5', 'AB-5313706C', 82666511, 130, 'T343', 'EM6', 2, 2, 2, 0, 'D', '551/DURGAIYAN SELVAM'),
-    (datetime(2026, 10, 4), '4X-8', 'TD-HAR8308G-05', 82665551, 130, 'T3', 'EM1.5', 1, 1, 1, 0, 'D', '535/GANESAN RANJITH'),
-    (datetime(2026, 10, 7), '4x-16', 'AB-5067282E', 82665168, 150, 'T9', 'EM1.', 4, 4, 4, 0, 'D', '232/YANG FAN'),
-    (datetime(2026, 10, 26), 'VM-07', 'TD-524613-5', 82665807, 150, 'T4', 'EM2.5', 2, 2, 1, 0, 'D', '495/WONG THIAM CHAI'),
-    (datetime(2026, 10, 28), '5X-2', 'AB-5086733B', 82666997, 130, 'T12', 'BM1', 1, 1, 1, 0, 'D', '495/WONG THIAM CHAI'),
+    (datetime(2026, 10, 1), 'VM-07', 'TD-524613-5', 82664580, 150, 'T4', 'EM2.5', 1, 1, 1, 0, 'D', '639/Lee Ah Kow'),
+    (datetime(2026, 10, 2), '4X-9', 'TD-HAR8230G', 82665285, 130, 'T2', 'EM6', 4, 4, 4, 0, 'D', '535/RAJ KUMAR'),
+    (datetime(2026, 10, 4), '5X-3', 'AB-5313706C', 82666511, 130, 'T7', 'BU10', 1, 1, 1, 0, 'N', '552/ARJUN MENON'),
+    (datetime(2026, 10, 4), '5X-5', 'AB-5313706C', 82666511, 130, 'T343', 'EM6', 2, 2, 2, 0, 'D', '551/SELVA RAJAN'),
+    (datetime(2026, 10, 4), '4X-8', 'TD-HAR8308G-05', 82665551, 130, 'T3', 'EM1.5', 1, 1, 1, 0, 'D', '535/RAJ KUMAR'),
+    (datetime(2026, 10, 7), '4x-16', 'AB-5067282E', 82665168, 150, 'T9', 'EM1.', 4, 4, 4, 0, 'D', '232/ZHANG WEI'),
+    (datetime(2026, 10, 26), 'VM-07', 'TD-524613-5', 82665807, 150, 'T4', 'EM2.5', 2, 2, 1, 0, 'D', '495/LIM BOON HUAT'),
+    (datetime(2026, 10, 28), '5X-2', 'AB-5086733B', 82666997, 130, 'T12', 'BM1', 1, 1, 1, 0, 'D', '495/LIM BOON HUAT'),
 ]
 
 
@@ -41,9 +41,9 @@ def company_book(path, rows=ROWS, extra_sheet_rows=()):
             ws.append(list(r))
     names = wb.create_sheet('NAME')
     names.append(['EMP NO', 'NAME', 'SHIFT'])
-    names.append([576, 'LIN DEFENG', 'D'])
-    names.append(['648', 'KARTHIKEYAN', 'D'])
-    names.append(['652/Tian Yucheng'])
+    names.append([576, 'CHEN JIAN', 'D'])
+    names.append(['648', 'MURUGAN', 'D'])
+    names.append(['652/Wang Lei'])
     names.append([999, 3, 'N'])                       # 不是名字，不能当人
     del wb['Sheet']
     wb.save(path)
@@ -56,8 +56,8 @@ def test_feed_company_book_and_dedupe(tmp_path):
     r = db.feed(str(book))
     assert r.rows == 9 and r.added == 8 and r.sheets == ['SEPT', 'OCT'] and not r.error   # SEPT 那行跟 OCT 第一行重复
     people = dict(db.load().roster())
-    assert people['576'] == 'LIN DEFENG' and people['648'] == 'KARTHIKEYAN' and people['652'] == 'Tian Yucheng'
-    assert people['535'] == 'GANESAN RANJITH' and '999' not in people
+    assert people['576'] == 'CHEN JIAN' and people['648'] == 'MURUGAN' and people['652'] == 'Wang Lei'
+    assert people['535'] == 'RAJ KUMAR' and '999' not in people
     again = db.feed(str(book))
     assert again.added == 0 and again.people == 0
     s = db.summary()
@@ -77,7 +77,7 @@ def snapshot(tmp_path):
 
 
 def rec(**kw):
-    r = dict(zip(engine.FIELDS, ['28/10', 'VM-07', 'TD-524613-5', '82664580', '150', 'T4', 'EM2.5', '1', '1', '1', '0', 'D', '639/Tan Bao Hong']))
+    r = dict(zip(engine.FIELDS, ['28/10', 'VM-07', 'TD-524613-5', '82664580', '150', 'T4', 'EM2.5', '1', '1', '1', '0', 'D', '639/Lee Ah Kow']))
     r.update(kw)
     return r
 
@@ -145,7 +145,7 @@ def test_hints_go_into_prompt(tmp_path):
     assert h.startswith('公司记录里出现过的值（数据库 8 条记录）') and 'VM-07' in h and 'TD-HAR8308G-05' in h and 'BU10' in h
     body = engine.build_body(b'x', 'gemini-3.5-flash-lite', names=s.roster(), hints=h)
     text = body['systemInstruction']['parts'][0]['text']
-    assert 'TD-HAR8308G-05' in text and '535/GANESAN RANJITH' in text
+    assert 'TD-HAR8308G-05' in text and '535/RAJ KUMAR' in text
 
 
 def test_feed_a_checked_bangong_result(tmp_path):
@@ -164,7 +164,7 @@ def test_unsure_drives_red(tmp_path):
     feed.mkdir()
     company_book(feed / 'c.xlsx')
     roster = tmp_path / '名单.txt'
-    roster.write_text('639/Tan Bao Hong\n', encoding='utf-8')
+    roster.write_text('639/Lee Ah Kow\n', encoding='utf-8')
     for mode, want_red in (('unsure', {3, 9, 14}), ('newsure', set())):
         imgs = tmp_path / f'in_{mode}'
         make_images(imgs, 1)
