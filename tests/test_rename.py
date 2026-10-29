@@ -44,3 +44,13 @@ def test_old_ledger_still_counts(tmp_path):
     res = engine.Engine(str(tmp_path), [K1], log=lambda m: None).run()
     assert res.ok == 0 and res.requests == 0 and (out / engine.LEDGER).exists() and not (out / engine.OLD_LEDGER).exists()
     assert (out / '录入僧日志.txt').exists()
+
+
+def test_handoff(tmp_path):
+    from bangong import app
+    (tmp_path / '搬工').mkdir()
+    assert app.handoff_target(str(tmp_path / '搬工')) == ''
+    (tmp_path / '录入僧').mkdir()
+    (tmp_path / '录入僧' / '录入僧.exe').write_bytes(b'MZ')
+    assert app.handoff_target(str(tmp_path / '搬工')).endswith('录入僧.exe')
+    assert app.handoff_target(str(tmp_path / '录入僧')) == ''

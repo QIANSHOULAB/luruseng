@@ -148,7 +148,15 @@ def migrate_old_home(new_dir: str | None = None) -> list[str]:
         while os.path.exists(dst):
             n += 1
             dst = os.path.join(bin_, f'{engine.OLD_NAME}_{n}')
-        os.replace(old_dir, dst)
+        import time
+        for i in range(20):                       # 旧 exe 刚交接完可能还占着文件，等它退出
+            try:
+                os.replace(old_dir, dst)
+                break
+            except OSError:
+                if i == 19:
+                    raise
+                time.sleep(0.5)
         done.append('旧文件夹挪到：' + dst)
     except OSError as e:
         done.append(f'旧文件夹没搬完：{e}')
@@ -415,7 +423,21 @@ class App:
         self.root.after(150, self.pump)
 
 
+def handoff_target(here: str | None = None) -> str:
+    """从改名前的「搬工」文件夹被打开（旧快捷方式）时，旁边有新的 录入僧\\录入僧.exe 就交给它。"""
+    here = here or app_dir()
+    if os.path.basename(here) != engine.OLD_NAME:
+        return ''
+    new = os.path.join(os.path.dirname(here), engine.APP_NAME, engine.APP_NAME + '.exe')
+    return new if os.path.isfile(new) else ''
+
+
 def run_gui():
+    if getattr(sys, 'frozen', False):
+        new = handoff_target()
+        if new:
+            subprocess.Popen([new], cwd=os.path.dirname(new))
+            return
     root = tk.Tk()
     App(root)
     root.mainloop()
