@@ -54,6 +54,29 @@ def open_path(p: str):
         pass
 
 
+def ensure_shortcuts(cfg: dict):
+    """打包版第一次打开时，自己在桌面和开始菜单放「搬工」快捷方式（以后不用再找 exe）。"""
+    if os.name != 'nt' or not getattr(sys, 'frozen', False) or cfg.get('shortcut_for') == sys.executable:
+        return
+    exe = sys.executable.replace("'", "''")
+    work = os.path.dirname(sys.executable).replace("'", "''")
+    ps = (
+        "$ws = New-Object -ComObject WScript.Shell; "
+        "foreach ($d in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) { "
+        "  if ($d) { $l = $ws.CreateShortcut((Join-Path $d '搬工.lnk')); "
+        f"    $l.TargetPath = '{exe}'; $l.WorkingDirectory = '{work}'; $l.IconLocation = '{exe},0'; "
+        "    $l.Description = '图片识别成 Excel'; $l.Save() } }"
+    )
+    try:
+        r = subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps],
+                           creationflags=0x08000000, timeout=30, capture_output=True)
+        if r.returncode == 0:
+            cfg['shortcut_for'] = sys.executable
+            save_config(cfg)
+    except Exception:
+        pass
+
+
 class App:
     def __init__(self, root: tk.Tk):
         self.root = root
@@ -117,6 +140,8 @@ class App:
         f.rowconfigure(6, weight=1)
 
         self.refresh_count()
+        self.cfg = cfg
+        threading.Thread(target=ensure_shortcuts, args=(cfg,), daemon=True).start()
         root.protocol('WM_DELETE_WINDOW', self.on_close)
         root.after(150, self.pump)
 
@@ -135,8 +160,9 @@ class App:
             self.status.set('')
 
     def save(self):
-        save_config({'folder': self.folder.get(), 'key1': self.key1.get().strip(),
-                     'key2': self.key2.get().strip(), 'model': self.model.get().strip()})
+        self.cfg.update({'folder': self.folder.get(), 'key1': self.key1.get().strip(),
+                         'key2': self.key2.get().strip(), 'model': self.model.get().strip()})
+        save_config(self.cfg)
 
     def log(self, msg: str):
         self.q.put(('log', msg))

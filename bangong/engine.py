@@ -28,7 +28,7 @@ except Exception:  # pragma: no cover
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
-VERSION = '1.0.1'
+VERSION = '1.0.2'
 API_BASE = os.environ.get('BANGONG_API', 'https://generativelanguage.googleapis.com/v1beta').rstrip('/')
 DEFAULT_MODEL = 'gemini-3.5-flash-lite'
 MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro']

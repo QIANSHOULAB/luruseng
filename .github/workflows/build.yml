@@ -40,6 +40,13 @@ jobs:
           $x = Get-ChildItem (Join-Path $dir '识别结果') -Filter *.xlsx
           if ($x.Count -ne 1) { throw 'no xlsx' }
           if ((Get-ChildItem (Join-Path $dir '已识别')).Count -ne 7) { throw 'not all moved' }
+      - name: Shortcut test
+        shell: pwsh
+        run: |
+          $p = Start-Process dist/bangong.exe -ArgumentList '--shortcuts' -Wait -PassThru
+          $lnk = Join-Path ([Environment]::GetFolderPath('Desktop')) '搬工.lnk'
+          if ($p.ExitCode -ne 0 -or -not (Test-Path $lnk)) { throw "no shortcut ($($p.ExitCode))" }
+          (New-Object -ComObject WScript.Shell).CreateShortcut($lnk).TargetPath
       - uses: actions/upload-artifact@v4
         with:
           name: bangong-exe
