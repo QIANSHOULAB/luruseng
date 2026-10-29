@@ -80,7 +80,7 @@ def test_twelve_images_three_batches(tmp_path):
     assert res.ok == 12 and res.failed == 0 and res.requests == 12
     assert len(log) == 12 and all(e['key'] == K1 and e['hdr'] is None for e in log)
     assert mock_server.STATE['peak'] <= 5
-    assert all(e['gen']['temperature'] == 0.1 and 'rows' in e['gen']['responseSchema']['properties'] for e in log)
+    assert all('temperature' not in e['gen'] and 'rows' in e['gen']['responseSchema']['properties'] for e in log)
     assert sorted(os.listdir(tmp_path / '已识别')) == [f'img_{i:02d}.jpg' for i in range(12)]
     assert not [f for f in os.listdir(tmp_path) if f.endswith('.jpg')]
     rows = main_rows(res.xlsx)
@@ -225,7 +225,18 @@ def test_parse_rows_variants():
         engine.parse_rows({'promptFeedback': {'blockReason': 'SAFETY'}})
 
 
+def test_schema_rejected_falls_back_to_plain_json(tmp_path):
+    make_images(tmp_path, 6)
+    mock_server.STATE['modes'] = {K1: 'noschema'}
+    res, logs, _ = run(tmp_path)
+    assert res.ok == 6 and res.failed == 0
+    assert any('改用纯 JSON' in m for m in logs)
+    assert sum(1 for e in mock_server.STATE['log'] if 'responseSchema' not in e['gen']) == 6
+
+
 def test_model_prefix_and_thinking():
     assert engine.model_name('models/gemini-2.5-flash') == 'gemini-2.5-flash'
     assert engine.build_body(b'x', 'gemini-2.5-flash')['generationConfig']['thinkingConfig'] == {'thinkingBudget': 0}
-    assert 'thinkingConfig' not in engine.build_body(b'x', 'gemini-3.5-flash-lite')['generationConfig']
+    g3 = engine.build_body(b'x', 'gemini-3.5-flash-lite')['generationConfig']
+    assert 'thinkingConfig' not in g3 and 'temperature' not in g3
+    assert engine.build_body(b'x', 'gemini-2.5-flash-lite')['generationConfig']['temperature'] == 0.1

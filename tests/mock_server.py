@@ -20,6 +20,8 @@ def quota(per):
 
 
 def answer(mode, body):
+    if mode == 'noschema' and 'responseSchema' in body['generationConfig']:
+        return 400, {'error': {'code': 400, 'status': 'INVALID_ARGUMENT', 'message': 'Invalid JSON payload received. Unknown name "responseSchema" at \'generation_config\': Cannot find field.'}}
     parts = body['contents'][0]['parts']
     img = next(p['inline_data']['data'] for p in parts if 'inline_data' in p)
     raw = base64.b64decode(img)

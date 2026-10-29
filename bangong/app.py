@@ -64,6 +64,11 @@ class App:
         cfg = load_config()
 
         root.title(f'搬工 · 图片转 Excel  v{engine.VERSION}')
+        try:
+            base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            root.iconbitmap(os.path.join(base, 'assets', 'bangong.ico'))
+        except Exception:
+            pass
         root.geometry('760x560')
         root.minsize(600, 420)
         try:

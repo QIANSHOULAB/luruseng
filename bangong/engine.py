@@ -28,7 +28,7 @@ except Exception:  # pragma: no cover
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
-VERSION = '1.0.0'
+VERSION = '1.0.1'
 API_BASE = os.environ.get('BANGONG_API', 'https://generativelanguage.googleapis.com/v1beta').rstrip('/')
 DEFAULT_MODEL = 'gemini-3.5-flash-lite'
 MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro']
@@ -163,8 +163,12 @@ def model_name(m: str) -> str:
     return re.sub(r'^models/', '', (m or '').strip()) or DEFAULT_MODEL
 
 
-def build_body(jpeg: bytes, model: str) -> dict:
-    gen = {'temperature': 0.1, 'responseMimeType': 'application/json', 'responseSchema': SCHEMA}
+def build_body(jpeg: bytes, model: str, schema: bool = True) -> dict:
+    gen = {'responseMimeType': 'application/json'}
+    if schema:
+        gen['responseSchema'] = SCHEMA
+    if re.match(r'^gemini-[12]\.', model):
+        gen['temperature'] = 0.1          # Gemini 3 起官方已废弃采样参数（忽略，以后会报 400），只给老模型发
     if re.match(r'^gemini-2\.5-flash(?!-lite)', model):
         gen['thinkingConfig'] = {'thinkingBudget': 0}
     return {
@@ -351,6 +355,7 @@ class Engine:
         self.lock = threading.Lock()
         self.res = Result()
         self.fatal: str = ''
+        self.use_schema = True
 
     # 可被「停止」打断的等待
     def wait(self, seconds: float):
@@ -383,7 +388,8 @@ class Engine:
             raise
 
     def _recognize(self, path: str) -> list[list[str]]:
-        body = build_body(prepare_image(path), self.model)
+        jpeg = prepare_image(path)
+        body = build_body(jpeg, self.model, self.use_schema)
         minute_hits = 0
         net_tries = 0
         while True:
@@ -416,6 +422,13 @@ class Engine:
                             raise
                         self.keys.park(i, self.clock() + MINUTE_WAIT)
                     continue
+                if e.status == 400 and re.search(r'schema', e.message, re.I):
+                    if self.use_schema:
+                        self.use_schema = False
+                        self.log(f'模型不认结构化输出格式，改用纯 JSON 提示重试 · {e.raw()}')
+                    if 'responseSchema' in body['generationConfig']:
+                        body = build_body(jpeg, self.model, False)
+                        continue
                 if e.status in (400, 401, 403) and re.search(r'API key|API_KEY|permission|PERMISSION', f'{e.message} {e.detail}'):
                     raise Fatal(f'钥匙{i + 1} · {e.raw()}')
                 if e.status == 404:
