@@ -75,7 +75,7 @@ foreach ($name in @('Desktop', 'Programs')) {{
   $l.IconLocation = '{exe},0'
   $l.Description = '图片识别成 Excel'
   $l.Save()
-  Write-Output "已放：$d\搬工.lnk"
+  Write-Output "已放：$d\\搬工.lnk"
   $made++
 }}
 if ($made -eq 0) {{ exit 3 }}
