@@ -48,6 +48,7 @@ jobs:
         shell: pwsh
         run: |
           $p = Start-Process dist/bangong.exe -ArgumentList '--shortcuts' -Wait -PassThru
+          Get-Content (Join-Path $env:APPDATA '搬工\shortcut.log') -ErrorAction SilentlyContinue
           $lnk = Join-Path ([Environment]::GetFolderPath('Desktop')) '搬工.lnk'
           if ($p.ExitCode -ne 0 -or -not (Test-Path $lnk)) { throw "no shortcut ($($p.ExitCode))" }
           (New-Object -ComObject WScript.Shell).CreateShortcut($lnk).TargetPath

@@ -60,21 +60,42 @@ def ensure_shortcuts(cfg: dict):
         return
     exe = sys.executable.replace("'", "''")
     work = os.path.dirname(sys.executable).replace("'", "''")
-    ps = (
-        "$ws = New-Object -ComObject WScript.Shell; "
-        "foreach ($d in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) { "
-        "  if ($d) { $l = $ws.CreateShortcut((Join-Path $d '搬工.lnk')); "
-        f"    $l.TargetPath = '{exe}'; $l.WorkingDirectory = '{work}'; $l.IconLocation = '{exe},0'; "
-        "    $l.Description = '图片识别成 Excel'; $l.Save() } }"
-    )
+    script = os.path.join(config_dir(), 'make_shortcut.ps1')
+    log = os.path.join(config_dir(), 'shortcut.log')
+    ps = f"""$ErrorActionPreference = 'Stop'
+$ws = New-Object -ComObject WScript.Shell
+$made = 0
+foreach ($name in @('Desktop', 'Programs')) {{
+  $d = [Environment]::GetFolderPath($name)
+  if (-not $d) {{ Write-Output "$name 没有路径"; continue }}
+  if (-not (Test-Path -LiteralPath $d)) {{ New-Item -ItemType Directory -Force -Path $d | Out-Null }}
+  $l = $ws.CreateShortcut((Join-Path $d '搬工.lnk'))
+  $l.TargetPath = '{exe}'
+  $l.WorkingDirectory = '{work}'
+  $l.IconLocation = '{exe},0'
+  $l.Description = '图片识别成 Excel'
+  $l.Save()
+  Write-Output "已放：$d\搬工.lnk"
+  $made++
+}}
+if ($made -eq 0) {{ exit 3 }}
+"""
     try:
-        r = subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps],
-                           creationflags=0x08000000, timeout=30, capture_output=True)
+        with open(script, 'w', encoding='utf-8-sig') as f:      # PowerShell 5.1 认中文要带 BOM
+            f.write(ps)
+        r = subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script],
+                           creationflags=0x08000000, timeout=60, capture_output=True, stdin=subprocess.DEVNULL)
+        with open(log, 'wb') as f:
+            f.write(r.stdout + b'\r\n' + r.stderr + f'\r\nexit {r.returncode}'.encode())
         if r.returncode == 0:
             cfg['shortcut_for'] = sys.executable
             save_config(cfg)
-    except Exception:
-        pass
+    except Exception as e:
+        try:
+            with open(log, 'a', encoding='utf-8') as f:
+                f.write(f'{type(e).__name__}: {e}\n')
+        except OSError:
+            pass
 
 
 class App:
