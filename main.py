@@ -17,7 +17,8 @@ def cli(folder: str) -> int:
                 print(m, flush=True)
             except Exception:
                 pass
-    res = engine.Engine(folder, keys, model, log=log).run()
+    from bangong.app import names_path
+    res = engine.Engine(folder, keys, model, log=log, names_path=names_path()).run()
     return 0 if not res.failed and not res.stopped_reason else 2
 
 

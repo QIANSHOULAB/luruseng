@@ -29,6 +29,17 @@ def default_folder() -> str:
     return os.path.join(os.path.expanduser('~'), '搬工', '待识别')
 
 
+def app_dir() -> str:
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def names_path() -> str:
+    """名单.txt 跟 搬工.exe 放在一起，一行一个「工号/名字」，用记事本就能改。"""
+    return os.path.join(app_dir(), engine.NAMES_FILE)
+
+
 def load_config() -> dict:
     try:
         with open(CONFIG, encoding='utf-8') as f:
@@ -98,6 +109,7 @@ class App:
         self.stop = threading.Event()
         self.worker: threading.Thread | None = None
         self.last_xlsx = ''
+        self.last_photos = ''
         cfg = load_config()
 
         root.title(f'搬工 · 刀具破损记录 → Excel  v{engine.VERSION}')
@@ -143,6 +155,7 @@ class App:
         self.stop_btn = ttk.Button(bar, text='停止', command=self.halt, state='disabled')
         self.stop_btn.pack(side='left', padx=6)
         ttk.Button(bar, text='打开结果文件夹', command=self.open_out).pack(side='left')
+        ttk.Button(bar, text='看编号照片', command=self.open_photos).pack(side='left', padx=6)
         self.status = tk.StringVar(value='')
         ttk.Label(bar, textvariable=self.status).pack(side='left', padx=10)
 
@@ -154,6 +167,8 @@ class App:
         f.rowconfigure(6, weight=1)
 
         self.refresh_count()
+        n = len(engine.load_names(names_path()))
+        self.write(f'名单：{n} 人（{names_path()}）' if n else f'没找到名单：{names_path()}（没有也能用，SETTER 就照单子抄）')
         self.cfg = cfg
         threading.Thread(target=ensure_shortcuts, args=(cfg,), daemon=True).start()
         root.protocol('WM_DELETE_WINDOW', self.on_close)
@@ -197,7 +212,8 @@ class App:
         self.stop_btn.config(state='normal')
         self.pb.config(value=0)
         eng = engine.Engine(self.folder.get(), [k1, k2], self.model.get(), log=self.log,
-                            progress=lambda d, t: self.q.put(('prog', (d, t))), stop=self.stop)
+                            progress=lambda d, t: self.q.put(('prog', (d, t))), stop=self.stop,
+                            names_path=names_path())
 
         def work():
             try:
@@ -217,6 +233,14 @@ class App:
     def open_out(self):
         d = os.path.join(self.folder.get(), engine.OUT_DIR)
         open_path(d if os.path.isdir(d) else self.folder.get())
+
+    def open_photos(self):
+        if self.last_photos and os.path.isdir(self.last_photos):
+            open_path(self.last_photos)
+            return
+        d = os.path.join(self.folder.get(), engine.DONE_DIR)
+        runs = sorted(x for x in os.listdir(d) if os.path.isdir(os.path.join(d, x)) and x[:8].isdigit()) if os.path.isdir(d) else []
+        open_path(os.path.join(d, runs[-1]) if runs else (d if os.path.isdir(d) else self.folder.get()))
 
     def on_close(self):
         self.save()
@@ -244,9 +268,12 @@ class App:
                     self.stop_btn.config(state='disabled')
                     if val and val.xlsx:
                         self.last_xlsx = val.xlsx
+                        self.last_photos = val.photos_dir
                         self.status.set(f'干完：成功 {val.ok} · 失败 {val.failed}')
                         if val.ok and not self.stop.is_set():
-                            open_path(val.xlsx)
+                            open_path(val.xlsx)                 # 表和编号照片一起打开，对着核
+                            if val.photos_dir and os.path.isdir(val.photos_dir):
+                                open_path(val.photos_dir)
                     else:
                         self.refresh_count()
         except queue.Empty:

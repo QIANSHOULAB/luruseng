@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import difflib
 import hashlib
 import io
 import json
@@ -16,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageStat
 
 try:
     import pillow_heif  # iPhone 的 HEIC
@@ -29,7 +30,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-VERSION = '1.1.0'
+VERSION = '1.2.0'
 API_BASE = os.environ.get('BANGONG_API', 'https://generativelanguage.googleapis.com/v1beta').rstrip('/')
 DEFAULT_MODEL = 'gemini-3.5-flash-lite'
 MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro']
@@ -38,7 +39,10 @@ BATCH = 5
 MAX_SIDE = 2048
 JPEG_Q = 92
 DONE_DIR = '已识别'
+ORIG_DIR = '原图'
 DUP_DIR = '重复'
+NAMES_FILE = '名单.txt'
+STAMP_SIDE = 2560                   # 编号照片最长边（够放大看手写）
 OUT_DIR = '识别结果'
 LEDGER = '.搬工账本.json'
 MINUTE_WAIT = 60
@@ -166,23 +170,127 @@ def file_hash(path: str) -> str:
     return h.hexdigest()
 
 
-def prepare_image(path: str) -> bytes:
+def _load_rgb(path: str) -> Image.Image:
     with Image.open(path) as im:
         im = ImageOps.exif_transpose(im)
         if im.mode in ('RGBA', 'LA', 'P'):
             im = im.convert('RGBA')
             bg = Image.new('RGB', im.size, 'white')
             bg.paste(im, mask=im.split()[-1])
-            im = bg
-        elif im.mode != 'RGB':
-            im = im.convert('RGB')
-        w, h = im.size
-        if max(w, h) > MAX_SIDE:
-            s = MAX_SIDE / max(w, h)
-            im = im.resize((max(1, round(w * s)), max(1, round(h * s))), Image.LANCZOS)
-        buf = io.BytesIO()
-        im.save(buf, 'JPEG', quality=JPEG_Q, optimize=True)
-        return buf.getvalue()
+            return bg
+        return im.convert('RGB') if im.mode != 'RGB' else im.copy()
+
+
+def _shrink(im: Image.Image, side: int) -> Image.Image:
+    w, h = im.size
+    if max(w, h) <= side:
+        return im
+    s = side / max(w, h)
+    return im.resize((max(1, round(w * s)), max(1, round(h * s))), Image.LANCZOS)
+
+
+def prepare_image(path: str) -> bytes:
+    im = _shrink(_load_rgb(path), MAX_SIDE)
+    buf = io.BytesIO()
+    im.save(buf, 'JPEG', quality=JPEG_Q, optimize=True)
+    return buf.getvalue()
+
+
+def _font(size: int):
+    for name in ('arialbd.ttf', 'Arial Bold.ttf', 'DejaVuSans-Bold.ttf', 'LiberationSans-Bold.ttf'):
+        try:
+            return ImageFont.truetype(name, size)
+        except OSError:
+            pass
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:  # pragma: no cover
+        return ImageFont.load_default()
+
+
+def stamp_number(src: str, no: int, out: str) -> str:
+    """在照片最空的那个角写上大红编号（白底红框），给人核对用；四个角都有字就在顶上加一条白边写。
+    只给人看：送去识别的是原图，编号不会被当成内容。"""
+    im = _shrink(_load_rgb(src), STAMP_SIDE)
+    w, h = im.size
+    short = min(w, h)
+    text = str(no)
+    font = _font(max(28, int(short * 0.11)))
+    l, t, r, b = ImageDraw.Draw(im).textbbox((0, 0), text, font=font)
+    tw, th = r - l, b - t
+    pad = max(8, int(th * 0.35))
+    bw, bh = tw + 2 * pad, th + 2 * pad
+    m = max(6, int(short * 0.02))
+    gray = im.convert('L')
+    spots = [(w - bw - m, m), (m, m), (w - bw - m, h - bh - m), (m, h - bh - m)]   # 右上、左上、右下、左下，一样空就按这个顺序
+    scored = []
+    for i, (x, y) in enumerate(spots):
+        if x < 0 or y < 0:
+            continue
+        st = ImageStat.Stat(gray.crop((x, y, x + bw, y + bh)))
+        scored.append((round(st.stddev[0]), i, (x, y)))
+    best = min(scored) if scored else (999, 0, (m, m))
+    x, y = best[2]
+    if best[0] > 30:                      # 四个角都不空：顶上加一条白边
+        band = bh + 2 * m
+        canvas = Image.new('RGB', (w, h + band), 'white')
+        canvas.paste(im, (0, band))
+        im, x, y = canvas, m, m
+    d = ImageDraw.Draw(im)
+    d.rounded_rectangle([x, y, x + bw, y + bh], radius=max(4, pad // 2), fill='white',
+                        outline=(200, 0, 0), width=max(3, short // 250))
+    d.text((x + pad - l, y + pad - t), text, font=font, fill=(200, 0, 0))
+    im.save(out, 'JPEG', quality=88)
+    return out
+
+
+# ---------------------------------------------------------------- 名单
+def load_names(path: str | None) -> list[tuple[str, str]]:
+    """名单.txt：一行一个「工号/名字」，# 开头是注释。"""
+    out = []
+    if not path or not os.path.isfile(path):
+        return out
+    with open(path, encoding='utf-8-sig') as fh:
+        for line in fh:
+            t = line.strip()
+            if not t or t.startswith('#'):
+                continue
+            mm = re.match(r'^(\d+)\s*[/／\s]\s*(.+?)$', t)
+            if mm:
+                out.append((mm.group(1), re.sub(r'\s+', ' ', mm.group(2))))
+    return out
+
+
+def _sim(a: str, b: str) -> float:
+    a = re.sub(r'[^A-Z\u4e00-\u9fff]', '', a.upper())
+    b = re.sub(r'[^A-Z\u4e00-\u9fff]', '', b.upper())
+    if not a or not b:
+        return 0.0
+    return difflib.SequenceMatcher(None, a, b).ratio()
+
+
+def match_setter(raw: str, names: list[tuple[str, str]]) -> tuple[str, str, bool]:
+    """按名单把 SETTER 补全/纠正成「工号/名字」。返回 (值, 提示, 要不要标红)。"""
+    t = (raw or '').strip()
+    if not names or not t:
+        return raw, '', False
+    mm = re.match(r'^\s*([0-9□]+)\s*[/／\-\s]?\s*(.*)$', t)
+    num, nm = (mm.group(1), mm.group(2).strip()) if mm else ('', t)
+    by_num = dict(names)
+    if num.isdigit() and num in by_num:
+        canon = f'{num}/{by_num[num]}'
+        if not nm or _sim(nm, by_num[num]) >= 0.5:
+            return canon, '', False
+        return raw, f'SETTER 工号 {num} 在名单上是 {by_num[num]}，单子上名字是「{nm}」', True
+    best = max(names, key=lambda x: _sim(nm, x[1]))
+    if nm and _sim(nm, best[1]) >= 0.75:
+        canon = f'{best[0]}/{best[1]}'
+        if num == best[0]:
+            return canon, '', False
+        if '□' in num and re.fullmatch(num.replace('□', r'\d'), best[0]):      # 工号有个字看不清，名字对得上：按名单补
+            return canon, f'SETTER 看不清的工号按名单补成 {best[0]}', False
+        return canon, f'SETTER 按名字对上名单，工号补成 {best[0]}（单子上：{t}）', True
+    return raw, 'SETTER 不在名单里', True
 
 
 # ---------------------------------------------------------------- API
@@ -190,7 +298,15 @@ def model_name(m: str) -> str:
     return re.sub(r'^models/', '', (m or '').strip()) or DEFAULT_MODEL
 
 
-def build_body(jpeg: bytes, model: str, schema: bool = True) -> dict:
+def build_prompt(names: list[tuple[str, str]] | None = None) -> str:
+    if not names:
+        return PROMPT
+    roster = '\n'.join(f'{n}/{nm}' for n, nm in names)
+    return (PROMPT + '\n\n设定员名单（SETTER 只会是其中之一）：单子上只写了工号、只写了名字、或者写得潦草，'
+            '就按这份名单输出完整的「工号/名字」；对不上名单的照单子原样抄。\n' + roster)
+
+
+def build_body(jpeg: bytes, model: str, schema: bool = True, names: list[tuple[str, str]] | None = None) -> dict:
     gen = {'responseMimeType': 'application/json'}
     if schema:
         gen['responseSchema'] = SCHEMA
@@ -199,7 +315,7 @@ def build_body(jpeg: bytes, model: str, schema: bool = True) -> dict:
     if re.match(r'^gemini-2\.5-flash(?!-lite)', model):
         gen['thinkingConfig'] = {'thinkingBudget': 0}
     return {
-        'systemInstruction': {'parts': [{'text': PROMPT}]},
+        'systemInstruction': {'parts': [{'text': build_prompt(names)}]},
         'contents': [{'role': 'user', 'parts': [
             {'text': '把这张图片里的刀具破损记录逐条填好。'},
             {'inline_data': {'mime_type': 'image/jpeg', 'data': base64.b64encode(jpeg).decode()}},
@@ -391,9 +507,10 @@ def put(ws, row: int, col: int, value):
 class RecordBook:
     """长得跟公司那本 TOOL BROKEN RECORD 一样。边干边写：每批干完就存一次盘。"""
 
-    def __init__(self, path: str, today: date | None = None):
+    def __init__(self, path: str, today: date | None = None, names: list[tuple[str, str]] | None = None):
         self.path = path
         self.today = today
+        self.names = names or []
         self.wb = Workbook()
         ws = self.ws = self.wb.active
         ws.title = 'RECORD'
@@ -504,6 +621,12 @@ class RecordBook:
                 if v not in ('D', 'N'):
                     red.add(f)
                     notes.append(f'SHIFT 不是 D/N：{raw}')
+            elif f == 'setter' and raw and self.names:
+                v, note, flag = match_setter(raw, self.names)
+                if note:
+                    notes.append(note)
+                if flag:
+                    red.add(f)
             if isinstance(v, str) and '□' in v:
                 red.add(f)
                 notes.append(f'{f.upper()} 有看不清的字')
@@ -552,6 +675,7 @@ class Result:
     skipped: int = 0
     requests: int = 0
     xlsx: str = ''
+    photos_dir: str = ''
     stopped_reason: str = ''
     errors: list = field(default_factory=list)
 
@@ -591,7 +715,7 @@ def unique_dest(d: str, name: str) -> str:
 class Engine:
     def __init__(self, folder: str, keys: list[str], model: str = DEFAULT_MODEL,
                  log=print, progress=None, stop: threading.Event | None = None,
-                 clock=time.time, sleep=None):
+                 clock=time.time, sleep=None, names_path: str | None = None):
         self.folder = folder
         self.model = model_name(model)
         self.log = log
@@ -604,6 +728,7 @@ class Engine:
         self.res = Result()
         self.fatal: str = ''
         self.use_schema = True
+        self.names = load_names(names_path)
 
     # 可被「停止」打断的等待
     def wait(self, seconds: float):
@@ -637,7 +762,7 @@ class Engine:
 
     def _recognize(self, path: str) -> list[dict]:
         jpeg = prepare_image(path)
-        body = build_body(jpeg, self.model, self.use_schema)
+        body = build_body(jpeg, self.model, self.use_schema, self.names)
         minute_hits = 0
         net_tries = 0
         while True:
@@ -675,7 +800,7 @@ class Engine:
                         self.use_schema = False
                         self.log(f'模型不认结构化输出格式，改用纯 JSON 提示重试 · {e.raw()}')
                     if 'responseSchema' in body['generationConfig']:
-                        body = build_body(jpeg, self.model, False)
+                        body = build_body(jpeg, self.model, False, self.names)
                         continue
                 if e.status in (400, 401, 403) and re.search(r'API key|API_KEY|permission|PERMISSION', f'{e.message} {e.detail}'):
                     raise Fatal(f'钥匙{i + 1} · {e.raw()}')
@@ -739,22 +864,30 @@ class Engine:
         width = max(2, len(str(total)))
         done_dir = os.path.join(done_root, run_id)
         res.xlsx = os.path.join(out_dir, f'识别结果_{run_id}.xlsx')
-        book = RecordBook(res.xlsx)
+        res.photos_dir = done_dir
+        book = RecordBook(res.xlsx, names=self.names)
         items = [(i + 1, p, h) for i, (p, h) in enumerate(todo)]      # 按拍摄顺序编号：第 1 张对应表里 No. 1
-        self.log(f'▶ 开工：{total} 张，按拍摄顺序编号 1–{total}，每批 {BATCH} 张，模型 {self.model}')
+        self.log(f'▶ 开工：{total} 张，按拍摄顺序编号 1–{total}，每批 {BATCH} 张，模型 {self.model}'
+                 + (f'，名单 {len(self.names)} 人' if self.names else '，没找到名单'))
         done = 0
         self.progress(0, total)
 
         def one(item):
             no, p, h = item
             try:
-                return no, p, h, self.recognize(p), ''
+                recs = self.recognize(p)
             except (Stopped, Fatal):
                 raise
             except ApiError as e:
                 return no, p, h, None, e.raw()
             except Exception as e:
                 return no, p, h, None, f'{type(e).__name__}：{e}'
+            try:                                    # 认完了才印编号：送去识别的永远是原图
+                os.makedirs(done_dir, exist_ok=True)
+                stamp_number(p, no, os.path.join(done_dir, f'{no:0{width}d}.jpg'))
+            except Exception as e:
+                self.log(f'{no:0{width}d} 编号照片没印成：{type(e).__name__}：{e}')
+            return no, p, h, recs, ''
 
         try:
             with ThreadPoolExecutor(BATCH) as pool:
@@ -776,8 +909,9 @@ class Engine:
                         if recs is not None:
                             res.ok += 1
                             res.records += len(recs)
-                            os.makedirs(done_dir, exist_ok=True)
-                            os.replace(p, unique_dest(done_dir, f'{tag}_{name}'))
+                            orig_dir = os.path.join(done_dir, ORIG_DIR)
+                            os.makedirs(orig_dir, exist_ok=True)
+                            os.replace(p, unique_dest(orig_dir, f'{tag}_{name}'))
                             ledger[h] = {'file': name, 'no': no, 'xlsx': os.path.basename(book.path),
                                          'at': datetime.now().isoformat(timespec='seconds')}
                             self.log(f'✓ {tag} {name} · {len(recs)} 条')

@@ -109,7 +109,11 @@ def test_twelve_photos_numbered_in_order(tmp_path):
     assert ws.auto_filter.ref == 'A3:N15' and ws.freeze_panes == 'B4'
     run_dirs = os.listdir(tmp_path / '已识别')
     assert len(run_dirs) == 1 and run_dirs[0] in res.xlsx
-    assert sorted(os.listdir(tmp_path / '已识别' / run_dirs[0])) == [f'{i + 1:02d}_img_{i:02d}.jpg' for i in range(12)]
+    run_dir = tmp_path / '已识别' / run_dirs[0]
+    assert sorted(os.listdir(run_dir)) == sorted([f'{i + 1:02d}.jpg' for i in range(12)] + ['原图'])     # 印了编号的照片
+    assert sorted(os.listdir(run_dir / '原图')) == [f'{i + 1:02d}_img_{i:02d}.jpg' for i in range(12)]  # 原图原封不动
+    assert res.photos_dir == str(run_dir)
+    assert Image.open(run_dir / '原图' / '01_img_00.jpg').size == (800, 600)
     assert not [f for f in os.listdir(tmp_path) if f.endswith('.jpg')]
     ledger = json.load(open(tmp_path / '识别结果' / engine.LEDGER, encoding='utf-8'))
     assert sorted(v['no'] for v in ledger.values()) == list(range(1, 13))
@@ -209,7 +213,7 @@ def test_rerun_skips_done_even_renamed(tmp_path):
     make_images(tmp_path, 3)
     run(tmp_path)
     mock_server.STATE['log'] = []
-    first = done_files(tmp_path)[1]
+    first = [f for f in done_files(tmp_path) if '原图' in f][1]
     shutil.copy(tmp_path / first, tmp_path / '改了名.jpg')
     make_images(tmp_path, 1, start=50)
     res, logs, _ = run(tmp_path)
@@ -372,3 +376,90 @@ def test_excel_survives_formula_and_control_chars(tmp_path):
     assert ws.cell(row=4, column=3).value == '=1+1' and ws.cell(row=4, column=3).data_type == 's'
     assert ws.cell(row=4, column=14).value == 'okbell'
     assert '识别失败：HTTP 500：boom' in ws.cell(row=5, column=15).value
+
+
+def _red_box_at(im, box):
+    reds = 0
+    for x in range(box[0], box[2], 3):
+        for y in range(box[1], box[3], 3):
+            r, g, b = im.getpixel((x, y))[:3]
+            reds += r > 150 and g < 80 and b < 80
+    return reds
+
+
+def test_stamp_goes_to_an_empty_corner(tmp_path):
+    src = tmp_path / 'form.jpg'
+    im = Image.new('RGB', (1200, 900), 'white')
+    from PIL import ImageDraw
+    d = ImageDraw.Draw(im)
+    for i in range(0, 400, 12):                       # 左上角写满「字」
+        d.line([(0, i), (420, i)], fill='black', width=3)
+    im.save(src)
+    out = tmp_path / '07.jpg'
+    engine.stamp_number(str(src), 7, str(out))
+    st = Image.open(out).convert('RGB')
+    assert st.size == (1200, 900)                      # 有空角就不加白边
+    assert _red_box_at(st, (850, 0, 1200, 250)) > 20   # 印在右上角那个空角
+    assert _red_box_at(st, (0, 0, 420, 400)) == 0      # 左上角的「字」没被盖
+    assert st.getpixel((10, 12))[0] < 80
+
+
+def test_stamp_adds_a_band_when_every_corner_is_busy(tmp_path):
+    import random
+    random.seed(1)
+    src = tmp_path / 'busy.png'
+    im = Image.new('L', (600, 400))
+    im.putdata([random.choice((0, 255)) for _ in range(600 * 400)])
+    im.convert('RGB').save(src)
+    out = tmp_path / '12.jpg'
+    engine.stamp_number(str(src), 12, str(out))
+    st = Image.open(out).convert('RGB')
+    assert st.size[0] == 600 and st.size[1] > 400          # 顶上加了一条白边
+    assert _red_box_at(st, (0, 0, 600, st.size[1] - 400)) > 10
+
+
+def test_stamp_follows_exif_rotation_and_shrinks_huge_photos(tmp_path):
+    src = tmp_path / 'rot.jpg'
+    im = Image.new('RGB', (5000, 2500), 'white')
+    ex = im.getexif()
+    ex[0x0112] = 6
+    im.save(src, exif=ex)
+    out = tmp_path / '01.jpg'
+    engine.stamp_number(str(src), 1, str(out))
+    assert Image.open(out).size == (1280, 2560)
+
+
+NAMES = [('639', 'Tan Bao Hong'), ('535', 'GANESAN RANJITH'), ('552', 'PANTHALLA VENUGOPAL'), ('232', 'YANG FAN')]
+
+
+def test_match_setter_rules():
+    m = lambda raw: engine.match_setter(raw, NAMES)
+    assert m('535') == ('535/GANESAN RANJITH', '', False)                       # 只写工号：补名字
+    assert m('535/Ganesan') == ('535/GANESAN RANJITH', '', False)               # 名字潦草：按名单
+    assert m('639 Tan B Hong') == ('639/Tan Bao Hong', '', False)
+    v, note, red = m('PANTHALLA VENUGOPAL')                                     # 只写名字：补工号，标红让你看
+    assert v == '552/PANTHALLA VENUGOPAL' and red and '工号补成 552' in note
+    v, note, red = m('535/YANG FAN')                                            # 工号和名字对不上
+    assert v == '535/YANG FAN' and red and '工号 535 在名单上是 GANESAN RANJITH' in note
+    v, note, red = m('999/NOBODY HERE')
+    assert v == '999/NOBODY HERE' and red and note == 'SETTER 不在名单里'
+    assert engine.match_setter('535', []) == ('535', '', False)                 # 没名单：照抄
+
+
+def test_roster_goes_into_prompt_and_fixes_setter(tmp_path):
+    roster = tmp_path / '名单.txt'
+    roster.write_text('# 工号/名字\n639/Tan Bao Hong\n535 / GANESAN RANJITH\n\n', encoding='utf-8')
+    assert engine.load_names(str(roster)) == [('639', 'Tan Bao Hong'), ('535', 'GANESAN RANJITH')]
+    imgs = tmp_path / 'in'
+    make_images(imgs, 1)
+    mock_server.STATE['modes'] = {K1: 'unclear'}                                # setter 写成 6□9/Tan Bao Hong
+    logs = []
+    res = engine.Engine(str(imgs), [K1], log=logs.append, names_path=str(roster)).run()
+    prompt = mock_server.STATE['log'][0]['sys']
+    assert any('名单 2 人' in m for m in logs)
+    ws = sheet(res.xlsx)
+    assert ws.cell(row=4, column=14).value == '639/Tan Bao Hong'                # □ 按名单补上了
+    assert not ws.cell(row=4, column=14).fill.fgColor.rgb.endswith('FFC7CE')
+    body = engine.build_body(b'x', 'gemini-3.5-flash-lite', names=engine.load_names(str(roster)))
+    assert '535/GANESAN RANJITH' in body['systemInstruction']['parts'][0]['text']
+    assert prompt
