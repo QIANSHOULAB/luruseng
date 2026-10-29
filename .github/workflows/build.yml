@@ -43,10 +43,13 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "exe exit $($p.ExitCode)" }
           $x = Get-ChildItem (Join-Path $dir '识别结果') -Filter *.xlsx
           if ($x.Count -ne 1) { throw 'no xlsx' }
-          $moved = Get-ChildItem (Join-Path $dir '已识别') -Recurse -File
-          $moved | ForEach-Object { $_.Name }
-          if ($moved.Count -ne 7) { throw 'not all moved' }
-          if (-not ($moved | Where-Object { $_.Name -like '01_*' })) { throw 'not numbered' }
+          $run = Get-ChildItem (Join-Path $dir '已识别') -Directory | Select-Object -First 1
+          $stamped = Get-ChildItem $run.FullName -File
+          $orig = Get-ChildItem (Join-Path $run.FullName '原图') -File
+          $stamped | ForEach-Object { "stamped: $($_.Name) $($_.Length)" }
+          $orig | ForEach-Object { "original: $($_.Name)" }
+          if ($stamped.Count -ne 7 -or -not ($stamped | Where-Object { $_.Name -eq '01.jpg' })) { throw 'numbered photos missing' }
+          if ($orig.Count -ne 7 -or -not ($orig | Where-Object { $_.Name -like '01_*' })) { throw 'originals missing' }
       - name: Shortcut test
         shell: pwsh
         run: |
