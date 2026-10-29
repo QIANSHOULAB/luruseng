@@ -30,7 +30,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-VERSION = '1.6.1'
+VERSION = '1.6.2'
 APP_NAME = '录入僧'
 SUBTITLE = '施主去玩，贫僧填表'
 OLD_NAME = '搬工'                   # 改名前的名字：旧账本、旧配置照样认
@@ -62,6 +62,12 @@ NEVER_RED = {'date'}                # 日期错了无所谓，不标红
 
 PROMPT = """你是工厂的刀具破损记录（TOOL BROKEN RECORD）录入员。从图片里找出每一条刀具破损记录，每条记录填下面 13 个字段。
 图片可能是一张单子（一条记录），也可能是一页登记表（好几行，每行一条记录）。
+最常见的是「TOOL REQUEST FORM 换刀调试单」，一张就是一条记录，各格对应：
+  M/C No. 机器号码 → machine；Part Number 产品型号 → part_number；MO Number → mo；Opr No. 步骤 → opr_no；Date & Time 日期时间 → date；
+  Shift 班次：Day/Night 哪个被圈、打勾，或者旁边写了「白」「早」→ D，写了「夜」「晚」→ N，都没标就空；
+  Tool Information 刀具信息：手写的一串，开头的 T 加数字是刀号 → t_no（写了几把刀，比如 T6.T7，就填 "T6, T7"），刀号后面剩下的原样抄进 description（Φ 照写 Φ，比如 Φ4 FMM X2、FACEMILL Φ40 R0.8）；印好的「磨损 Wear / 折断 Broken」被圈哪个都不用管；
+  Total Quantity Screened 筛选数量 → total_screened；Quantity Passed 合格数量 → passed；Quantity Failed 不合格数量 → failed；
+  Setter Emp No. 调试员工号 → setter（通常只写了工号）；单子上没有 BTMP，btmp 填空；QC 签名和 OK/NG 不要。
 
 字段（括号里是单子上可能出现的写法和真实例子）：
 - date：日期（DATE）。照单子上写的抄，例如 28/10、28-10-26、1-Oct。新加坡写法，日在前、月在后。
@@ -70,7 +76,7 @@ PROMPT = """你是工厂的刀具破损记录（TOOL BROKEN RECORD）录入员�
 - mo：工单号（MO、W/O）。通常是 8 位数字，例如 82664580、82665285。
 - opr_no：工序号（OPR NO.、OP）。例如 110、130、150、170。
 - t_no：刀号（T NO.、TOOL NO.）。例如 T4、T9、T58、T343。
-- description：刀具描述（DESCRIPTION）。例如 EM2.5、EM6、EM1.5、BU10、SD3、DR09、FC6.4、M3、BM1。
+- description：刀具描述（DESCRIPTION、Tool Information）。例如 EM2.5、EM6、BU10、SD3、DR09、FC6.4、Φ1.5 FEM、FACEMILL Φ40 R0.8。
 - btmp：BTMP，数字。
 - total_screened：检查总数（TOTAL SCREENED），数字。
 - passed：合格数（PASSED），数字。
