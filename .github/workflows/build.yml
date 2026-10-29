@@ -1,0 +1,53 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: pip install -r requirements.txt pytest pyinstaller
+      - name: Tests (Windows)
+        run: python -m pytest -q tests
+      - name: Build exe
+        run: pyinstaller --noconfirm --onefile --windowed --name bangong --icon assets/bangong.ico --add-data "assets/bangong.ico;assets" --collect-all pillow_heif main.py
+      - name: Smoke test the exe against the mock server
+        shell: pwsh
+        run: |
+          $mock = Start-Process python -ArgumentList 'tests/mock_server.py','8765' -PassThru -WindowStyle Hidden
+          Start-Sleep 3
+          $dir = Join-Path $env:RUNNER_TEMP '搬工测试'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          python -c "from PIL import Image; [Image.new('RGB',(900,700),'white').save(r'$dir\p%d.jpg'%i) for i in range(7)]"
+          $env:BANGONG_API = 'http://127.0.0.1:8765/v1beta'
+          $env:BANGONG_KEY1 = 'AIzaSMOKE'
+          $p = Start-Process dist/bangong.exe -ArgumentList '--cli',$dir -Wait -PassThru
+          Stop-Process $mock.Id
+          Get-Content (Join-Path $dir '识别结果\搬工日志.txt') -Encoding UTF8
+          if ($p.ExitCode -ne 0) { throw "exe exit $($p.ExitCode)" }
+          $x = Get-ChildItem (Join-Path $dir '识别结果') -Filter *.xlsx
+          if ($x.Count -ne 1) { throw 'no xlsx' }
+          if ((Get-ChildItem (Join-Path $dir '已识别')).Count -ne 7) { throw 'not all moved' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bangong-exe
+          path: dist/bangong.exe
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: 搬工 最新版
+          files: dist/bangong.exe
+          make_latest: true
