@@ -32,7 +32,8 @@ def server():
 
 @pytest.fixture(autouse=True)
 def reset(server):
-    mock_server.STATE.update(modes={}, log=[], inflight=0, peak=0, delay=0.05, once={})
+    mock_server.STATE.update(modes={}, log=[], inflight=0, peak=0, delay=0.05, once={}, calls={})
+    engine.READS = 1          # 老测试按一张一遍算请求数；两遍对答案在 test_accuracy.py 里单独测
 
 
 def make_images(folder, n, start=0):

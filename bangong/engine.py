@@ -10,6 +10,7 @@ import os
 import re
 import threading
 import time
+from collections import Counter
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -17,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
-from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageStat
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps, ImageStat
 
 try:
     import pillow_heif  # iPhone 的 HEIC
@@ -30,7 +31,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-VERSION = '1.6.3'
+VERSION = '1.7.0'
 APP_NAME = '录入僧'
 SUBTITLE = '施主去玩，贫僧填表'
 OLD_NAME = '搬工'                   # 改名前的名字：旧账本、旧配置照样认
@@ -53,6 +54,7 @@ MINUTE_WAIT = 60
 TIMEOUT = 180
 RETRY_WAITS = [10, 30, 60]          # 5xx / 断网重试间隔
 MAX_MINUTE_WAITS = 30               # 同一张连续撞每分钟上限的次数上限
+READS = 2                           # 每张认两遍对答案；两遍对不上再认第三遍，按多数定，还是对不上的格子标红
 
 # 公司那本 TOOL BROKEN RECORD 的 13 列（顺序一格不差）
 FIELDS = ['date', 'machine', 'part_number', 'mo', 'opr_no', 't_no', 'description',
@@ -64,15 +66,15 @@ PROMPT = """你是工厂的刀具破损记录（TOOL BROKEN RECORD）录入员�
 图片可能是一张单子（一条记录），也可能是一页登记表（好几行，每行一条记录）。
 最常见的是「TOOL REQUEST FORM 换刀调试单」，一张就是一条记录，各格对应：
   M/C No. 机器号码 → machine；Part Number 产品型号 → part_number；MO Number → mo；Opr No. 步骤 → opr_no；Date & Time 日期时间 → date；
-  Shift 班次：Day/Night 哪个被圈、打勾，或者旁边写了「白」「早」→ D，写了「夜」「晚」→ N，都没标就空；
-  Tool Information 刀具信息：手写的一串，开头的 T 加数字是刀号 → t_no（写了几把刀，比如 T6.T7，就填 "T6, T7"），刀号后面剩下的原样抄进 description（Φ 照写 Φ，比如 Φ4 FMM X2、FACEMILL Φ40 R0.8）；印好的「磨损 Wear / 折断 Broken」被圈哪个都不用管；
+  Shift 班次：只看手写的记号。Day 或 Night 被圈住、打了勾，或者旁边手写了「白」「早」「D」→ D；手写了「夜」「晚」「N」→ N。Day、Night 这两个词是印好的，没有任何手写记号就填空字符串，不要猜；
+  Tool Information 刀具信息：手写的一串。所有 T 加数字的都是刀号 → t_no（写了几把刀，比如 T6.T7，就填 "T6, T7"，一把都不能漏），刀号不要写进 description；剩下的原样抄进 description，例如 Φ4 FMM X2、FACEMILL Φ40 R0.8。直径符号 Φ（手写常是一个圆圈中间一竖，也可能写成 ø）一定照写成 Φ，不要漏；印好的「磨损 Wear / 折断 Broken」被圈哪个都不用管；
   Total Quantity Screened 筛选数量 → total_screened；Quantity Passed 合格数量 → passed；Quantity Failed 不合格数量 → failed；
   Setter Emp No. 调试员工号 → setter（通常只写了工号）；单子上没有 BTMP，btmp 填空；QC 签名和 OK/NG 不要。
 
 字段（括号里是单子上可能出现的写法和真实例子）：
 - date：日期（DATE）。照单子上写的抄，例如 28/10、28-10-26、1-Oct。新加坡写法，日在前、月在后。
 - machine：机台（MACHINE、M/C）。例如 VM-07、VM-14、4X-9、4X-16、5X-3、HM-3。
-- part_number：零件号（PART NUMBER、PART NO.）。例如 TD-524613-5、AB-5313706C、TD-HAR8308G-05、TD-722-771-00-C。
+- part_number：零件号（PART NUMBER、PART NO.）。例如 TD-524613-5、AB-5313706C、AB-144125AE、TD-HAR8308G-05、TD-722-771-00-C。零件号中间没有空格。
 - mo：工单号（MO、W/O）。通常是 8 位数字，例如 82664580、82665285。
 - opr_no：工序号（OPR NO.、OP）。例如 110、130、150、170。
 - t_no：刀号（T NO.、TOOL NO.）。例如 T4、T9、T58、T343。
@@ -81,7 +83,7 @@ PROMPT = """你是工厂的刀具破损记录（TOOL BROKEN RECORD）录入员�
 - total_screened：检查总数（TOTAL SCREENED），数字。
 - passed：合格数（PASSED），数字。
 - failed：不合格数（FAILED），数字。
-- shift：班次（SHIFT），只有 D（白班）或 N（夜班）。
+- shift：班次（SHIFT），只有 D（白班）或 N（夜班）；单子上没标就填空字符串。
 - setter：设定员（SETTER、Setter Emp No.）。照单子写的抄：只写了工号就只填工号（例如 232），写了「工号/名字」就照抄（例如 639/Lee Ah Kow）。
 
 规则：
@@ -202,8 +204,11 @@ def _shrink(im: Image.Image, side: int) -> Image.Image:
     return im.resize((max(1, round(w * s)), max(1, round(h * s))), Image.LANCZOS)
 
 
-def prepare_image(path: str) -> bytes:
+def prepare_image(path: str, enhance: bool = False) -> bytes:
+    """enhance=True 是第二遍用的：拉一下对比度、锐化一点，让两遍看到的不完全一样，错不到一块去。"""
     im = _shrink(_load_rgb(path), MAX_SIDE)
+    if enhance:
+        im = ImageOps.autocontrast(im, cutoff=1).filter(ImageFilter.UnsharpMask(radius=2, percent=80, threshold=3))
     buf = io.BytesIO()
     im.save(buf, 'JPEG', quality=JPEG_Q, optimize=True)
     return buf.getvalue()
@@ -468,9 +473,100 @@ def to_int(s: str):
     return int(t) if re.fullmatch(r'\d{1,12}', t) else None
 
 
+SHIFT_WORDS = {'DAY': 'D', 'NIGHT': 'N', 'D/S': 'D', 'N/S': 'N', 'DS': 'D', 'NS': 'N', 'DAY SHIFT': 'D', 'NIGHT SHIFT': 'N',
+               '白': 'D', '白班': 'D', '早': 'D', '早班': 'D', '日': 'D', '日班': 'D', '夜': 'N', '夜班': 'N', '晚': 'N', '晚班': 'N'}
+
+
 def norm_shift(s: str) -> str:
-    t = (s or '').strip().upper()
-    return {'DAY': 'D', 'NIGHT': 'N', 'D/S': 'D', 'N/S': 'N', 'DS': 'D', 'NS': 'N'}.get(t, t)
+    t = re.sub(r'\s+', ' ', (s or '').strip().upper())
+    return SHIFT_WORDS.get(t, t)
+
+
+# ---------------------------------------------------------------- 认完先整理格式（不改内容）
+DASHES = re.compile(r'[‐‑‒–—―－ー一]')
+DIAMETER = re.compile(r'[ØøΦφϕ⌀Фф∅]')
+T_LEAD = re.compile(r'^\s*((?:T\s*\d+\s*[.,，、;；/&+]*\s*)+)(.*)$', re.I)
+
+
+def t_numbers(s: str) -> list[str]:
+    return ['T' + n for n in re.findall(r'T\s*(\d+)', s or '', re.I)]
+
+
+def clean_record(rec: dict) -> dict:
+    """只整理写法，不动内容：零件号/机台去空格、统一横杠；描述开头混进去的刀号挪回 T NO.；
+    Φ 的各种写法统一成 Φ；班次的「白/夜/Day/Night」统一成 D/N。"""
+    r = dict(rec)
+    for f in ('part_number', 'machine'):
+        r[f] = DASHES.sub('-', re.sub(r'\s+', '', r.get(f, ''))).upper()
+    for f in ('mo', 'opr_no', 'btmp', 'total_screened', 'passed', 'failed'):
+        r[f] = re.sub(r'\s+', '', r.get(f, ''))
+    desc = DIAMETER.sub('Φ', r.get('description', ''))
+    tn = t_numbers(r.get('t_no', ''))
+    m = T_LEAD.match(desc)
+    if m and t_numbers(m.group(1)):                 # 「T44 M3 TAP X2」：开头的 T44 是刀号，不是描述
+        tn += [t for t in t_numbers(m.group(1)) if t not in tn]
+        desc = m.group(2)
+    desc = re.sub(r'^[\s.,，、:;；\-]+', '', desc)
+    desc = re.sub(r'\s*Φ\s*', ' Φ', desc).strip()     # 「Φ 4」「Φ4」都写成「Φ4」，前面空一格
+    r['description'] = re.sub(r'\s+', ' ', desc).upper()
+    if tn:
+        r['t_no'] = ', '.join(dict.fromkeys(tn))
+    else:
+        r['t_no'] = r.get('t_no', '').strip().upper()
+    if r.get('shift'):
+        r['shift'] = norm_shift(r['shift'])
+    r['setter'] = re.sub(r'\s*/\s*', '/', r.get('setter', '').strip())
+    return r
+
+
+def vote_key(f: str, v: str) -> str:
+    """两遍对答案时怎么算「一样」：大小写、空格不算；日期按日/月比；数字按数值比。"""
+    t = (v or '').strip()
+    if f == 'date':
+        d = parse_date(t, date(2000, 1, 1))
+        return f'{d.day}/{d.month}' if d else re.sub(r'\s+', '', t)
+    if f in NUM_FIELDS or f in ('mo', 'opr_no'):
+        n = to_int(t)
+        return str(n) if n is not None else re.sub(r'\s+', '', t).upper()
+    if f == 'shift':
+        return norm_shift(t)
+    return re.sub(r'\s+', '', t).upper()
+
+
+def records_agree(a: list[dict], b: list[dict]) -> bool:
+    return len(a) == len(b) and all(vote_key(f, x.get(f, '')) == vote_key(f, y.get(f, ''))
+                                    for x, y in zip(a, b) for f in FIELDS)
+
+
+def vote(reads: list[list[dict]]) -> list[dict]:
+    """几遍的结果按多数定：条数先按多数定，再一格一格按多数定（打平就用第一遍的）。
+    几遍认得不一样的格子记进 disputed，写表时标红。"""
+    if len(reads) == 1:
+        return [dict(r, disputed={}) for r in reads[0]]
+    counts = Counter(len(r) for r in reads)
+    target, n = counts.most_common(1)[0]
+    if n == 1:
+        target = len(reads[0])
+    cand = [r for r in reads if len(r) == target]
+    no_majority = n == 1
+    out = []
+    for i in range(target):
+        rec, disputed = {}, {}
+        for f in FIELDS:
+            vals = [r[i].get(f, '') for r in cand]
+            keys = [vote_key(f, v) for v in vals]
+            c = Counter(keys)
+            top = c.most_common(1)[0][1]
+            best = keys[0] if c[keys[0]] == top else c.most_common(1)[0][0]
+            rec[f] = vals[keys.index(best)]
+            if len(c) > 1 or no_majority:
+                disputed[f] = list(dict.fromkeys(v or '空' for v in vals))
+        rec['unsure'] = sorted(set().union(*(set(r[i].get('unsure') or ()) for r in cand)))
+        rec['disputed'] = disputed
+        if len(cand) < len(reads):
+            rec['counts'] = [len(r) for r in reads]
+        out.append(rec)
+    return out
 
 
 def classify_429(e: ApiError) -> str:
@@ -607,6 +703,7 @@ class RecordBook:
         notes, red, orange = [], set(), set()
         values = {}
         unsure = set(rec.get('unsure') or ())       # 模型自己说拿不准的字段：认得清的不标，拿不准的才标
+        disputed = dict(rec.get('disputed') or {})   # 几遍认得不一样的字段
         if self.kb is not None:                     # 先拿数据库当准绳：像的改成库里的写法（橙）
             rec, fixed, flags = self.kb.fix(rec, unsure)
             for f, (old, new, why) in fixed.items():
@@ -652,6 +749,14 @@ class RecordBook:
                 red.add(f)
                 notes.append(f'{f.upper()} 有看不清的字')
             values[f] = v
+        if rec.get('single'):
+            notes.append('只认成了一遍，没能对答案')
+        if rec.get('counts'):
+            notes.append('几遍认出的条数不一样（' + ' / '.join(map(str, rec['counts'])) + ' 条），按多数定')
+        for f in FIELDS:                            # 几遍认得不一样、又没被数据库改好的字段：标红
+            if f in disputed and f not in orange and f not in NEVER_RED:
+                red.add(f)
+                notes.append(f'{f.upper()} 几遍认得不一样：' + ' / '.join(disputed[f]))
         for f in FIELDS:                            # 模型拿不准、又没被数据库改好的字段：标红
             if f in unsure and f not in red and f not in orange and f not in NEVER_RED:
                 red.add(f)
@@ -743,8 +848,9 @@ class Engine:
     def __init__(self, folder: str, keys: list[str], model: str = DEFAULT_MODEL,
                  log=print, progress=None, stop: threading.Event | None = None,
                  clock=time.time, sleep=None, names_path: str | None = None,
-                 kb_path: str | None = None, feed_dir: str | None = None):
+                 kb_path: str | None = None, feed_dir: str | None = None, reads: int | None = None):
         self.folder = folder
+        self.reads = max(1, reads if reads is not None else READS)
         self.model = model_name(model)
         self.log = log
         self.progress = progress or (lambda done, total: None)
@@ -778,7 +884,7 @@ class Engine:
         if secs > 90:
             back = datetime.fromtimestamp(ts).strftime('%m-%d %H:%M')
             self.log(f'⏸ {why}，等到 {back} 额度刷新后接着干（约 {secs / 3600:.1f} 小时）')
-        elif secs > 0:
+        elif secs >= 1:
             self.log(f'⏸ {why}，等 {int(secs)} 秒')
         self.wait(secs)
 
@@ -792,7 +898,34 @@ class Engine:
             raise
 
     def _recognize(self, path: str) -> list[dict]:
+        """认一张：先认两遍（第二遍用拉过对比度的图），对得上就收；对不上认第三遍，按多数定。"""
         jpeg = prepare_image(path)
+        if self.reads == 1:
+            return vote([[clean_record(r) for r in self._read(jpeg, path)]])
+        plan = [jpeg, prepare_image(path, enhance=True)]
+        reads, errs = [], []
+        while plan:
+            img = plan.pop(0)
+            try:
+                reads.append([clean_record(r) for r in self._read(img, path)])
+            except (Stopped, Fatal):
+                raise
+            except Exception as e:              # 某一遍没认成：再补一遍，凑够两遍对答案
+                errs.append(e)
+                if len(errs) == 1 and len(reads) + len(plan) < 2:
+                    plan.append(jpeg)
+                continue
+            if not plan and len(reads) == 2 and not records_agree(reads[0], reads[1]):
+                plan.append(jpeg)                   # 两遍对不上：第三遍当裁判
+        if not reads:
+            raise errs[0]
+        out = vote(reads)
+        if len(reads) == 1:
+            for r in out:
+                r['single'] = True
+        return out
+
+    def _read(self, jpeg: bytes, path: str) -> list[dict]:
         body = build_body(jpeg, self.model, self.use_schema, self.names, self.hints)
         minute_hits = 0
         net_tries = 0
@@ -918,7 +1051,8 @@ class Engine:
         res.photos_dir = done_dir
         book = RecordBook(res.xlsx, names=self.names, kb=self.snapshot)
         items = [(i + 1, p, h) for i, (p, h) in enumerate(todo)]      # 按拍摄顺序编号：第 1 张对应表里 No. 1
-        self.log(f'▶ 开工：{total} 张，按拍摄顺序编号 1–{total}，每批 {BATCH} 张，模型 {self.model}'
+        self.log(f'▶ 开工（录入僧 v{VERSION}）：{total} 张，按拍摄顺序编号 1–{total}，每批 {BATCH} 张，模型 {self.model}'
+                 + ('，每张认两遍对答案' if self.reads >= 2 else '')
                  + (f'，名单 {len(self.names)} 人' if self.names else '，没找到名单'))
         done = 0
         self.progress(0, total)

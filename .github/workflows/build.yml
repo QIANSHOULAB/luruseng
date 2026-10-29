@@ -59,6 +59,24 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "feed exit $($p.ExitCode)" }
           if (-not (Test-Path 'dist/数据库.sqlite')) { throw 'no database file' }
           python -c "import sqlite3; c = sqlite3.connect('dist/数据库.sqlite'); n = c.execute('select count(*) from records').fetchone()[0]; print('records', n); assert n == 8"
+      - name: Update test (self-replace)
+        shell: pwsh
+        run: |
+          $d = Join-Path $env:RUNNER_TEMP '更新测试'
+          New-Item -ItemType Directory -Force $d | Out-Null
+          $old = Join-Path $d '录入僧.exe'
+          $new = Join-Path $d '录入僧.new.exe'
+          Set-Content -Path $old -Value 'old build'
+          Copy-Item dist/luruseng.exe $new
+          $v = Join-Path $d 'v.txt'
+          $p = Start-Process $new -ArgumentList '--write-version',$v -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "write-version exit $($p.ExitCode)" }
+          Write-Output "version: $(Get-Content $v)"
+          $env:BANGONG_NO_LAUNCH = '1'
+          $p = Start-Process $new -ArgumentList '--install-update',$old -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "install-update exit $($p.ExitCode)" }
+          if ((Get-FileHash $old).Hash -ne (Get-FileHash $new).Hash) { throw 'old exe was not replaced' }
+          Get-Content (Join-Path $d '更新日志.txt') -Encoding UTF8
       - name: Shortcut test
         shell: pwsh
         run: |

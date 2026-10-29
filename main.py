@@ -25,6 +25,22 @@ def cli(folder: str) -> int:
 
 if __name__ == '__main__':
     a = sys.argv[1:]
+    if a and a[0] == '--write-version':            # 换新版前试一下新 exe 能不能打开：把版本号写进文件
+        with open(a[1], 'w', encoding='utf-8') as fh:
+            fh.write(engine.VERSION)
+        sys.exit(0)
+    if a and a[0] == '--install-update':           # 录入僧.new.exe --install-update 旧exe路径：把自己抄过去再开
+        from bangong.autopilot import install_update
+        try:
+            install_update(sys.executable, a[1])
+        except Exception as e:
+            try:
+                from bangong.autopilot import log_update
+                log_update(os.path.dirname(a[1]), f'换新版失败：{type(e).__name__}：{e}')
+            except Exception:
+                pass
+            sys.exit(1)
+        sys.exit(0)
     if a and a[0] == '--version':
         if sys.stdout:
             print(engine.VERSION)

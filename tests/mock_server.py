@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, urlparse
 
 from PIL import Image
 
-STATE = {'modes': {}, 'log': [], 'inflight': 0, 'peak': 0, 'delay': 0.05, 'once': {}}
+STATE = {'modes': {}, 'log': [], 'inflight': 0, 'peak': 0, 'delay': 0.05, 'once': {}, 'calls': {}}
 LOCK = threading.Lock()
 
 
@@ -43,6 +43,8 @@ def answer(mode, body):
         text = '这不是 JSON'
     else:
         width = Image.open(io.BytesIO(raw)).size[0]          # 测试图的宽度 = 编号暗号，用来核对顺序
+        with LOCK:                                            # 同一张图第几次被认（测两遍对答案）
+            nth = STATE['calls'][width] = STATE['calls'].get(width, 0) + 1
         rec = {'date': '28/10', 'machine': 'VM-07', 'part_number': 'TD-524613-5', 'mo': '82664580',
                'opr_no': str(width), 't_no': 'T4', 'description': 'EM2.5', 'btmp': '1',
                'total_screened': '1', 'passed': '1', 'failed': '0', 'shift': 'D', 'setter': '639/Lee Ah Kow'}
@@ -61,6 +63,14 @@ def answer(mode, body):
             recs = [dict(rec, machine='VM-99', description='QQ7', setter='777/NEW GUY', unsure=[])]
         elif mode == 'confusable':
             recs = [dict(rec, machine='VM-O7', part_number='TD-S24613-5', description='EM2.S')]
+        elif mode == 'flip':                                  # 第 1、3 遍认成 D，第 2 遍认成 N
+            recs = [dict(rec, shift='N' if nth == 2 else 'D')]
+        elif mode == 'chaos':                                 # 三遍机台各不一样
+            recs = [dict(rec, machine=f'VM-0{nth}')]
+        elif mode == 'messy':                                 # 格式乱：零件号带空格、刀号混进描述、Φ 写成 ø、班次写「白」
+            recs = [dict(rec, part_number='TD-524 613-5', t_no='T9', description='T44. m3 ø6 tap x2', shift='白')]
+        elif mode == 'sometimes_none':                        # 第 2 遍什么都没认出来
+            recs = [] if nth == 2 else [rec]
         elif mode == 'aliases':
             recs = [{'DATE': '28/10', 'M/C': 'VM-07', 'Part No.': 'TD-524613-5', 'MO': '82664580', 'OPR NO.': '150',
                      'T NO.': 'T4', 'Description': 'EM2.5', 'BTMP': '1', 'Total Screened': '1', 'Passed': '1',

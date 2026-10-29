@@ -8,9 +8,10 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
+from datetime import datetime
 from tkinter import filedialog, ttk
 
-from . import engine
+from . import autopilot, engine
 
 
 def config_dir() -> str:
@@ -163,10 +164,14 @@ def migrate_old_home(new_dir: str | None = None) -> list[str]:
     return done
 
 
+SHORTCUT_VER = 2        # 2 = 桌面 + 开始菜单 + 开机启动
+
+
 def ensure_shortcuts(cfg: dict):
     """打包版第一次打开时，自己在桌面和开始菜单放「录入僧」快捷方式（以后不用再找 exe），顺手把改名前的「搬工」快捷方式挪走。
     用 Windows 自带的 Unicode 版 IShellLink，中文文件名、中文路径都不会变问号。"""
-    if os.name != 'nt' or not getattr(sys, 'frozen', False) or cfg.get('shortcut_for') == sys.executable:
+    if os.name != 'nt' or not getattr(sys, 'frozen', False) or (
+            cfg.get('shortcut_for') == sys.executable and cfg.get('shortcut_ver') == SHORTCUT_VER):
         return
     log = os.path.join(config_dir(), 'shortcut.log')
     lines = []
@@ -175,12 +180,14 @@ def ensure_shortcuts(cfg: dict):
         from win32com.shell import shell, shellcon
         pythoncom.CoInitialize()
         try:
-            for csidl in (shellcon.CSIDL_DESKTOPDIRECTORY, shellcon.CSIDL_PROGRAMS):
+            for csidl in (shellcon.CSIDL_DESKTOPDIRECTORY, shellcon.CSIDL_PROGRAMS, shellcon.CSIDL_STARTUP):
                 d = shell.SHGetFolderPath(0, csidl, None, 0)
                 os.makedirs(d, exist_ok=True)
                 link = pythoncom.CoCreateInstance(shell.CLSID_ShellLink, None,
                                                   pythoncom.CLSCTX_INPROC_SERVER, shell.IID_IShellLink)
                 link.SetPath(sys.executable)
+                if csidl == shellcon.CSIDL_STARTUP:          # 开机自己在后台挂着（窗口收在任务栏）
+                    link.SetArguments('--background')
                 link.SetWorkingDirectory(os.path.dirname(sys.executable))
                 link.SetIconLocation(sys.executable, 0)
                 link.SetDescription('刀具破损记录照片识别成 Excel')
@@ -193,6 +200,7 @@ def ensure_shortcuts(cfg: dict):
         finally:
             pythoncom.CoUninitialize()
         cfg['shortcut_for'] = sys.executable
+        cfg['shortcut_ver'] = SHORTCUT_VER
         save_config(cfg)
     except Exception as e:
         lines.append(f'{type(e).__name__}: {e}')
@@ -255,7 +263,12 @@ class App:
 
         ttk.Label(f, text='模型').grid(row=4, column=0, sticky='w', pady=3)
         self.model = tk.StringVar(value=cfg.get('model') or engine.DEFAULT_MODEL)
-        ttk.Combobox(f, textvariable=self.model, values=engine.MODELS).grid(row=4, column=1, sticky='w', padx=6)
+        mrow = ttk.Frame(f)
+        mrow.grid(row=4, column=1, columnspan=2, sticky='w', padx=6)
+        ttk.Combobox(mrow, textvariable=self.model, values=engine.MODELS).pack(side='left')
+        self.auto = tk.BooleanVar(value=cfg.get('auto', True))
+        ttk.Checkbutton(mrow, text='来图就干（文件夹里一有新照片就自己开工）', variable=self.auto,
+                        command=self.save).pack(side='left', padx=(14, 0))
 
         bar = ttk.Frame(f)
         bar.grid(row=5, column=0, columnspan=3, sticky='ew', pady=(10, 6))
@@ -293,6 +306,23 @@ class App:
         root.protocol('WM_DELETE_WINDOW', self.on_close)
         root.after(150, self.pump)
 
+        # 自动驾驶：来图就干、自己换新版
+        self.auto_run = False
+        self.watcher = autopilot.Watcher()
+        self.settle = autopilot.FileSettle()
+        self.updating = False
+        self.started_at = datetime.now().isoformat(timespec='seconds')
+        self.last_run: dict = {}
+        args = autopilot.startup_args()
+        if '--after-update' in args:
+            self.write(f'✓ 换上新版 v{engine.VERSION}')
+            threading.Thread(target=autopilot.retire_update_file, args=(app_dir(),), daemon=True).start()
+        if self.auto.get():
+            self.write('来图就干：开着。往文件夹里放照片，30 秒内放完它就自己开工。')
+        root.after(3000, self.tick)
+        if '--background' in args:
+            root.after(200, root.iconify)
+
     # ---------- UI 动作
     def pick(self):
         d = filedialog.askdirectory(initialdir=self.folder.get() or None)
@@ -309,15 +339,17 @@ class App:
 
     def save(self):
         self.cfg.update({'folder': self.folder.get(), 'key1': self.key1.get().strip(),
-                         'key2': self.key2.get().strip(), 'model': self.model.get().strip()})
+                         'key2': self.key2.get().strip(), 'model': self.model.get().strip(),
+                         'auto': bool(self.auto.get())})
         save_config(self.cfg)
 
     def log(self, msg: str):
         self.q.put(('log', msg))
 
-    def start(self):
-        if self.worker and self.worker.is_alive():
+    def start(self, auto: bool = False):
+        if self.worker and self.worker.is_alive() or self.updating:
             return
+        self.auto_run = auto
         k1, k2 = self.key1.get().strip(), self.key2.get().strip()
         if not k1 and not k2:
             self.write('✗ 先填钥匙')
@@ -325,6 +357,8 @@ class App:
         if k1 and k1 == k2:
             self.write('✗ 两个钥匙填的是同一把（额度按项目算，同一把没意义）')
             return
+        if auto:
+            self.write('▶ 来图就干：发现新照片，自己开工')
         self.save()
         self.stop.clear()
         self.start_btn.config(state='disabled')
@@ -384,8 +418,63 @@ class App:
 
     def on_close(self):
         self.save()
+        if self.auto.get():                         # 来图就干开着：× 只是收起来，后台照样盯着
+            self.write('窗口收起来了，后台照样盯着文件夹。真要退出：去掉「来图就干」的勾再点 ×。')
+            self.root.iconify()
+            return
         self.stop.set()
         self.root.destroy()
+
+    # ---------- 自动驾驶
+    def busy(self) -> bool:
+        return bool(self.worker and self.worker.is_alive()) or self.updating
+
+    def tick(self):
+        try:
+            self._tick()
+        except Exception as e:                      # 自动驾驶出错不能把窗口带崩
+            self.write(f'自动驾驶出错：{type(e).__name__}：{e}')
+        self.root.after(10_000, self.tick)
+
+    def _tick(self):
+        d = app_dir()
+        if autopilot.take_show_request(d):          # 又双击了一次图标：把窗口亮出来
+            self.root.deiconify()
+            self.root.lift()
+            self.root.focus_force()
+        autopilot.write_status(d, started=self.started_at, auto=bool(self.auto.get()), running=self.busy(),
+                               folder=self.folder.get(), last_run=self.last_run)
+        if self.busy():
+            return
+        upd = os.path.join(d, autopilot.UPDATE_NAME)
+        if getattr(sys, 'frozen', False) and os.path.exists(upd) and self.settle.ready(upd):
+            if autopilot.same_file(upd, sys.executable):
+                threading.Thread(target=autopilot.retire_update_file, args=(d, 5), daemon=True).start()
+            else:
+                self.updating = True
+                threading.Thread(target=self._update, args=(upd,), daemon=True).start()
+                return
+        if self.auto.get() and (self.key1.get().strip() or self.key2.get().strip()):
+            snap = autopilot.image_snapshot(self.folder.get())
+            if self.watcher.poll(snap):
+                self.watcher.started(snap)
+                self.start(auto=True)
+
+    def _update(self, upd: str):
+        ver = autopilot.probe_version(upd)
+        if not ver:
+            autopilot.log_update(app_dir(), f'新版 {autopilot.UPDATE_NAME} 打不开，没换')
+            self.log(f'✗ 新版 {autopilot.UPDATE_NAME} 打不开，没换')
+            try:
+                os.replace(upd, upd + '.坏的')
+            except OSError:
+                pass
+            self.updating = False
+            return
+        autopilot.log_update(app_dir(), f'v{engine.VERSION} → v{ver}：开始换')
+        self.log(f'发现新版 v{ver}，换上后自己重开')
+        subprocess.Popen([upd, '--install-update', sys.executable], cwd=app_dir())
+        self.q.put(('quit', None))
 
     def write(self, msg: str):
         self.text.config(state='normal')
@@ -405,6 +494,10 @@ class App:
                     self.status.set(f'{d}/{t} 张')
                 elif kind == 'fed':
                     self.feed_btn.config(state='normal')
+                elif kind == 'quit':                    # 换新版：保存设置后退出，让新版接手
+                    self.save()
+                    self.root.destroy()
+                    return
                 elif kind == 'done':
                     self.start_btn.config(state='normal')
                     self.stop_btn.config(state='disabled')
@@ -412,8 +505,11 @@ class App:
                         self.last_xlsx = val.xlsx
                         self.last_photos = val.photos_dir
                         self.status.set(f'干完：成功 {val.ok} · 失败 {val.failed}')
-                        if val.ok and not self.stop.is_set():
-                            open_path(val.xlsx)                 # 表和核对窗口一起打开，对着核
+                        self.last_run = {'xlsx': val.xlsx, 'ok': val.ok, 'failed': val.failed, 'requests': val.requests,
+                                         'stopped': val.stopped_reason, 'auto': self.auto_run,
+                                         'at': datetime.now().isoformat(timespec='seconds')}
+                        if val.ok and not self.stop.is_set() and not self.auto_run:
+                            open_path(val.xlsx)                 # 表和核对窗口一起打开，对着核（自动开工的不弹，没人看）
                             if val.photos_dir and os.path.isdir(val.photos_dir):
                                 self.check(val.photos_dir)
                     else:
@@ -438,6 +534,11 @@ def run_gui():
         if new:
             subprocess.Popen([new], cwd=os.path.dirname(new))
             return
+    args = autopilot.startup_args()
+    if not autopilot.claim_single(wait=30 if '--after-update' in args else 0):
+        if '--background' not in args:              # 已经开着一个：叫它把窗口亮出来，自己退出
+            autopilot.ask_running_to_show(app_dir())
+        return
     root = tk.Tk()
     App(root)
     root.mainloop()
