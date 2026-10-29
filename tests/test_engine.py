@@ -327,14 +327,16 @@ def test_pacific_midnight():
     assert engine.next_pacific_midnight(f(2027, 3, 14, 9, 0)) == f(2027, 3, 15, 7, 0) + 30     # 3 月切回夏令时
 
 
-def test_parse_date_day_first():
+def test_parse_date_day_first_always_this_year():
     t = date(2026, 10, 29)
     p = lambda s: engine.parse_date(s, t)
     assert p('28/10') == date(2026, 10, 28) and p('1-Oct') == date(2026, 10, 1) and p('01-Oct-26') == date(2026, 10, 1)
     assert p('28-10-26') == date(2026, 10, 28) and p('28.10.2026') == date(2026, 10, 28) and p('2026-10-28') == date(2026, 10, 28)
     assert p('Oct 1') == date(2026, 10, 1) and p('28 Oct') == date(2026, 10, 28) and p('3/1') == date(2026, 1, 3)
-    assert p('15/12') == date(2025, 12, 15)                         # 将来的日子算去年
-    assert engine.parse_date('15/12', date(2027, 1, 5)) == date(2026, 12, 15)
+    assert p('15/12') == date(2026, 12, 15)                         # 不往去年推
+    assert p('28/10/1998') == date(2026, 10, 28) and p('1998-10-28') == date(2026, 10, 28)   # 认成别的年份也改成今年
+    assert p('1-Oct-25') == date(2026, 10, 1)
+    assert engine.parse_date('15/12', date(2027, 1, 5)) == date(2027, 12, 15)
     assert p('31/02') is None and p('hello') is None and p('') is None
 
 

@@ -30,7 +30,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-VERSION = '1.5.1'
+VERSION = '1.5.2'
 API_BASE = os.environ.get('BANGONG_API', 'https://generativelanguage.googleapis.com/v1beta').rstrip('/')
 DEFAULT_MODEL = 'gemini-3.5-flash-lite'
 MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro']
@@ -431,40 +431,26 @@ def _month(name: str):
 
 
 def parse_date(s: str, today: date | None = None) -> date | None:
-    """新加坡写法：日在前。没写年份就补今年；补出来是将来的日子（破损记录不可能写将来），算去年的。"""
+    """新加坡写法：日在前。年份一律按今年（Song 定的：都是最近的记录，认成 1998 之类也改成今年，不往去年推）。"""
     today = today or date.today()
     t = (s or '').strip().lower()
     if not t:
         return None
-    y = m = d = None
+    m = d = None
     if mm := re.fullmatch(r'(\d{4})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{1,2})', t):
-        y, m, d = map(int, mm.groups())
+        m, d = int(mm.group(2)), int(mm.group(3))
     elif mm := re.fullmatch(r'(\d{1,2})\s*[-/. ]?\s*([a-z]{3,9})\.?(?:\s*[-/., ]\s*(\d{2,4}))?', t):
         d, m = int(mm.group(1)), _month(mm.group(2))
-        y = int(mm.group(3)) if mm.group(3) else None
     elif mm := re.fullmatch(r'([a-z]{3,9})\.?\s*(\d{1,2})(?:\s*,?\s*(\d{2,4}))?', t):
         m, d = _month(mm.group(1)), int(mm.group(2))
-        y = int(mm.group(3)) if mm.group(3) else None
     elif mm := re.fullmatch(r'(\d{1,2})\s*[-/.]\s*(\d{1,2})(?:\s*[-/.]\s*(\d{2,4}))?', t):
         d, m = int(mm.group(1)), int(mm.group(2))
-        y = int(mm.group(3)) if mm.group(3) else None
     if not m or not d:
         return None
-    guessed = y is None
-    if y is None:
-        y = today.year
-    elif y < 100:
-        y += 2000
     try:
-        out = date(y, m, d)
+        return date(today.year, m, d)
     except ValueError:
         return None
-    if guessed and out > today + timedelta(days=2):
-        try:
-            out = date(y - 1, m, d)
-        except ValueError:
-            return None
-    return out
 
 
 def to_int(s: str):
