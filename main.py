@@ -33,7 +33,7 @@ if __name__ == '__main__':
         ensure_shortcuts(cfg)
         sys.exit(0 if cfg.get('shortcut_for') else 1)
     if a and a[0] == '--cli':
-        from bangong.app import default_folder
-        sys.exit(cli(a[1] if len(a) > 1 else default_folder()))
+        from bangong.app import default_folder, load_config
+        sys.exit(cli(a[1] if len(a) > 1 else (load_config().get('folder') or default_folder())))
     from bangong.app import run_gui
     run_gui()
