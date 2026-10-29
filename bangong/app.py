@@ -13,6 +13,7 @@ from datetime import datetime
 from tkinter import filedialog, ttk
 
 from . import autopilot, engine
+from . import macui as ui
 
 
 def config_dir() -> str:
@@ -229,67 +230,96 @@ class App:
             root.iconbitmap(os.path.join(base, 'assets', 'bangong.ico'))
         except Exception:
             pass
-        root.geometry('760x560')
-        root.minsize(600, 420)
-        try:
-            ttk.Style().theme_use('vista' if os.name == 'nt' else 'clam')
-        except tk.TclError:
-            pass
-        font = ('Microsoft YaHei UI', 10) if os.name == 'nt' else None
-        if font:
-            root.option_add('*Font', font)
+        root.geometry('780x660')
+        root.minsize(620, 520)
+        root.configure(bg=ui.BG)
+        fam = ui.family(root)
+        size = 10
+        root.option_add('*Font', (fam, size))
+        ui.style_ttk(root, fam, size)
+        body_font = (fam, size)
+        hint_font = (fam, size - 1)
 
-        f = ttk.Frame(root, padding=12)
+        f = tk.Frame(root, bg=ui.BG, padx=20, pady=16)
         f.pack(fill='both', expand=True)
-        f.columnconfigure(1, weight=1)
+        f.columnconfigure(0, weight=1)
 
-        head = ttk.Frame(f)
-        head.grid(row=0, column=0, columnspan=3, sticky='w', pady=(0, 8))
-        big = ('Microsoft YaHei UI', 16, 'bold') if os.name == 'nt' else ('TkDefaultFont', 16, 'bold')
-        small = ('Microsoft YaHei UI', 10) if os.name == 'nt' else ('TkDefaultFont', 10)
-        ttk.Label(head, text=engine.APP_NAME, font=big).pack(side='left')
-        ttk.Label(head, text='  —— ' + engine.SUBTITLE, font=small, foreground='#666').pack(side='left', pady=(6, 0))
+        # 标题：大字 + 灰色副标题
+        head = tk.Frame(f, bg=ui.BG)
+        head.grid(row=0, column=0, sticky='w', pady=(0, 12))
+        tk.Label(head, text=engine.APP_NAME, font=(fam, 20, 'bold'), bg=ui.BG, fg=ui.TEXT).pack(side='left')
+        tk.Label(head, text='  —— ' + engine.SUBTITLE, font=(fam, 11), bg=ui.BG, fg=ui.GREY).pack(
+            side='left', pady=(8, 0))
 
-        ttk.Label(f, text='图片文件夹').grid(row=1, column=0, sticky='w', pady=3)
+        # 设置卡片：一行一项，中间细线隔开（像「系统设置」）
+        card = ui.Card(f, pad=6)
+        card.grid(row=1, column=0, sticky='ew')
+        g = card.body
+        g.columnconfigure(1, weight=1)
+        rows = []
+
+        def label(r, text):
+            tk.Label(g, text=text, bg=ui.CARD, fg=ui.TEXT, font=body_font, anchor='w', width=12).grid(
+                row=r, column=0, sticky='w', padx=(10, 8), pady=8)
+
+        def line(r):
+            ui.separator(g).grid(row=r, column=0, columnspan=3, sticky='ew', padx=(10, 0))
+
+        label(0, '图片文件夹')
         self.folder = tk.StringVar(value=cfg.get('folder') or default_folder())
-        ttk.Entry(f, textvariable=self.folder).grid(row=1, column=1, sticky='ew', padx=6)
-        ttk.Button(f, text='选择…', command=self.pick).grid(row=1, column=2)
+        ui.Field(g, self.folder, font=body_font).grid(row=0, column=1, sticky='ew', pady=8)
+        ui.Pill(g, '选择…', command=self.pick, font=body_font, bg=ui.CARD, height=30).grid(
+            row=0, column=2, padx=(8, 10))
+        line(1)
 
         self.key1 = tk.StringVar(value=cfg.get('key1', ''))
         self.key2 = tk.StringVar(value=cfg.get('key2', ''))
-        ttk.Label(f, text='钥匙 1').grid(row=2, column=0, sticky='w', pady=3)
-        ttk.Entry(f, textvariable=self.key1, show='•').grid(row=2, column=1, columnspan=2, sticky='ew', padx=(6, 0))
-        ttk.Label(f, text='钥匙 2（可空）').grid(row=3, column=0, sticky='w', pady=3)
-        ttk.Entry(f, textvariable=self.key2, show='•').grid(row=3, column=1, columnspan=2, sticky='ew', padx=(6, 0))
+        label(2, '钥匙 1')
+        ui.Field(g, self.key1, show='•', font=body_font).grid(row=2, column=1, columnspan=2, sticky='ew',
+                                                             pady=8, padx=(0, 10))
+        line(3)
+        label(4, '钥匙 2（可空）')
+        ui.Field(g, self.key2, show='•', font=body_font).grid(row=4, column=1, columnspan=2, sticky='ew',
+                                                             pady=8, padx=(0, 10))
+        line(5)
 
-        ttk.Label(f, text='模型').grid(row=4, column=0, sticky='w', pady=3)
+        label(6, '模型')
         self.model = tk.StringVar(value=cfg.get('model') or engine.DEFAULT_MODEL)
-        mrow = ttk.Frame(f)
-        mrow.grid(row=4, column=1, columnspan=2, sticky='w', padx=6)
-        ttk.Combobox(mrow, textvariable=self.model, values=engine.MODELS).pack(side='left')
+        ttk.Combobox(g, textvariable=self.model, values=engine.MODELS, style='Mac.TCombobox',
+                     font=body_font, width=28).grid(row=6, column=1, sticky='w', pady=8)
+        line(7)
+
         self.auto = tk.BooleanVar(value=cfg.get('auto', True))
-        ttk.Checkbutton(mrow, text='来图就干（文件夹里一有新照片就自己开工）', variable=self.auto,
-                        command=self.save).pack(side='left', padx=(14, 0))
+        arow = tk.Frame(g, bg=ui.CARD)
+        arow.grid(row=8, column=0, columnspan=3, sticky='ew', padx=(10, 10), pady=8)
+        tk.Label(arow, text='来图就干（文件夹里一有新照片就自己开工）', bg=ui.CARD, fg=ui.TEXT,
+                 font=body_font).pack(side='left')
+        ui.Switch(arow, self.auto, command=self.save).pack(side='right')
 
-        bar = ttk.Frame(f)
-        bar.grid(row=5, column=0, columnspan=3, sticky='ew', pady=(10, 6))
-        self.start_btn = ttk.Button(bar, text='开始工作', command=self.start)
+        # 按钮：开始工作是唯一的蓝色按钮，其余白色
+        bar = tk.Frame(f, bg=ui.BG)
+        bar.grid(row=2, column=0, sticky='ew', pady=(14, 8))
+        self.start_btn = ui.Pill(bar, '开始工作', command=self.start, primary=True, font=(fam, size, 'bold'))
         self.start_btn.pack(side='left')
-        self.stop_btn = ttk.Button(bar, text='停止', command=self.halt, state='disabled')
-        self.stop_btn.pack(side='left', padx=6)
-        ttk.Button(bar, text='打开结果文件夹', command=self.open_out).pack(side='left')
-        ttk.Button(bar, text='核对', command=self.check).pack(side='left', padx=6)
-        self.feed_btn = ttk.Button(bar, text='投喂数据', command=self.feed)
-        self.feed_btn.pack(side='left')
+        self.stop_btn = ui.Pill(bar, '停止', command=self.halt, state='disabled', font=body_font)
+        self.stop_btn.pack(side='left', padx=(8, 0))
+        ui.Pill(bar, '打开结果文件夹', command=self.open_out, font=body_font).pack(side='left', padx=(20, 0))
+        ui.Pill(bar, '核对', command=self.check, font=body_font).pack(side='left', padx=(8, 0))
+        self.feed_btn = ui.Pill(bar, '投喂数据', command=self.feed, font=body_font)
+        self.feed_btn.pack(side='left', padx=(8, 0))
         self.status = tk.StringVar(value='')
-        ttk.Label(bar, textvariable=self.status).pack(side='left', padx=10)
+        tk.Label(bar, textvariable=self.status, bg=ui.BG, fg=ui.GREY, font=hint_font).pack(side='right')
 
-        self.pb = ttk.Progressbar(f, mode='determinate')
-        self.pb.grid(row=6, column=0, columnspan=3, sticky='ew')
+        self.pb = ui.Bar(f)
+        self.pb.grid(row=3, column=0, sticky='ew', pady=(4, 14))
 
-        self.text = tk.Text(f, height=16, wrap='word', state='disabled', relief='flat', background='#f6f6f6')
-        self.text.grid(row=7, column=0, columnspan=3, sticky='nsew', pady=(8, 0))
-        f.rowconfigure(7, weight=1)
+        logcard = ui.Card(f, pad=12, stretch=True)
+        logcard.grid(row=4, column=0, sticky='nsew')
+        f.rowconfigure(4, weight=1)
+        self.text = tk.Text(logcard.body, height=12, wrap='word', state='disabled', relief='flat', bd=0,
+                            highlightthickness=0, background=ui.CARD, foreground=ui.TEXT, font=body_font,
+                            spacing1=2, spacing3=2, padx=4)
+        self.text.pack(fill='both', expand=True)
 
         if getattr(sys, 'frozen', False):
             for line in migrate_old_home():
