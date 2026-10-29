@@ -1,0 +1,368 @@
+"""数据库：投喂公司 TOOL BROKEN RECORD（或核对过的搬工结果表），以后认单子以它为准。
+
+只认喂进来的表：搬工自己认出来的东西不进库，免得认错的被学进去越学越歪。
+"""
+from __future__ import annotations
+
+import hashlib
+import os
+import re
+import sqlite3
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field
+from datetime import date, datetime
+
+from openpyxl import load_workbook
+
+from .engine import FIELDS
+
+DB_FILE = '数据库.sqlite'
+FEED_DIR = '投喂'
+CAT_FIELDS = ['machine', 'part_number', 'description']          # 来回就那几个值的字段
+LABEL = {'date': 'DATE', 'machine': 'MACHINE', 'part_number': 'PART NUMBER', 'mo': 'MO', 'opr_no': 'OPR NO.',
+         't_no': 'T NO.', 'description': 'DESCRIPTION', 'btmp': 'BTMP', 'total_screened': 'TOTAL SCREENED',
+         'passed': 'PASSED', 'failed': 'FAILED', 'shift': 'SHIFT', 'setter': 'SETTER'}
+HEADER_KEYS = {
+    'DATE': 'date', 'MACHINE': 'machine', 'M/C': 'machine', 'MACHINENO': 'machine',
+    'PARTNUMBER': 'part_number', 'PARTNO': 'part_number', 'MO': 'mo', 'MONO': 'mo', 'W/O': 'mo',
+    'OPRNO': 'opr_no', 'OPR': 'opr_no', 'OPNO': 'opr_no', 'TNO': 't_no', 'TOOLNO': 't_no',
+    'DESCRIPTION': 'description', 'TOOLDESCRIPTION': 'description', 'BTMP': 'btmp',
+    'TOTALSCREENED': 'total_screened', 'PASSED': 'passed', 'FAILED': 'failed', 'SHIFT': 'shift', 'SETTER': 'setter',
+}
+# 容易看错的字：两边都换成同一个再比，比如 VM-O7 和 VM-07 就是同一个
+CONFUSE = str.maketrans({'O': '0', 'Q': '0', 'D': '0', 'I': '1', 'L': '1', '|': '1', 'S': '5', 'B': '8',
+                         'Z': '2', 'G': '6'})
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS records (
+    hash TEXT PRIMARY KEY, source TEXT, sheet TEXT, fed_at TEXT,
+    date TEXT, machine TEXT, part_number TEXT, mo TEXT, opr_no TEXT, t_no TEXT, description TEXT,
+    btmp TEXT, total_screened TEXT, passed TEXT, failed TEXT, shift TEXT, setter TEXT);
+CREATE TABLE IF NOT EXISTS people (no TEXT PRIMARY KEY, name TEXT, source TEXT);
+CREATE TABLE IF NOT EXISTS sources (path TEXT PRIMARY KEY, mtime REAL, size INTEGER, fed_at TEXT, added INTEGER);
+"""
+
+
+def label_key(v) -> str:
+    return re.sub(r'[^A-Z/]', '', str(v or '').upper())
+
+
+def nkey(v: str) -> str:
+    """比对用的写法：大写、去空格、各种横杠统一。"""
+    t = str(v or '').upper()
+    t = re.sub(r'[‐-―_~]', '-', t)
+    t = t.replace(',', '.')
+    return re.sub(r'\s+', '', t)
+
+
+def ckey(v: str) -> str:
+    return nkey(v).translate(CONFUSE)
+
+
+def lev1(a: str, b: str) -> bool:
+    """两个字符串是否只差一个字（替换、多一个或少一个）。"""
+    if a == b or abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        return sum(x != y for x, y in zip(a, b)) == 1
+    if len(a) > len(b):
+        a, b = b, a
+    for i in range(len(b)):
+        if a == b[:i] + b[i + 1:]:
+            return True
+    return False
+
+
+def cell_text(v) -> str:
+    if v is None:
+        return ''
+    if isinstance(v, datetime):
+        return v.date().isoformat()
+    if isinstance(v, date):
+        return v.isoformat()
+    if isinstance(v, float) and v.is_integer():
+        v = int(v)
+    return re.sub(r'\s+', ' ', str(v)).strip()
+
+
+def record_hash(rec: dict) -> str:
+    return hashlib.sha1('|'.join(nkey(rec.get(f, '')) for f in FIELDS).encode('utf-8')).hexdigest()
+
+
+SETTER_RE = re.compile(r'^\s*(\d{2,6})\s*[/／]\s*([A-Za-z][A-Za-z .\'-]*[A-Za-z])\s*$')
+
+
+@dataclass
+class FeedResult:
+    path: str
+    rows: int = 0
+    added: int = 0
+    people: int = 0
+    sheets: list = field(default_factory=list)
+    error: str = ''
+
+    def line(self) -> str:
+        name = os.path.basename(self.path)
+        if self.error:
+            return f'✗ {name}：{self.error}'
+        return (f'✓ 吃进 {name}：读到 {self.rows} 行记录，新增 {self.added} 行（其余以前吃过）'
+                + (f'，新认识 {self.people} 人' if self.people else '')
+                + (f'（{"、".join(self.sheets)}）' if self.sheets else ''))
+
+
+# ---------------------------------------------------------------- 读表
+def find_header(rows: list[tuple]) -> tuple[int, dict[int, str]] | None:
+    """在前 15 行找表头：同时有 DATE 和 MACHINE 的那一行；下一行是小表头（T NO.、TOTAL SCREENED…）。"""
+    for i, row in enumerate(rows[:15]):
+        keys = [label_key(v) for v in row]
+        if 'DATE' in keys and ('MACHINE' in keys or 'M/C' in keys):
+            sub = rows[i + 1] if i + 1 < len(rows) else ()
+            cols: dict[int, str] = {}
+            for c in range(max(len(row), len(sub))):
+                for v in ((sub[c] if c < len(sub) else None), (row[c] if c < len(row) else None)):
+                    f = HEADER_KEYS.get(label_key(v))
+                    if f and f not in cols.values():
+                        cols[c] = f
+                        break
+            uses_sub = any(c < len(sub) and HEADER_KEYS.get(label_key(sub[c])) for c in cols)
+            return (i + 2 if uses_sub else i + 1), cols
+    return None
+
+
+def read_people(rows: list[tuple]) -> list[tuple[str, str]]:
+    """名字页：认「535/GANESAN RANJITH」这种格子，或者一格工号紧跟一格名字。"""
+    out = []
+    for row in rows:
+        cells = [cell_text(v) for v in row]
+        for j, t in enumerate(cells):
+            m = SETTER_RE.match(t)
+            if m:
+                out.append((m.group(1), m.group(2).strip()))
+                continue
+            if re.fullmatch(r'\d{2,6}', t):
+                nxt = next((x for x in cells[j + 1:] if x), '')
+                if re.fullmatch(r"[A-Za-z][A-Za-z .'-]{1,60}", nxt) and len(re.sub(r'[^A-Za-z]', '', nxt)) >= 3:
+                    out.append((t, nxt.strip()))
+    return out
+
+
+def read_workbook(path: str) -> tuple[list[tuple[str, dict]], list[tuple[str, str]], list[str]]:
+    """返回 ([(页名, 记录)], [(工号, 名字)], [读到记录的页名])。"""
+    wb = load_workbook(path, read_only=True, data_only=True)
+    recs, people, used = [], [], []
+    try:
+        for ws in wb.worksheets:
+            rows = [tuple(r) for r in ws.iter_rows(values_only=True)]
+            hdr = find_header(rows)
+            if not hdr:
+                people += read_people(rows)
+                continue
+            start, cols = hdr
+            n = 0
+            for row in rows[start:]:
+                rec = {f: '' for f in FIELDS}
+                for c, f in cols.items():
+                    if c < len(row):
+                        rec[f] = cell_text(row[c])
+                core = sum(bool(rec[f]) for f in ('machine', 'part_number', 'mo', 't_no', 'description', 'setter'))
+                if core >= 3:
+                    recs.append((ws.title, rec))
+                    n += 1
+                    m = SETTER_RE.match(rec['setter'])
+                    if m:
+                        people.append((m.group(1), m.group(2).strip()))
+            if n:
+                used.append(ws.title)
+    finally:
+        wb.close()
+    return recs, people, used
+
+
+# ---------------------------------------------------------------- 数据库
+class KnowledgeBase:
+    def __init__(self, path: str):
+        self.path = path
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        with self._conn() as c:
+            c.executescript(SCHEMA)
+
+    def _conn(self):
+        return sqlite3.connect(self.path, timeout=30)
+
+    def feed(self, path: str) -> FeedResult:
+        res = FeedResult(path)
+        if not path.lower().endswith(('.xlsx', '.xlsm')):
+            res.error = '只认 .xlsx / .xlsm（老的 .xls 请先在 Excel 里另存为 .xlsx）'
+            return res
+        try:
+            recs, people, used = read_workbook(path)
+        except Exception as e:
+            res.error = f'读不了：{type(e).__name__}：{e}'
+            return res
+        now = datetime.now().isoformat(timespec='seconds')
+        src = os.path.basename(path)
+        with self._conn() as c:
+            before = c.execute('SELECT COUNT(*) FROM records').fetchone()[0]
+            c.executemany(
+                f'INSERT OR IGNORE INTO records (hash, source, sheet, fed_at, {", ".join(FIELDS)}) '
+                f'VALUES ({", ".join("?" * (4 + len(FIELDS)))})',
+                [(record_hash(r), src, sheet, now, *[r[f] for f in FIELDS]) for sheet, r in recs])
+            res.added = c.execute('SELECT COUNT(*) FROM records').fetchone()[0] - before
+            p0 = c.execute('SELECT COUNT(*) FROM people').fetchone()[0]
+            c.executemany('INSERT OR IGNORE INTO people (no, name, source) VALUES (?, ?, ?)',
+                          [(n, nm, src) for n, nm in people])
+            res.people = c.execute('SELECT COUNT(*) FROM people').fetchone()[0] - p0
+            st = os.stat(path)
+            c.execute('INSERT OR REPLACE INTO sources (path, mtime, size, fed_at, added) VALUES (?, ?, ?, ?, ?)',
+                      (os.path.abspath(path), st.st_mtime, st.st_size, now, res.added))
+        res.rows, res.sheets = len(recs), used
+        return res
+
+    def feed_folder(self, folder: str) -> list[FeedResult]:
+        """投喂文件夹：新放进来的、或者改过的表才吃。"""
+        if not folder or not os.path.isdir(folder):
+            return []
+        with self._conn() as c:
+            seen = {p: (m, s) for p, m, s in c.execute('SELECT path, mtime, size FROM sources')}
+        out = []
+        for name in sorted(os.listdir(folder)):
+            p = os.path.abspath(os.path.join(folder, name))
+            if name.startswith('~$') or not name.lower().endswith(('.xlsx', '.xlsm')) or not os.path.isfile(p):
+                continue
+            st = os.stat(p)
+            if seen.get(p) == (st.st_mtime, st.st_size):
+                continue
+            out.append(self.feed(p))
+        return out
+
+    def summary(self) -> str:
+        with self._conn() as c:
+            n = c.execute('SELECT COUNT(*) FROM records').fetchone()[0]
+            if not n:
+                return '数据库还是空的：点「投喂数据」喂公司的 TOOL BROKEN RECORD'
+            m = c.execute('SELECT COUNT(DISTINCT machine), COUNT(DISTINCT part_number), COUNT(DISTINCT description) '
+                          "FROM records").fetchone()
+            p = c.execute('SELECT COUNT(*) FROM people').fetchone()[0]
+        return f'数据库：{n} 条记录 · 机台 {m[0]} 台 · 零件 {m[1]} 种 · 刀具描述 {m[2]} 种 · 认识 {p} 人'
+
+    def load(self) -> 'Snapshot':
+        with self._conn() as c:
+            rows = c.execute(f'SELECT {", ".join(FIELDS)} FROM records').fetchall()
+            people = c.execute('SELECT no, name FROM people').fetchall()
+        return Snapshot([dict(zip(FIELDS, r)) for r in rows], people)
+
+
+# ---------------------------------------------------------------- 拿数据库当准绳
+class Snapshot:
+    def __init__(self, records: list[dict], people: list[tuple[str, str]]):
+        self.n = len(records)
+        self.people = people
+        self.count = {f: Counter() for f in CAT_FIELDS}
+        spell = {f: defaultdict(Counter) for f in CAT_FIELDS}
+        self.mo_part = defaultdict(Counter)
+        self.part_opr = defaultdict(set)
+        self.part_tool = defaultdict(Counter)
+        for r in records:
+            for f in CAT_FIELDS:
+                if r[f]:
+                    spell[f][nkey(r[f])][r[f]] += 1
+            part = nkey(r['part_number'])
+            if r['mo'] and part:
+                self.mo_part[nkey(r['mo'])][r['part_number']] += 1
+            if part and r['opr_no']:
+                self.part_opr[part].add(nkey(r['opr_no']))
+            if part and r['t_no'] and r['description']:
+                self.part_tool[(part, nkey(r['t_no']))][r['description']] += 1
+        # 每个值取最常见的写法当标准写法
+        self.canon = {f: {k: c.most_common(1)[0][0] for k, c in spell[f].items()} for f in CAT_FIELDS}
+        for f in CAT_FIELDS:
+            for k, c in spell[f].items():
+                self.count[f][self.canon[f][k]] = sum(c.values())
+        self.by_ckey = {f: defaultdict(set) for f in CAT_FIELDS}
+        for f in CAT_FIELDS:
+            for k, v in self.canon[f].items():
+                self.by_ckey[f][ckey(k)].add(v)
+
+    def roster(self) -> list[tuple[str, str]]:
+        return list(self.people)
+
+    def hints(self, max_parts: int = 200) -> str:
+        if not self.n:
+            return ''
+        lines = []
+        for f, lim in (('machine', 100), ('description', 150), ('part_number', max_parts)):
+            vals = [v for v, _ in self.count[f].most_common(lim)]
+            if vals:
+                lines.append(f'{LABEL[f]}：' + '、'.join(vals))
+        return ('公司记录里出现过的值（数据库 {} 条记录）：单子上的字跟其中某个很像时，一律以这里的写法为准；'
+                '明显不一样的（新机台、新零件）照单子原样抄。\n'.format(self.n) + '\n'.join(lines))
+
+    def _snap(self, f: str, v: str) -> str | None:
+        k = nkey(v)
+        cands = self.by_ckey[f].get(ckey(v), set())
+        if len(cands) == 1:
+            return next(iter(cands))
+        if len(k) >= 4:
+            near = {c for kk, c in self.canon[f].items() if lev1(kk, k)}
+            if len(near) == 1:
+                c = next(iter(near))
+                if self.count[f][c] >= 2:
+                    return c
+        return None
+
+    def fix(self, rec: dict) -> tuple[dict, dict, dict]:
+        """返回 (改好的记录, {字段: (原来, 改成, 原因)}, {字段: 标红原因})。"""
+        rec = dict(rec)
+        fixed, flags = {}, {}
+        if not self.n:
+            return rec, fixed, flags
+        # 零件号、机台：先对数据库
+        for f in ('part_number', 'machine'):
+            v = rec.get(f, '')
+            if not v:
+                continue
+            k = nkey(v)
+            if k in self.canon[f]:
+                rec[f] = self.canon[f][k]
+                continue
+            c = self._snap(f, v)
+            if c:
+                fixed[f] = (v, c, '按数据库改')
+                rec[f] = c
+            else:
+                flags[f] = f'{LABEL[f]} 数据库里没见过：{v}' + ('（新零件？）' if f == 'part_number' else '')
+        part = nkey(rec.get('part_number', ''))
+        # 刀具描述：这个零件这把刀以前是什么，优先；没有就对整个数据库
+        v = rec.get('description', '')
+        hist = self.part_tool.get((part, nkey(rec.get('t_no', '')))) if part else None
+        if v and hist:
+            want = hist.most_common(1)[0][0]
+            if nkey(v) != nkey(want):
+                if ckey(v) == ckey(want) or lev1(nkey(v), nkey(want)):
+                    fixed['description'] = (v, want, f'这个零件的 {rec.get("t_no")} 在数据库里是 {want}')
+                    rec['description'] = want
+                else:
+                    flags['description'] = f'这个零件的 {rec.get("t_no")} 以前是 {want}，这里认成 {v}'
+            else:
+                rec['description'] = want
+        elif v:
+            k = nkey(v)
+            if k in self.canon['description']:
+                rec['description'] = self.canon['description'][k]
+            else:
+                c = self._snap('description', v)
+                if c:
+                    fixed['description'] = (v, c, '按数据库改')
+                    rec['description'] = c
+                else:
+                    flags['description'] = f'DESCRIPTION 数据库里没见过：{v}'
+        # 工序号：这个零件以前有没有这道工序
+        opr = nkey(rec.get('opr_no', ''))
+        if part in self.part_opr and opr and opr not in self.part_opr[part]:
+            known = '、'.join(sorted(self.part_opr[part]))
+            flags['opr_no'] = f'这个零件以前的 OPR 是 {known}，这里认成 {rec.get("opr_no")}'
+        # MO：以前对的是不是这个零件（MO 不自动改：新工单号常常只差一位）
+        mo = nkey(rec.get('mo', ''))
+        if mo in self.mo_part and part and part not in {nkey(p) for p in self.mo_part[mo]}:
+            was = self.mo_part[mo].most_common(1)[0][0]
+            flags['mo'] = f'MO {rec.get("mo")} 以前对的是 {was}'
+        return rec, fixed, flags

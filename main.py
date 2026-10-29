@@ -17,8 +17,9 @@ def cli(folder: str) -> int:
                 print(m, flush=True)
             except Exception:
                 pass
-    from bangong.app import names_path
-    res = engine.Engine(folder, keys, model, log=log, names_path=names_path()).run()
+    from bangong.app import feed_dir, kb_path, names_path
+    res = engine.Engine(folder, keys, model, log=log, names_path=names_path(),
+                        kb_path=kb_path(), feed_dir=feed_dir()).run()
     return 0 if not res.failed and not res.stopped_reason else 2
 
 
@@ -33,6 +34,14 @@ if __name__ == '__main__':
         cfg = load_config()
         ensure_shortcuts(cfg)
         sys.exit(0 if cfg.get('shortcut_for') else 1)
+    if a and a[0] == '--feed':                     # 搬工.exe --feed 表1.xlsx 表2.xlsx（给大管家/计划任务用）
+        from bangong.app import kb_path
+        from bangong.kb import KnowledgeBase
+        kb = KnowledgeBase(kb_path())
+        lines = [kb.feed(p).line() for p in a[1:]] + [kb.summary()]
+        if sys.stdout:
+            print('\n'.join(lines), flush=True)
+        sys.exit(0 if a[1:] and not any(x.startswith('✗') for x in lines) else 1)
     if a and a[0] == '--cli':
         from bangong.app import default_folder, load_config
         sys.exit(cli(a[1] if len(a) > 1 else (load_config().get('folder') or default_folder())))

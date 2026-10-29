@@ -69,15 +69,18 @@ def load_rows(xlsx: str) -> dict[int, list[dict]]:
         no = ws.cell(row=r, column=1).value
         if not isinstance(no, int):
             continue
-        vals, red = [], set()
+        vals, red, fixed = [], set(), set()
         for i in range(len(LABELS)):
             c = ws.cell(row=r, column=2 + i)
             vals.append(fmt(c.value))
             rgb = c.fill.fgColor.rgb if c.fill is not None and c.fill.fill_type == 'solid' else ''
             if isinstance(rgb, str) and rgb.upper().endswith('FFC7CE'):
                 red.add(i)
+            elif isinstance(rgb, str) and rgb.upper().endswith('FCE4D6'):
+                fixed.add(i)
         note = ws.cell(row=r, column=15).value
-        rows.setdefault(no, []).append({'values': vals, 'red': red, 'note': '' if note is None else str(note)})
+        rows.setdefault(no, []).append({'values': vals, 'red': red, 'fixed': fixed,
+                                        'note': '' if note is None else str(note)})
     return rows
 
 
@@ -148,6 +151,7 @@ class Viewer(tk.Toplevel):
         self.panel.tag_configure('h', font=(font[0], 11, 'bold') if font else None)
         self.panel.tag_configure('k', foreground='#666666')
         self.panel.tag_configure('red', foreground='#9C0006', background='#FFC7CE')
+        self.panel.tag_configure('fixed', foreground='#833C0B', background='#FCE4D6')
         self.panel.tag_configure('note', foreground='#9C0006')
         self.panel.tag_configure('dim', foreground='#888888')
         for key in ('<Left>', '<Prior>'):
@@ -236,7 +240,8 @@ class Viewer(tk.Toplevel):
                 continue
             for i, (lab, val) in enumerate(zip(LABELS, rec['values'])):
                 p.insert('end', lab + '\t', 'k')
-                p.insert('end', (val or '—') + '\n', 'red' if i in rec['red'] else ())
+                tag = 'red' if i in rec['red'] else ('fixed' if i in rec.get('fixed', ()) else ())
+                p.insert('end', (val or '—') + '\n', tag)
             if rec['note']:
                 p.insert('end', '\n' + rec['note'] + '\n', 'note')
             p.insert('end', '\n')

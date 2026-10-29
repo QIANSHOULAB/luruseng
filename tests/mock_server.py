@@ -55,6 +55,8 @@ def answer(mode, body):
             recs = [dict(rec, total_screened='10', passed='9', failed='0')]
         elif mode == 'unclear':
             recs = [dict(rec, setter='6□9/Tan Bao Hong', date='3□/10', shift='X')]
+        elif mode == 'confusable':
+            recs = [dict(rec, machine='VM-O7', part_number='TD-S24613-5', description='EM2.S')]
         elif mode == 'aliases':
             recs = [{'DATE': '28/10', 'M/C': 'VM-07', 'Part No.': 'TD-524613-5', 'MO': '82664580', 'OPR NO.': '150',
                      'T NO.': 'T4', 'Description': 'EM2.5', 'BTMP': '1', 'Total Screened': '1', 'Passed': '1',

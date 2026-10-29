@@ -35,6 +35,23 @@ def app_dir() -> str:
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+def kb_path() -> str:
+    """数据库跟 搬工.exe 放在一起（公司记录，只在本机，不上 GitHub）。"""
+    from .kb import DB_FILE
+    return os.path.join(app_dir(), DB_FILE)
+
+
+def feed_dir() -> str:
+    """投喂文件夹：丢进去的表，每次开工前自动吃一遍（改过的会重吃）。"""
+    from .kb import FEED_DIR
+    d = os.path.join(app_dir(), FEED_DIR)
+    try:
+        os.makedirs(d, exist_ok=True)
+    except OSError:
+        pass
+    return d
+
+
 def names_path() -> str:
     """名单.txt 跟 搬工.exe 放在一起，一行一个「工号/名字」，用记事本就能改。"""
     return os.path.join(app_dir(), engine.NAMES_FILE)
@@ -157,6 +174,8 @@ class App:
         self.stop_btn.pack(side='left', padx=6)
         ttk.Button(bar, text='打开结果文件夹', command=self.open_out).pack(side='left')
         ttk.Button(bar, text='核对', command=self.check).pack(side='left', padx=6)
+        self.feed_btn = ttk.Button(bar, text='投喂数据', command=self.feed)
+        self.feed_btn.pack(side='left')
         self.status = tk.StringVar(value='')
         ttk.Label(bar, textvariable=self.status).pack(side='left', padx=10)
 
@@ -170,6 +189,11 @@ class App:
         self.refresh_count()
         n = len(engine.load_names(names_path()))
         self.write(f'名单：{n} 人（{names_path()}）' if n else f'没找到名单：{names_path()}（没有也能用，SETTER 就照单子抄）')
+        try:
+            from .kb import KnowledgeBase
+            self.write(KnowledgeBase(kb_path()).summary() + f'（投喂文件夹：{feed_dir()}）')
+        except Exception as e:
+            self.write(f'数据库打不开：{type(e).__name__}：{e}')
         self.cfg = cfg
         threading.Thread(target=ensure_shortcuts, args=(cfg,), daemon=True).start()
         root.protocol('WM_DELETE_WINDOW', self.on_close)
@@ -214,7 +238,7 @@ class App:
         self.pb.config(value=0)
         eng = engine.Engine(self.folder.get(), [k1, k2], self.model.get(), log=self.log,
                             progress=lambda d, t: self.q.put(('prog', (d, t))), stop=self.stop,
-                            names_path=names_path())
+                            names_path=names_path(), kb_path=kb_path(), feed_dir=feed_dir())
 
         def work():
             try:
@@ -234,6 +258,28 @@ class App:
     def open_out(self):
         d = os.path.join(self.folder.get(), engine.OUT_DIR)
         open_path(d if os.path.isdir(d) else self.folder.get())
+
+    def feed(self):
+        """投喂数据：选公司的 TOOL BROKEN RECORD（或核对过的搬工结果表），一次可以选好几本。"""
+        paths = filedialog.askopenfilenames(title='选要喂给数据库的表（可以多选）',
+                                            filetypes=[('Excel', '*.xlsx *.xlsm'), ('全部', '*.*')])
+        if not paths:
+            return
+        self.feed_btn.config(state='disabled')
+        self.write(f'开始投喂 {len(paths)} 本表…')
+
+        def work():
+            try:
+                from .kb import KnowledgeBase
+                kb = KnowledgeBase(kb_path())
+                for p in paths:
+                    self.log(kb.feed(p).line())
+                self.log(kb.summary())
+            except Exception as e:
+                self.log(f'✗ 投喂出错：{type(e).__name__}：{e}')
+            self.q.put(('fed', None))
+
+        threading.Thread(target=work, daemon=True).start()
 
     def check(self, run_dir: str | None = None):
         """核对窗口：编号照片一张一张看，第一张就是 1，←→ 翻页，输入编号直接跳。"""
@@ -263,6 +309,8 @@ class App:
                     d, t = val
                     self.pb.config(maximum=max(t, 1), value=d)
                     self.status.set(f'{d}/{t} 张')
+                elif kind == 'fed':
+                    self.feed_btn.config(state='normal')
                 elif kind == 'done':
                     self.start_btn.config(state='normal')
                     self.stop_btn.config(state='disabled')

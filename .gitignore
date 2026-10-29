@@ -4,3 +4,5 @@ dist/
 *.spec
 .pytest_cache/
 名单.txt
+数据库.sqlite
+投喂/

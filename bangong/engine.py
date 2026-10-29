@@ -30,7 +30,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-VERSION = '1.3.0'
+VERSION = '1.4.0'
 API_BASE = os.environ.get('BANGONG_API', 'https://generativelanguage.googleapis.com/v1beta').rstrip('/')
 DEFAULT_MODEL = 'gemini-3.5-flash-lite'
 MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro']
@@ -298,15 +298,19 @@ def model_name(m: str) -> str:
     return re.sub(r'^models/', '', (m or '').strip()) or DEFAULT_MODEL
 
 
-def build_prompt(names: list[tuple[str, str]] | None = None) -> str:
-    if not names:
-        return PROMPT
-    roster = '\n'.join(f'{n}/{nm}' for n, nm in names)
-    return (PROMPT + '\n\n设定员名单（SETTER 只会是其中之一）：单子上只写了工号、只写了名字、或者写得潦草，'
-            '就按这份名单输出完整的「工号/名字」；对不上名单的照单子原样抄。\n' + roster)
+def build_prompt(names: list[tuple[str, str]] | None = None, hints: str = '') -> str:
+    out = PROMPT
+    if names:
+        roster = '\n'.join(f'{n}/{nm}' for n, nm in names)
+        out += ('\n\n设定员名单（SETTER 只会是其中之一）：单子上只写了工号、只写了名字、或者写得潦草，'
+                '就按这份名单输出完整的「工号/名字」；对不上名单的照单子原样抄。\n' + roster)
+    if hints:
+        out += '\n\n' + hints
+    return out
 
 
-def build_body(jpeg: bytes, model: str, schema: bool = True, names: list[tuple[str, str]] | None = None) -> dict:
+def build_body(jpeg: bytes, model: str, schema: bool = True, names: list[tuple[str, str]] | None = None,
+               hints: str = '') -> dict:
     gen = {'responseMimeType': 'application/json'}
     if schema:
         gen['responseSchema'] = SCHEMA
@@ -315,7 +319,7 @@ def build_body(jpeg: bytes, model: str, schema: bool = True, names: list[tuple[s
     if re.match(r'^gemini-2\.5-flash(?!-lite)', model):
         gen['thinkingConfig'] = {'thinkingBudget': 0}
     return {
-        'systemInstruction': {'parts': [{'text': build_prompt(names)}]},
+        'systemInstruction': {'parts': [{'text': build_prompt(names, hints)}]},
         'contents': [{'role': 'user', 'parts': [
             {'text': '把这张图片里的刀具破损记录逐条填好。'},
             {'inline_data': {'mime_type': 'image/jpeg', 'data': base64.b64encode(jpeg).decode()}},
@@ -482,6 +486,8 @@ YELLOW = PatternFill('solid', fgColor='FFE699')
 RED_FILL = PatternFill('solid', fgColor='FFC7CE')
 RED_FONT = Font(name='Calibri', size=11, color='9C0006')
 GREY_FILL = PatternFill('solid', fgColor='EDEDED')
+ORANGE_FILL = PatternFill('solid', fgColor='FCE4D6')      # 按数据库改过的格子
+ORANGE_FONT = Font(name='Calibri', size=11, color='833C0B')
 BASE_FONT = Font(name='Calibri', size=11)
 BOLD = Font(name='Calibri', size=11, bold=True)
 CENTER = Alignment(horizontal='center', vertical='center', wrap_text=True)
@@ -507,10 +513,11 @@ def put(ws, row: int, col: int, value):
 class RecordBook:
     """长得跟公司那本 TOOL BROKEN RECORD 一样。边干边写：每批干完就存一次盘。"""
 
-    def __init__(self, path: str, today: date | None = None, names: list[tuple[str, str]] | None = None):
+    def __init__(self, path: str, today: date | None = None, names: list[tuple[str, str]] | None = None, kb=None):
         self.path = path
         self.today = today
         self.names = names or []
+        self.kb = kb
         self.wb = Workbook()
         ws = self.ws = self.wb.active
         ws.title = 'RECORD'
@@ -593,8 +600,16 @@ class RecordBook:
         ws, r = self.ws, self._next()
         c = put(ws, r, COL_NO, no)
         c.alignment, c.border, c.font = CENTER, BOX, BOLD
-        notes, red = [], set()
+        notes, red, orange = [], set(), set()
         values = {}
+        if self.kb is not None:                     # 先拿数据库当准绳：像的改成库里的写法（橙），对不上的标红
+            rec, fixed, flags = self.kb.fix(rec)
+            for f, (old, new, why) in fixed.items():
+                orange.add(f)
+                notes.append(f'{f.upper()} {old}→{new}（{why}）')
+            for f, why in flags.items():
+                red.add(f)
+                notes.append(why)
         for f in FIELDS:
             raw = rec.get(f, '')
             v: object = raw
@@ -643,11 +658,13 @@ class RecordBook:
                 cell.number_format = 'd-mmm'
             if f == 'btmp':
                 cell.fill = YELLOW
+            if f in orange:
+                cell.fill, cell.font = ORANGE_FILL, ORANGE_FONT
             if f in red:
                 cell.fill, cell.font = RED_FILL, RED_FONT
         if notes:
             n = put(ws, r, COL_NOTE, '；'.join(notes))
-            n.font, n.alignment = RED_FONT, LEFT
+            n.font, n.alignment = (RED_FONT if red else ORANGE_FONT), LEFT
 
     def save(self):
         last = max(3 + self.n_rows, 4)
@@ -715,7 +732,8 @@ def unique_dest(d: str, name: str) -> str:
 class Engine:
     def __init__(self, folder: str, keys: list[str], model: str = DEFAULT_MODEL,
                  log=print, progress=None, stop: threading.Event | None = None,
-                 clock=time.time, sleep=None, names_path: str | None = None):
+                 clock=time.time, sleep=None, names_path: str | None = None,
+                 kb_path: str | None = None, feed_dir: str | None = None):
         self.folder = folder
         self.model = model_name(model)
         self.log = log
@@ -729,6 +747,9 @@ class Engine:
         self.fatal: str = ''
         self.use_schema = True
         self.names = load_names(names_path)
+        self.kb_path, self.feed_dir = kb_path, feed_dir
+        self.snapshot = None
+        self.hints = ''
 
     # 可被「停止」打断的等待
     def wait(self, seconds: float):
@@ -762,7 +783,7 @@ class Engine:
 
     def _recognize(self, path: str) -> list[dict]:
         jpeg = prepare_image(path)
-        body = build_body(jpeg, self.model, self.use_schema, self.names)
+        body = build_body(jpeg, self.model, self.use_schema, self.names, self.hints)
         minute_hits = 0
         net_tries = 0
         while True:
@@ -800,7 +821,7 @@ class Engine:
                         self.use_schema = False
                         self.log(f'模型不认结构化输出格式，改用纯 JSON 提示重试 · {e.raw()}')
                     if 'responseSchema' in body['generationConfig']:
-                        body = build_body(jpeg, self.model, False, self.names)
+                        body = build_body(jpeg, self.model, False, self.names, self.hints)
                         continue
                 if e.status in (400, 401, 403) and re.search(r'API key|API_KEY|permission|PERMISSION', f'{e.message} {e.detail}'):
                     raise Fatal(f'钥匙{i + 1} · {e.raw()}')
@@ -837,6 +858,20 @@ class Engine:
             except OSError:
                 pass
         self.log = log
+        if self.kb_path:                            # 数据库：先吃投喂文件夹里新放的表，再拿来当准绳
+            try:
+                from .kb import KnowledgeBase
+                kb = KnowledgeBase(self.kb_path)
+                for fr in kb.feed_folder(self.feed_dir):
+                    self.log(fr.line())
+                self.snapshot = kb.load()
+                self.hints = self.snapshot.hints()
+                have = {n for n, _ in self.names}
+                self.names = self.names + [(n, nm) for n, nm in self.snapshot.roster() if n not in have]
+                self.log(kb.summary())
+            except Exception as e:
+                self.log(f'数据库打不开，这次不用它：{type(e).__name__}：{e}')
+                self.snapshot, self.hints = None, ''
         ledger_path = os.path.join(out_dir, LEDGER)
         try:
             with open(ledger_path, encoding='utf-8') as fh:
@@ -865,7 +900,7 @@ class Engine:
         done_dir = os.path.join(done_root, run_id)
         res.xlsx = os.path.join(out_dir, f'识别结果_{run_id}.xlsx')
         res.photos_dir = done_dir
-        book = RecordBook(res.xlsx, names=self.names)
+        book = RecordBook(res.xlsx, names=self.names, kb=self.snapshot)
         items = [(i + 1, p, h) for i, (p, h) in enumerate(todo)]      # 按拍摄顺序编号：第 1 张对应表里 No. 1
         self.log(f'▶ 开工：{total} 张，按拍摄顺序编号 1–{total}，每批 {BATCH} 张，模型 {self.model}'
                  + (f'，名单 {len(self.names)} 人' if self.names else '，没找到名单'))

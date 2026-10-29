@@ -50,6 +50,15 @@ jobs:
           $orig | ForEach-Object { "original: $($_.Name)" }
           if ($stamped.Count -ne 7 -or -not ($stamped | Where-Object { $_.Name -eq '01.jpg' })) { throw 'numbered photos missing' }
           if ($orig.Count -ne 7 -or -not ($orig | Where-Object { $_.Name -like '01_*' })) { throw 'originals missing' }
+      - name: Feed test (database)
+        shell: pwsh
+        run: |
+          $book = Join-Path $env:RUNNER_TEMP 'TOOL BROKEN RECORD.xlsx'
+          python -c "import sys; sys.path.insert(0, 'tests'); from test_kb import company_book; company_book(r'$book')"
+          $p = Start-Process dist/bangong.exe -ArgumentList '--feed',"`"$book`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "feed exit $($p.ExitCode)" }
+          if (-not (Test-Path 'dist/数据库.sqlite')) { throw 'no database file' }
+          python -c "import sqlite3; c = sqlite3.connect('dist/数据库.sqlite'); n = c.execute('select count(*) from records').fetchone()[0]; print('records', n); assert n == 8"
       - name: Shortcut test
         shell: pwsh
         run: |
