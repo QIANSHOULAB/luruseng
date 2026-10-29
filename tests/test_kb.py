@@ -103,8 +103,10 @@ def test_no_part_based_history_flags(tmp_path):
         assert not flags and not fixed and out['mo'] == r['mo']
     out, _, flags = s.fix(rec(part_number='XY-0001'))
     assert out['part_number'] == 'XY-0001'
-    _, _, flags = s.fix(rec(machine='ZZ-99', description='QQ7'))         # 没见过的机台、刀具描述还是标红
-    assert '没见过：ZZ-99' in flags['machine'] and '没见过：QQ7' in flags['description']
+    _, _, flags = s.fix(rec(machine='ZZ-99', description='QQ7'))         # 没见过、但认得清：不标
+    assert not flags
+    _, _, flags = s.fix(rec(machine='ZZ-99', description='QQ7'), unsure={'machine'})   # 没见过、又拿不准：标红
+    assert '模型也拿不准：ZZ-99' in flags['machine'] and 'description' not in flags
 
 
 def test_empty_db_changes_nothing(tmp_path):
@@ -155,3 +157,26 @@ def test_feed_a_checked_bangong_result(tmp_path):
     r = db.feed(str(tmp_path / 'r.xlsx'))
     assert r.rows == 1 and r.added == 1
     assert db.load().canon['machine'] == {'HM-3': 'HM-3'}
+
+
+def test_unsure_drives_red(tmp_path):
+    feed = tmp_path / '投喂'
+    feed.mkdir()
+    company_book(feed / 'c.xlsx')
+    roster = tmp_path / '名单.txt'
+    roster.write_text('639/Tan Bao Hong\n', encoding='utf-8')
+    for mode, want_red in (('unsure', {3, 9, 14}), ('newsure', set())):
+        imgs = tmp_path / f'in_{mode}'
+        make_images(imgs, 1)
+        mock_server.STATE['modes'] = {K1: mode}
+        res = engine.Engine(str(imgs), [K1], log=lambda m: None, kb_path=str(tmp_path / 'db.sqlite'),
+                            feed_dir=str(feed), names_path=str(roster)).run()
+        ws = sheet(res.xlsx)
+        red = {c for c in range(2, 15) if ws.cell(row=4, column=c).fill.fgColor.rgb.endswith('FFC7CE')}
+        assert red == want_red, (mode, red)
+        note = ws.cell(row=4, column=15).value or ''
+        if mode == 'unsure':
+            assert '模型也拿不准：VM-99' in note and 'BTMP 模型拿不准' in note and 'SETTER 不在名单里' in note
+            assert 'QQ7' not in note                                   # 描述没见过但认得清：不提
+        else:
+            assert note == ''                                          # 全认得清：一个红都没有

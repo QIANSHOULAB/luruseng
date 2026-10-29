@@ -299,10 +299,11 @@ class Snapshot:
                     return c
         return None
 
-    def fix(self, rec: dict) -> tuple[dict, dict, dict]:
+    def fix(self, rec: dict, unsure=()) -> tuple[dict, dict, dict]:
         """返回 (改好的记录, {字段: (原来, 改成, 原因)}, {字段: 标红原因})。
-        只做一件事：认出来的值跟库里某个值只差一个容易看错的字，就改成库里的写法。
-        不按零件对历史（Song 定的：零件、刀、MO 之间的老关系不拿来标红；没见过的零件也不标红，新零件常有）。"""
+        认出来的值跟库里某个值只差一个容易看错的字，就改成库里的写法。
+        库里没见过的机台、刀具描述：模型认得清就不标，模型自己拿不准（unsure）才标红。
+        不按零件对历史（Song 定的：零件、刀、MO 之间的老关系不拿来标红；没见过的零件也不标红）。"""
         rec = dict(rec)
         fixed, flags = {}, {}
         if not self.n:
@@ -319,6 +320,6 @@ class Snapshot:
             if c:
                 fixed[f] = (v, c, '按数据库改')
                 rec[f] = c
-            elif f != 'part_number':
-                flags[f] = f'{LABEL[f]} 数据库里没见过：{v}'
+            elif f != 'part_number' and f in unsure:
+                flags[f] = f'{LABEL[f]} 数据库里没见过，模型也拿不准：{v}'
         return rec, fixed, flags

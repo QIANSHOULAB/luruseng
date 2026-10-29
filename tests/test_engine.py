@@ -93,7 +93,7 @@ def test_twelve_photos_numbered_in_order(tmp_path):
     assert len(log) == 12 and all(e['key'] == K1 and e['hdr'] is None for e in log)
     assert mock_server.STATE['peak'] <= 5
     g = log[0]['gen']
-    assert 'temperature' not in g and set(g['responseSchema']['properties']['records']['items']['required']) == set(engine.FIELDS)
+    assert 'temperature' not in g and set(g['responseSchema']['properties']['records']['items']['required']) == set(engine.FIELDS) | {'unsure'}
     ws = sheet(res.xlsx)
     assert ws.title == 'OCT' and ws['A1'].value == 'TOOL BROKEN RECORD'
     assert [c.value for c in ws[2]][:14] == HEAD and [c.value for c in ws[3]][:14] == SUB
@@ -340,8 +340,9 @@ def test_parse_date_day_first():
 
 def test_parse_records_variants():
     wrap = lambda t: {'candidates': [{'content': {'parts': [{'text': t}]}, 'finishReason': 'STOP'}]}
-    recs = engine.parse_records(wrap('```json\n{"records":[{"DATE":"1-Oct","T NO.":"T4"},{}]}\n```'))
+    recs = engine.parse_records(wrap('```json\n{"records":[{"DATE":"1-Oct","T NO.":"T4","unsure":["T NO.","bogus"]},{"unsure":["date"]}]}\n```'))
     assert len(recs) == 1 and recs[0]['date'] == '1-Oct' and recs[0]['t_no'] == 'T4' and recs[0]['setter'] == ''
+    assert recs[0]['unsure'] == ['t_no']
     assert engine.parse_records(wrap('[]')) == []
     assert engine.parse_records(wrap('{"date":"2/10","shift":"N"}'))[0]['shift'] == 'N'
     with pytest.raises(ValueError):

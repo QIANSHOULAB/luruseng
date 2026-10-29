@@ -30,7 +30,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-VERSION = '1.4.1'
+VERSION = '1.5.0'
 API_BASE = os.environ.get('BANGONG_API', 'https://generativelanguage.googleapis.com/v1beta').rstrip('/')
 DEFAULT_MODEL = 'gemini-3.5-flash-lite'
 MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro']
@@ -80,15 +80,17 @@ PROMPT = """你是工厂的刀具破损记录（TOOL BROKEN RECORD）录入员�
 - 分清 0 和 O、1 和 I、5 和 S、8 和 B：数字字段只会是数字；机台和零件号照上面例子的样子判断。
 - 被划掉、涂掉作废的内容不要。
 - 图片歪斜或横着拍的，按正确方向读。
+- unsure：每条记录里你拿不准的字段名（字迹潦草、被挡住、反光、可能看错的），只列真拿不准的；全都看得清就给空数组。
 - 一条记录都没有就输出空数组。
-- 只输出 JSON：{"records": [{"date": "", "machine": "", ...}]}，不要任何解释。"""
+- 只输出 JSON：{"records": [{"date": "", "machine": "", ..., "unsure": []}]}，不要任何解释。"""
 
 SCHEMA = {
     'type': 'OBJECT',
     'properties': {'records': {'type': 'ARRAY', 'items': {
         'type': 'OBJECT',
-        'properties': {f: {'type': 'STRING'} for f in FIELDS},
-        'required': FIELDS,
+        'properties': {**{f: {'type': 'STRING'} for f in FIELDS},
+                       'unsure': {'type': 'ARRAY', 'items': {'type': 'STRING'}}},
+        'required': FIELDS + ['unsure'],
     }}},
     'required': ['records'],
 }
@@ -400,15 +402,20 @@ def parse_records(data: dict) -> list[dict]:
     out = []
     for r in recs:
         rec = {f: '' for f in FIELDS}
+        unsure = set()
         if isinstance(r, dict):
             for k, v in r.items():
                 nk = norm_key(k)
-                if nk in rec and v is not None:
+                if nk == 'unsure':                  # 模型自己说拿不准的字段
+                    items = v if isinstance(v, list) else re.split(r'[,，、;；\s]+', str(v or ''))
+                    unsure = {norm_key(x) for x in items if x} & set(FIELDS)
+                elif nk in rec and v is not None:
                     rec[nk] = re.sub(r'\s+', ' ', str(v)).strip()
         elif isinstance(r, list):
             for f, v in zip(FIELDS, r):
                 rec[f] = '' if v is None else re.sub(r'\s+', ' ', str(v)).strip()
-        if any(rec.values()):
+        if any(rec[f] for f in FIELDS):
+            rec['unsure'] = sorted(unsure)
             out.append(rec)
     return out
 
@@ -602,8 +609,9 @@ class RecordBook:
         c.alignment, c.border, c.font = CENTER, BOX, BOLD
         notes, red, orange = [], set(), set()
         values = {}
-        if self.kb is not None:                     # 先拿数据库当准绳：像的改成库里的写法（橙），对不上的标红
-            rec, fixed, flags = self.kb.fix(rec)
+        unsure = set(rec.get('unsure') or ())       # 模型自己说拿不准的字段：认得清的不标，拿不准的才标
+        if self.kb is not None:                     # 先拿数据库当准绳：像的改成库里的写法（橙）
+            rec, fixed, flags = self.kb.fix(rec, unsure)
             for f, (old, new, why) in fixed.items():
                 orange.add(f)
                 notes.append(f'{f.upper()} {old}→{new}（{why}）')
@@ -638,6 +646,8 @@ class RecordBook:
                     notes.append(f'SHIFT 不是 D/N：{raw}')
             elif f == 'setter' and raw and self.names:
                 v, note, flag = match_setter(raw, self.names)
+                if note == 'SETTER 不在名单里' and f not in unsure:     # 认得清的新人不标
+                    note, flag = '', False
                 if note:
                     notes.append(note)
                 if flag:
@@ -646,6 +656,10 @@ class RecordBook:
                 red.add(f)
                 notes.append(f'{f.upper()} 有看不清的字')
             values[f] = v
+        for f in FIELDS:                            # 模型拿不准、又没被数据库改好的字段：标红
+            if f in unsure and f not in red and f not in orange:
+                red.add(f)
+                notes.append(f'{f.upper()} 模型拿不准')
         t, p, fl = (values.get(k) for k in ('total_screened', 'passed', 'failed'))
         if all(isinstance(x, int) for x in (t, p, fl)) and p + fl != t:
             red |= {'total_screened', 'passed', 'failed'}

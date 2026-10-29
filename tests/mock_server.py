@@ -55,6 +55,10 @@ def answer(mode, body):
             recs = [dict(rec, total_screened='10', passed='9', failed='0')]
         elif mode == 'unclear':
             recs = [dict(rec, setter='6□9/Tan Bao Hong', date='3□/10', shift='X')]
+        elif mode == 'unsure':
+            recs = [dict(rec, machine='VM-99', description='QQ7', btmp='7', setter='777/NEW GUY', unsure=['MACHINE', 'btmp', 'Setter'])]
+        elif mode == 'newsure':
+            recs = [dict(rec, machine='VM-99', description='QQ7', setter='777/NEW GUY', unsure=[])]
         elif mode == 'confusable':
             recs = [dict(rec, machine='VM-O7', part_number='TD-S24613-5', description='EM2.S')]
         elif mode == 'aliases':
