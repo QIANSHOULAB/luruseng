@@ -56,7 +56,7 @@ def answer(mode, body):
         elif mode == 'unclear':
             recs = [dict(rec, setter='6□9/Tan Bao Hong', date='3□/10', shift='X')]
         elif mode == 'unsure':
-            recs = [dict(rec, machine='VM-99', description='QQ7', btmp='7', setter='777/NEW GUY', unsure=['MACHINE', 'btmp', 'Setter'])]
+            recs = [dict(rec, machine='VM-99', description='QQ7', btmp='7', setter='777/NEW GUY', unsure=['MACHINE', 'btmp', 'Setter', 'date'])]
         elif mode == 'newsure':
             recs = [dict(rec, machine='VM-99', description='QQ7', setter='777/NEW GUY', unsure=[])]
         elif mode == 'confusable':

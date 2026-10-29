@@ -168,10 +168,10 @@ def test_unclear_chars_bad_date_bad_shift(tmp_path):
     res, _, _ = run(tmp_path)
     ws = sheet(res.xlsx)
     assert ws.cell(row=4, column=14).value == '6□9/Tan Bao Hong' and ws.cell(row=4, column=14).fill.fgColor.rgb.endswith('FFC7CE')
-    assert ws.cell(row=4, column=2).value == '3□/10' and ws.cell(row=4, column=2).fill.fgColor.rgb.endswith('FFC7CE')
+    assert ws.cell(row=4, column=2).value == '3□/10' and not ws.cell(row=4, column=2).fill.fgColor.rgb.endswith('FFC7CE')  # 日期不标红
     assert ws.cell(row=4, column=13).fill.fgColor.rgb.endswith('FFC7CE')
     note = ws.cell(row=4, column=15).value
-    assert '日期认不出' in note and 'SHIFT 不是 D/N' in note and 'SETTER 有看不清的字' in note
+    assert 'DATE' not in note and '日期' not in note and 'SHIFT 不是 D/N' in note and 'SETTER 有看不清的字' in note
     assert ws.title == 'RECORD'                                            # 没有认得出的日期就不按月份起名
 
 

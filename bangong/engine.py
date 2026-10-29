@@ -30,7 +30,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-VERSION = '1.5.0'
+VERSION = '1.5.1'
 API_BASE = os.environ.get('BANGONG_API', 'https://generativelanguage.googleapis.com/v1beta').rstrip('/')
 DEFAULT_MODEL = 'gemini-3.5-flash-lite'
 MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro']
@@ -54,6 +54,7 @@ MAX_MINUTE_WAITS = 30               # 同一张连续撞每分钟上限的次数
 FIELDS = ['date', 'machine', 'part_number', 'mo', 'opr_no', 't_no', 'description',
           'btmp', 'total_screened', 'passed', 'failed', 'shift', 'setter']
 NUM_FIELDS = {'btmp', 'total_screened', 'passed', 'failed'}
+NEVER_RED = {'date'}                # 日期错了无所谓，不标红
 
 PROMPT = """你是工厂的刀具破损记录（TOOL BROKEN RECORD）录入员。从图片里找出每一条刀具破损记录，每条记录填下面 13 个字段。
 图片可能是一张单子（一条记录），也可能是一页登记表（好几行，每行一条记录）。
@@ -621,14 +622,11 @@ class RecordBook:
         for f in FIELDS:
             raw = rec.get(f, '')
             v: object = raw
-            if f == 'date' and raw:
+            if f == 'date' and raw:                 # 日期从不标红（Song 定的：错了无所谓），认不出就照原样写
                 d = parse_date(raw, self.today)
                 if d:
                     v = datetime(d.year, d.month, d.day)
                     self._name_sheet(d)
-                else:
-                    red.add(f)
-                    notes.append(f'日期认不出：{raw}')
             elif f in NUM_FIELDS and raw:
                 n = to_int(raw)
                 if n is None:
@@ -652,12 +650,12 @@ class RecordBook:
                     notes.append(note)
                 if flag:
                     red.add(f)
-            if isinstance(v, str) and '□' in v:
+            if isinstance(v, str) and '□' in v and f not in NEVER_RED:
                 red.add(f)
                 notes.append(f'{f.upper()} 有看不清的字')
             values[f] = v
         for f in FIELDS:                            # 模型拿不准、又没被数据库改好的字段：标红
-            if f in unsure and f not in red and f not in orange:
+            if f in unsure and f not in red and f not in orange and f not in NEVER_RED:
                 red.add(f)
                 notes.append(f'{f.upper()} 模型拿不准')
         t, p, fl = (values.get(k) for k in ('total_screened', 'passed', 'failed'))
