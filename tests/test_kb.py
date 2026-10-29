@@ -176,7 +176,7 @@ def test_unsure_drives_red(tmp_path):
         assert red == want_red, (mode, red)
         note = ws.cell(row=4, column=15).value or ''
         if mode == 'unsure':
-            assert '模型也拿不准：VM-99' in note and 'BTMP 模型拿不准' in note and 'SETTER 不在名单里' in note
+            assert '模型也拿不准：VM-99' in note and 'BTMP 模型拿不准' in note and 'SETTER 模型拿不准' in note
             assert 'QQ7' not in note                                   # 描述没见过但认得清：不提
         else:
             assert note == ''                                          # 全认得清：一个红都没有

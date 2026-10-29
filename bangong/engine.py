@@ -30,7 +30,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-VERSION = '1.6.2'
+VERSION = '1.6.3'
 APP_NAME = '录入僧'
 SUBTITLE = '施主去玩，贫僧填表'
 OLD_NAME = '搬工'                   # 改名前的名字：旧账本、旧配置照样认
@@ -82,7 +82,7 @@ PROMPT = """你是工厂的刀具破损记录（TOOL BROKEN RECORD）录入员�
 - passed：合格数（PASSED），数字。
 - failed：不合格数（FAILED），数字。
 - shift：班次（SHIFT），只有 D（白班）或 N（夜班）。
-- setter：设定员（SETTER），写法是「工号/名字」，例如 639/Lee Ah Kow、535/RAJ KUMAR。
+- setter：设定员（SETTER、Setter Emp No.）。照单子写的抄：只写了工号就只填工号（例如 232），写了「工号/名字」就照抄（例如 639/Lee Ah Kow）。
 
 规则：
 - 照单子上写的抄，不猜、不补、不纠错；某个字实在看不清就用 □ 代替那个字。
@@ -315,8 +315,8 @@ def build_prompt(names: list[tuple[str, str]] | None = None, hints: str = '') ->
     out = PROMPT
     if names:
         roster = '\n'.join(f'{n}/{nm}' for n, nm in names)
-        out += ('\n\n设定员名单（SETTER 只会是其中之一）：单子上只写了工号、只写了名字、或者写得潦草，'
-                '就按这份名单输出完整的「工号/名字」；对不上名单的照单子原样抄。\n' + roster)
+        out += ('\n\n设定员名单（只用来帮你认潦草的工号和名字）：SETTER 还是照单子上写的抄，'
+                '只写了工号就只填工号，不要补名字。\n' + roster)
     if hints:
         out += '\n\n' + hints
     return out
@@ -638,14 +638,16 @@ class RecordBook:
                 if v not in ('D', 'N'):
                     red.add(f)
                     notes.append(f'SHIFT 不是 D/N：{raw}')
-            elif f == 'setter' and raw and self.names:
-                v, note, flag = match_setter(raw, self.names)
-                if note == 'SETTER 不在名单里' and f not in unsure:     # 认得清的新人不标
-                    note, flag = '', False
-                if note:
-                    notes.append(note)
-                if flag:
-                    red.add(f)
+            elif f == 'setter' and raw:
+                # Song 定的：工号和名字有一个就知道是谁，SETTER 照单子抄，不补、不按名单标红。
+                # 只有工号里有看不清的字（□）而名单能唯一补上时才补。
+                if '□' in raw and self.names:
+                    mm = re.fullmatch(r'\s*([0-9□]+)(.*)', raw)
+                    if mm and '□' in mm.group(1):
+                        hit = [n for n, _ in self.names if re.fullmatch(mm.group(1).replace('□', r'\d'), n)]
+                        if len(hit) == 1:
+                            v = hit[0] + mm.group(2)
+                            notes.append(f'SETTER 看不清的工号按名单补成 {hit[0]}')
             if isinstance(v, str) and '□' in v and f not in NEVER_RED:
                 red.add(f)
                 notes.append(f'{f.upper()} 有看不清的字')
