@@ -240,3 +240,15 @@ def test_model_prefix_and_thinking():
     g3 = engine.build_body(b'x', 'gemini-3.5-flash-lite')['generationConfig']
     assert 'thinkingConfig' not in g3 and 'temperature' not in g3
     assert engine.build_body(b'x', 'gemini-2.5-flash-lite')['generationConfig']['temperature'] == 0.1
+
+
+def test_excel_survives_formula_and_control_chars(tmp_path):
+    book = engine.Book(str(tmp_path / 'x.xlsx'))
+    book.add('a.jpg', [['=1+1', 'ok\x07bell', '\x00'], ['普通']])
+    book.add('b.jpg', None, 'HTTP 500：boom\x1f')
+    book.save()
+    wb = load_workbook(tmp_path / 'x.xlsx')
+    rows = [list(r) for r in wb['识别结果'].iter_rows(values_only=True)]
+    assert ['=1+1', 'okbell', None] in rows
+    assert wb['识别结果'].cell(row=2, column=1).data_type == 's'
+    assert [r[2] for r in wb['清单'].iter_rows(values_only=True)][1:] == ['成功', '失败']

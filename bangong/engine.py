@@ -26,6 +26,7 @@ except Exception:  # pragma: no cover
     pass
 
 from openpyxl import Workbook
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 VERSION = '1.0.2'
@@ -252,6 +253,16 @@ TITLE_FILL = PatternFill('solid', fgColor='DDEBF7')
 WRAP = Alignment(wrap_text=True, vertical='top')
 
 
+def put(ws, row: int, col: int, value):
+    """写一个格子：去掉 Excel 不认的控制字符；= 开头的照文字存，不当公式。"""
+    if isinstance(value, str):
+        value = ILLEGAL_CHARACTERS_RE.sub('', value)
+    cell = ws.cell(row=row, column=col, value=value)
+    if isinstance(value, str) and value.startswith('='):
+        cell.data_type = 's'
+    return cell
+
+
 class Book:
     """边干边写：每批干完就存一次盘。"""
 
@@ -273,27 +284,27 @@ class Book:
         self.n += 1
         ws = self.main
         r0 = ws.max_row + (2 if ws.max_row > 1 else 0)
-        title = ws.cell(row=r0, column=1, value=f'第 {self.n} 张　{name}' + ('　✗ 识别失败' if rows is None else ''))
+        title = put(ws, r0, 1, f'第 {self.n} 张　{name}' + ('　✗ 识别失败' if rows is None else ''))
         title.font = Font(bold=True, size=12, color='9C0006' if rows is None else '1F3864')
         width = max([len(r) for r in rows] + [1]) if rows else 1
         for c in range(1, width + 1):
             ws.cell(row=r0, column=c).fill = TITLE_FILL
         if rows is None:
-            ws.cell(row=r0 + 1, column=1, value=error).alignment = WRAP
+            put(ws, r0 + 1, 1, error).alignment = WRAP
         else:
             for i, row in enumerate(rows, start=1):
                 for j, v in enumerate(row, start=1):
-                    cell = ws.cell(row=r0 + i, column=j, value=v)
+                    cell = put(ws, r0 + i, j, v)
                     cell.alignment = WRAP
                     cell.border = BOX
         self.maxcols = max(self.maxcols, width)
         for j in range(1, self.maxcols + 1):
             letter = ws.cell(row=1, column=j).column_letter
             ws.column_dimensions[letter].width = 34 if j == 1 else 18
-        self.listing.append([self.n, name, '成功' if rows is not None else '失败',
-                             len(rows) if rows is not None else 0, error, datetime.now().strftime('%Y-%m-%d %H:%M:%S')])
-        for c in self.listing[self.listing.max_row]:
-            c.alignment = WRAP
+        r = self.listing.max_row + 1
+        for j, v in enumerate([self.n, name, '成功' if rows is not None else '失败',
+                               len(rows) if rows is not None else 0, error, datetime.now().strftime('%Y-%m-%d %H:%M:%S')], start=1):
+            put(self.listing, r, j, v).alignment = WRAP
 
     def save(self):
         tmp = self.path + '.tmp'
