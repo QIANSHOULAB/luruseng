@@ -31,7 +31,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-VERSION = '1.7.1'
+VERSION = '1.7.2'
 APP_NAME = '录入僧'
 SUBTITLE = '施主去玩，贫僧填表'
 OLD_NAME = '搬工'                   # 改名前的名字：旧账本、旧配置照样认
@@ -569,6 +569,12 @@ def vote(reads: list[list[dict]]) -> list[dict]:
     return out
 
 
+def retry_delay(detail: str) -> float | None:
+    """谷歌 429 里带的 RetryInfo.retryDelay（比如 "37s"）：照它说的等，不用死等满 60 秒。"""
+    m = re.search(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"', detail or '')
+    return float(m.group(1)) if m else None
+
+
 def classify_429(e: ApiError) -> str:
     s = f'{e.message} {e.detail}'
     if re.search(r'prepay', s, re.I):
@@ -957,7 +963,9 @@ class Engine:
                         minute_hits += 1
                         if minute_hits > MAX_MINUTE_WAITS:
                             raise
-                        self.keys.park(i, self.clock() + MINUTE_WAIT)
+                        d = retry_delay(e.detail)
+                        wait = MINUTE_WAIT if d is None else min(MINUTE_WAIT, max(3.0, d + 1))
+                        self.keys.park(i, self.clock() + wait)
                     continue
                 if e.status == 400 and re.search(r'schema', e.message, re.I):
                     if self.use_schema:

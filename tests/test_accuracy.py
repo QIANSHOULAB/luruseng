@@ -175,3 +175,8 @@ def test_stray_exes_and_lock(tmp_path):
     assert not autopilot.is_locked(canon) and not autopilot.is_locked(str(tmp_path / 'nope.exe'))
     dst = autopilot.retire_file(strays[0], wait=1)
     assert dst and not me.exists()
+
+
+def test_retry_delay_from_google():
+    d = '[{"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "37s"}]'
+    assert engine.retry_delay(d) == 37.0 and engine.retry_delay('[]') is None and engine.retry_delay('') is None
