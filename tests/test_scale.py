@@ -24,7 +24,14 @@ def make_app(tmp_path, monkeypatch, scale):
         monkeypatch.setenv('LURUSENG_SCALE', str(scale))
     monkeypatch.setattr(app, 'app_dir', lambda: str(tmp_path / 'app'))
     monkeypatch.setattr(app, 'CONFIG', str(tmp_path / 'config.json'))
+    root._scaling0 = root.tk.call('tk', 'scaling')      # Tk 的字号倍数是整个程序共用的：测完拨回去
     return root, app, app.App(root)
+
+
+def close(root):
+    root.tk.call('tk', 'scaling', root._scaling0)
+    root.destroy()
+    ui.S = 1.0
 
 
 def pills(frame):
@@ -57,8 +64,7 @@ def test_everything_grows_with_the_screen(tmp_path, monkeypatch):
         switches = [s for row in card.body.winfo_children() for s in row.winfo_children() if isinstance(s, ui.Switch)]
         assert switches and all((s.W, s.H) == (60, 36) for s in switches)
     finally:
-        root.destroy()
-        ui.S = 1.0
+        close(root)
 
 
 def test_at_100_percent_nothing_moves_and_settings_foot(tmp_path, monkeypatch):
@@ -80,4 +86,4 @@ def test_at_100_percent_nothing_moves_and_settings_foot(tmp_path, monkeypatch):
         [p for p in pills(foot) if p.cget('text') == '千手院总舵'][0].command()
         assert opened == [updater.HUB_URL] == ['https://qianshoulab.github.io/']
     finally:
-        root.destroy()
+        close(root)

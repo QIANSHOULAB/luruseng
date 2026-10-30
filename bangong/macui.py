@@ -77,10 +77,14 @@ def init_scale(root):
         except ValueError:
             s = None
     if s is None and sys.platform == 'win32':
-        try:
-            s = root.winfo_fpixels('1i') / 96.0                   # 没开 dpi_aware 时这里是 1.0，照旧
-        except tk.TclError:
-            s = None
+        try:                                                      # 系统的放大倍数（没开 dpi_aware 时是 96，照旧 1.0）
+            import ctypes
+            s = ctypes.windll.user32.GetDpiForSystem() / 96.0
+        except Exception:
+            try:
+                s = root.winfo_fpixels('1i') / 96.0
+            except tk.TclError:
+                s = None
     S = round(s, 2) if s and s > 0 else 1.0
     if env or sys.platform == 'win32':
         root.tk.call('tk', 'scaling', S * 96 / 72)               # 字号是「点」：跟着 S 放大
