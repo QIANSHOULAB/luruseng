@@ -5,6 +5,7 @@
 把一个文件夹里的刀具破损记录照片（照片、扫描件、HEIC 都行）送给 Gemini，认出每一条 TOOL BROKEN RECORD，边干边写进一本跟公司那本长得一样的 Excel。
 
 - 网站（下载、怎么用）：https://oilsongchengmin-svg.github.io/luruseng/
+- 网页版（不用装，电脑、手机都行）：https://oilsongchengmin-svg.github.io/luruseng/web/ 。功能跟电脑版一样，东西存在那个浏览器里（⚙ 里能备份）。代码在 `web/`：`core.js` 跟 `engine.py`、`kb.py`、`tables.py` 是同一套规矩，改一边要改另一边；`web/test/e2e.py` 让两边拿同样的照片各出一本表，一格一格对。
 - 联系制作人（修改建议、想要的功能）：oilsongchengmin@gmail.com（程序里 ⚙ →「联系制作人」）
 - 发新版：改 `bangong/engine.py` 的 `VERSION`，在 `changes.md` 顶上加一段「## 新版本号」写更新了啥，推到 main。
 - 下载：https://github.com/oilsongchengmin-svg/luruseng/releases/latest/download/luruseng.exe （双击就能用，不用装 Python；直接在「下载」里双击也行，它会在旁边建「录入僧」文件夹搬进去）

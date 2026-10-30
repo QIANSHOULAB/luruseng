@@ -7,6 +7,8 @@ on:
     paths-ignore:            # 只改网站或说明，不重新打包
       - 'index.html'
       - 'key.html'
+      - 'web/**'
+      - '.github/workflows/web.yml'
       - 'screenshot.png'
       - '.nojekyll'
       - 'docs/**'

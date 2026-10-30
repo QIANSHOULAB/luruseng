@@ -1,0 +1,35 @@
+name: web
+
+on:
+  push:
+    branches: [main]
+    paths: ['web/**', 'bangong/**', 'tests/**', '.github/workflows/web.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: |
+          pip install -r requirements.txt pytest xlwt playwright
+          python -m playwright install --with-deps chromium
+      - name: Unit tests (same rules as the desktop)
+        run: node --test web/test/core.test.mjs web/test/engine.test.mjs web/test/sheets.test.mjs
+      - name: Click through in a real browser; Excel must match the desktop's cell by cell
+        run: python web/test/e2e.py shots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: web-shots
+          path: shots

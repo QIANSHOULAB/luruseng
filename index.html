@@ -56,6 +56,14 @@
   .dl:hover { background: #0A84FF; text-decoration: none; transform: translateY(-1px); }
   .dl:active { background: var(--blue-down); transform: none; }
   .dl svg { width: 20px; height: 20px; }
+  .web {
+    display: inline-flex; align-items: center; gap: 10px; font-weight: 600; font-size: 17px;
+    padding: 14px 24px; border-radius: 12px; border: 1px solid #BFD7F5; background: #fff; color: var(--blue);
+    transition: background .15s, transform .15s;
+  }
+  .web:hover { background: #F2F8FF; text-decoration: none; transform: translateY(-1px); }
+  .web svg { width: 20px; height: 20px; }
+  .web small { font-weight: 400; font-size: 14px; color: var(--grey); }
   .meta { color: var(--grey); font-size: 14px; }
   .meta a { color: var(--grey); text-decoration: underline; text-underline-offset: 3px; }
   .phone {
@@ -67,6 +75,7 @@
     border: 1px solid #E2C877; background: #fff; color: #6B4E00; cursor: pointer;
   }
   body.is-phone .phone { display: block; }
+  body.is-phone .web { order: -1; }            /* 手机上网页版排第一 */
 
   /* 截图 */
   .shot {
@@ -130,7 +139,7 @@
     h1 { font-size: 36px; }
     .tagline { font-size: 16px; }
     .lead { font-size: 17px; margin-top: 18px; }
-    .dl { width: 100%; justify-content: center; }
+    .dl, .web { width: 100%; justify-content: center; }
     section { padding-top: 48px; }
     h2 { font-size: 24px; }
     h2 small { display: block; margin: 4px 0 0; }
@@ -159,13 +168,18 @@
 
   <p class="lead">刀具破损记录（TOOL BROKEN RECORD）拍照丢进文件夹，Excel 表自己出来。一张照片一行，照片上印好编号对着核；认不准的格子标<span class="red">红</span>，只看红的就行。别的单子也能教它认：建个类别，放几本改对的表进去就行。</p>
 
-  <div class="phone" id="phone">这是 <b>Windows 电脑程序</b>，手机上用不了：把这个网址发到电脑上再点下载。<button type="button" id="copy">复制网址</button></div>
+  <div class="phone" id="phone">手机上用 <a href="web/"><b>网页版</b></a>，不用装。要电脑版：把这个网址发到电脑上再下载。<button type="button" id="copy">复制网址</button></div>
 
   <div class="cta">
     <a class="dl" id="dl" href="https://github.com/oilsongchengmin-svg/luruseng/releases/latest/download/luruseng.exe">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M12 4v11"/><path d="M7 10.5 12 15.5 17 10.5"/><path d="M5 19.5h14"/></svg>
       下载 Windows 版
+    </a>
+    <a class="web" href="web/">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.6 3.8 5.6 3.8 9s-1.2 6.4-3.8 9c-2.6-2.6-3.8-5.6-3.8-9S9.4 5.6 12 3z"/></svg>
+      用网页版 <small>不用装，手机也行</small>
     </a>
     <span class="meta"><span id="ver">Windows 10 / 11 · 约 30 MB · 免费</span> ·
       <a href="https://github.com/oilsongchengmin-svg/luruseng/releases">所有版本</a></span>
