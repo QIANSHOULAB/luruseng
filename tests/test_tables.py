@@ -225,7 +225,8 @@ def test_update_card_and_contact(tmp_path, monkeypatch):
         a.offer_update('99.0.0', '- 大更新')
         root.update()
         card = a.dialog
-        assert isinstance(card, app.UpdateCard) and card.notes.get() == '- 大更新'
+        assert isinstance(card, app.UpdateCard) and card.notes.get() == '• 大更新'
+        assert card.title() == '录入僧 v99.0.0 搞出来了'
         assert a.update_pill.winfo_ismapped() and a.update_pill.cget('text') == '新版本 v99.0.0'
         card.later()
         assert a.update_dismissed == '99.0.0' and not card.winfo_exists()
@@ -233,10 +234,10 @@ def test_update_card_and_contact(tmp_path, monkeypatch):
         import time
         for _ in range(60):
             root.update()
-            if a.dialog.notes.get() == '- 后来拿到的说明':
+            if a.dialog.notes.get() == '• 后来拿到的说明':
                 break
             time.sleep(0.05)
-        assert a.dialog.notes.get() == '- 后来拿到的说明'
+        assert a.dialog.notes.get() == '• 后来拿到的说明'
         a.dialog.always()                                          # 以后都自动更新
         root.update()
         assert a.cfg['auto_update'] is True and app.load_config()['auto_update'] is True
@@ -246,3 +247,10 @@ def test_update_card_and_contact(tmp_path, monkeypatch):
         assert root.clipboard_get() == updater.CONTACT == 'oilsongchengmin@gmail.com'
     finally:
         root.destroy()
+
+
+def test_pretty_notes():
+    from bangong.app import pretty_notes
+    assert pretty_notes('v1.9.2\n- 改格子\n- 发邮件') == '• 改格子\n• 发邮件'           # 只跨一版：不写版本号
+    assert pretty_notes('v1.9.2\n- a\nv1.9.1\n- b') == 'v1.9.2\n• a\nv1.9.1\n• b'   # 跨了几版：留着版本号
+    assert pretty_notes('') == ''

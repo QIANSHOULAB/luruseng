@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -1077,22 +1078,36 @@ class FeedCard(CardDialog):
         self.app.do_feed(cat, paths)
 
 
+def pretty_notes(text: str) -> str:
+    """更新说明给人看：只跨了一版就不写版本号那行；「- 」换成「• 」。"""
+    lines = [ln for ln in (text or '').splitlines() if ln.strip()]
+    heads = [ln for ln in lines if re.fullmatch(r'v\d+(?:\.\d+)+', ln.strip())]
+    if len(heads) == 1:
+        lines = [ln for ln in lines if ln not in heads]
+    return '\n'.join(('• ' + ln.strip()[2:]) if ln.strip().startswith('- ') else ln for ln in lines)
+
+
 class UpdateCard(CardDialog):
     """有新版：告诉他出了哪一版、更新了啥；他自己点「现在更新」，也可以点「以后都自动更新」。"""
 
     def __init__(self, app: App, remote: str, text: str = ''):
-        super().__init__(app, '有新版本', 560)
+        # 话是 Song 定的（2026-10-30）：不打官腔
+        super().__init__(app, f'录入僧 v{remote} 搞出来了', 560)
         self.remote = remote
         b = self.body
-        tk.Label(b, text=f'录入僧 v{remote} 出来了（你现在用的是 v{engine.VERSION}）', font=self.bf, bg=ui.CARD,
-                 fg=ui.TEXT, anchor='w').pack(anchor='w')
-        tk.Label(b, text='更新了啥', font=(self.fam, 10, 'bold'), bg=ui.CARD, fg=ui.TEXT, anchor='w').pack(
+        tk.Label(b, text=f'（你那 v{engine.VERSION} 该淘汰了）', font=(self.fam, 10), bg=ui.CARD, fg=ui.GREY,
+                 anchor='w').pack(anchor='w')
+        tk.Label(b, text='这次弄了点啥：', font=(self.fam, 11, 'bold'), bg=ui.CARD, fg=ui.TEXT, anchor='w').pack(
             anchor='w', pady=(14, 4))
-        self.notes = tk.StringVar(value=text or '正在拿更新说明…')
+        self.notes = tk.StringVar(value=pretty_notes(text) if text else '正在拿更新说明…')
         ui.Para(b, self.notes, font=(self.fam, 10), fg=ui.TEXT, width_px=500).pack(fill='x')
-        ui.Para(b, tk.StringVar(value=f'换版本不动你的设置、数据库和照片；换完自己重开。'
-                                      f'想要什么功能、有修改建议：发邮件给制作人 {updater.CONTACT}'),
-                font=(self.fam, 9), width_px=500).pack(fill='x', pady=(12, 0))
+        ui.Para(b, tk.StringVar(value='放心，换版本不会动你的设置、数据库和照片。更新完自己重启一下。\n'
+                                      '如果想要什么新花样，或者觉得哪里反人类，直接发邮件找我算账：'),
+                font=(self.fam, 9), width_px=500).pack(fill='x', pady=(14, 0))
+        mail = tk.Label(b, text=updater.CONTACT, font=(self.fam, 9, 'underline'), bg=ui.CARD, fg=ui.BLUE,
+                        cursor='hand2', anchor='w')
+        mail.pack(anchor='w')
+        mail.bind('<Button-1>', lambda e: self.mail())
         self.status = tk.StringVar(value='')
         tk.Label(b, textvariable=self.status, font=(self.fam, 10), bg=ui.CARD, fg=ui.BLUE, anchor='w').pack(
             anchor='w', pady=(8, 0))
@@ -1103,8 +1118,15 @@ class UpdateCard(CardDialog):
         if not text:
             def go():
                 t = updater.notes()
-                app.q.put(('call', lambda: self.winfo_exists() and self.notes.set(t or '这次没写更新说明。')))
+                app.q.put(('call', lambda: self.winfo_exists() and self.notes.set(pretty_notes(t) or '这次没写更新说明。')))
             threading.Thread(target=go, daemon=True).start()
+
+    def mail(self):
+        import urllib.parse
+        self.clipboard_clear()
+        self.clipboard_append(updater.CONTACT)
+        open_path(f'mailto:{updater.CONTACT}?subject=' + urllib.parse.quote(f'录入僧 v{engine.VERSION} 建议'))
+        self.status.set(f'邮箱已复制：{updater.CONTACT}')
 
     def enable(self, on: bool = True):
         for btn in self.btns:
