@@ -1,4 +1,4 @@
-// 读表：放入数据库认的几种格式，统一变成 [[页名, 行[]]]（跟电脑版 bangong/sheets.py 一个意思）
+// 读表：放入样板资料认的几种格式，统一变成 [[页名, 行[]]]（跟电脑版 bangong/sheets.py 一个意思）
 // .xlsx / .xlsm / .xls 交给 SheetJS；.csv 自己认编码（UTF-8、Excel 中文版的 GBK、「Unicode 文本」的 UTF-16）和分隔符。
 // 别的系统「导出 Excel」出来的假 .xls：其实是 .xlsx、老 .xls、文字表的照读；网页（HTML）导出的也交给 SheetJS 读。
 

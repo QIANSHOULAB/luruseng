@@ -78,6 +78,26 @@ def names_path() -> str:
     return os.path.join(app_dir(), engine.NAMES_FILE)
 
 
+PHOTO_TYPES = [('照片', ' '.join(f'*{e}' for e in sorted(engine.IMG_EXT))), ('所有文件', '*.*')]
+
+
+def copy_lines(r, folder: str = '待识别') -> list[str]:
+    """「选照片…」复制完，日志里说一声。"""
+    out = []
+    if r.copied:
+        out.append(f'✓ 复制了 {len(r.copied)} 张进「{os.path.basename(os.path.normpath(folder))}」，原照片还在老地方。点「开始工作」')
+    if r.already:
+        out.append(f'↷ {len(r.already)} 张「{os.path.basename(os.path.normpath(folder))}」里已经有了，没再复制')
+    if r.done:
+        names = '、'.join(n for n, _ in r.done[:5]) + ('…' if len(r.done) > 5 else '')
+        out.append(f'↷ {len(r.done)} 张以前干过，没再复制：{names}')
+    for name, why in r.bad[:5]:
+        out.append(f'✗ {name}：{why}')
+    if len(r.bad) > 5:
+        out.append(f'✗ 还有 {len(r.bad) - 5} 个也没复制')
+    return out
+
+
 def load_config() -> dict:
     """读设置，并补齐 ⚙ 里的开关：这台电脑用过录入僧（有设置文件）就全开照旧，新装的用新默认值。"""
     cfg, existed = {}, False
@@ -305,8 +325,9 @@ class App:
         self.folder = tk.StringVar(value=cfg.get('folder') or default_folder())
         ui.Field(g, self.folder, font=bf).grid(row=2, column=1, sticky='ew', pady=5)
         key_w = tkfont.Font(font=bf).measure('免费领钥匙') + 19 + 10 + 2 * 14      # 右边一列按钮一样宽
-        ui.Pill(g, '选择…', command=self.pick, font=bf, bg=ui.CARD, height=38, radius=8, minwidth=key_w).grid(
-            row=2, column=2, padx=(10, 0))
+        self.pick_btn = ui.Pill(g, '选照片…', command=self.pick, font=bf, bg=ui.CARD, height=38, radius=8,
+                                minwidth=key_w)
+        self.pick_btn.grid(row=2, column=2, padx=(10, 0))         # 挑照片，自己复制进图片文件夹；换文件夹在框里改
 
         self.key1 = tk.StringVar(value=cfg.get('key1', ''))
         self.key2 = tk.StringVar(value=cfg.get('key2', ''))
@@ -346,7 +367,7 @@ class App:
         self.stop_btn.pack(side='left', padx=(10, 0))
         ui.Pill(bar, '打开结果文件夹', command=self.open_out, icon='folder', **btn).pack(side='left', padx=(10, 0))
         ui.Pill(bar, '核对', command=self.check, icon='doc', **btn).pack(side='left', padx=(10, 0))
-        self.feed_btn = ui.Pill(bar, '放入数据库', command=self.feed, icon='db', **btn)
+        self.feed_btn = ui.Pill(bar, '放入样板资料', command=self.feed, icon='db', **btn)
         self.feed_btn.pack(side='left', padx=(10, 0))
 
         # ---- 右边小卡片：任务状态
@@ -428,10 +449,29 @@ class App:
 
     # ---------- UI 动作
     def pick(self):
-        d = filedialog.askdirectory(initialdir=self.folder.get() or None)
-        if d:
-            self.folder.set(os.path.normpath(d))
-            self.refresh_count()
+        """「选照片…」：挑照片（可以多选），复制进图片文件夹（默认 待识别，没有就当场建），原照片原地不动。
+        复制完还是人点「开始工作」（Song 定的）；开着「来图就干」的话它自己会开工。"""
+        paths = filedialog.askopenfilenames(title='选照片（可以多选）', initialdir=self.cfg.get('pick_dir') or None,
+                                            filetypes=PHOTO_TYPES)
+        if not paths:
+            return
+        folder = self.folder.get().strip() or default_folder()
+        self.folder.set(folder)
+        self.cfg['pick_dir'] = os.path.dirname(paths[0])
+        self.save()
+        self.status.set('正在复制…')
+
+        def work():
+            try:
+                r = engine.copy_in(paths, folder)
+            except OSError as e:
+                self.log(f'✗ 复制不进 {folder}：{e}')
+            else:
+                for line in copy_lines(r, folder):
+                    self.log(line)
+            self.q.put(('call', self.refresh_count))
+
+        threading.Thread(target=work, daemon=True).start()
 
     def refresh_count(self):
         try:
@@ -501,7 +541,7 @@ class App:
         open_path(d if os.path.isdir(d) else self.folder.get())
 
     def feed(self):
-        """放入数据库：先选放进哪个类别（刀单 / 自建的 / ＋新建），再选表。"""
+        """放入样板资料：先选放进哪个类别（刀单 / 自建的 / ＋新建），再选表。"""
         self._dialog(FeedCard)
 
     def do_feed(self, cat: str, paths):
@@ -527,13 +567,13 @@ class App:
                             self.log(f'「{cat}」多了这些列：' + '、'.join(fr.new_columns))
                     self.log(db.summary(cat))
             except Exception as e:
-                self.log(f'✗ 放入数据库出错：{type(e).__name__}：{e}')
+                self.log(f'✗ 放入样板资料出错：{type(e).__name__}：{e}')
             self.q.put(('fed', None))
 
         threading.Thread(target=work, daemon=True).start()
 
     def _dialog(self, cls, *args):
-        """同一时间只开一个小卡片（放入数据库 / 新建类别）。"""
+        """同一时间只开一个小卡片（放入样板资料 / 新建类别）。"""
         if self.dialog is not None and self.dialog.winfo_exists():
             self.dialog.destroy()
         self.dialog = cls(self, *args)
@@ -573,7 +613,7 @@ class App:
                 self.cat_hint.set(f'自建 · {len(cols)} 列 · {n} 条记录' if cols else '自建 · 还没放过表')
                 self.names_head.set(f'「{cat}」数据库：{n} 条' if cols else f'「{cat}」还没放过表')
                 self.names_path.set(('列：' + '、'.join(cols)) if cols else
-                                    '先认全部内容，改对了点「放入数据库」，表头就定成它的列')
+                                    '先认全部内容，改对了点「放入样板资料」，表头就定成它的列')
                 line = db.summary(cat) + f'（也可以把表丢进：{tables.feed_path(app_dir(), cat)}）'
         except Exception as e:
             line = f'「{cat}」的数据库打不开：{type(e).__name__}：{e}'
@@ -946,7 +986,7 @@ def handoff_target(here: str | None = None) -> str:
 
 
 class CardDialog(tk.Toplevel):
-    """小卡片窗口（放入数据库、新建类别）：标题、内容、底下一排按钮，样子跟 ⚙ 设置一样。"""
+    """小卡片窗口（放入样板资料、新建类别）：标题、内容、底下一排按钮，样子跟 ⚙ 设置一样。"""
 
     def __init__(self, app: App, title: str, width: int = 560):
         super().__init__(app.root)
@@ -1033,10 +1073,10 @@ class NewCategoryCard(CardDialog):
 
 
 class FeedCard(CardDialog):
-    """放入数据库：先选放进哪个类别（刀单 / 自建的 / ＋新建），再选表。"""
+    """放入样板资料：先选放进哪个类别（刀单 / 自建的 / ＋新建），再选表（Song 定的叫法；说明里不提公司）。"""
 
     def __init__(self, app: App, preselect: str | None = None):
-        super().__init__(app, '放入数据库', 600)
+        super().__init__(app, '放入样板资料', 600)
         b = self.body
         row = tk.Frame(b, bg=ui.CARD)
         row.pack(fill='x')
@@ -1059,7 +1099,7 @@ class FeedCard(CardDialog):
     def describe(self):
         cat = self.cat.get()
         if cat == tables.BUILTIN:
-            t = ('公司的 TOOL BROKEN RECORD，或者核对改好的刀单结果表，可以一次选好几本。\n'
+            t = ('改对的刀单表，人工录的、录入僧认完改好的都行，一次能塞好几本。\n'
                  'Excel（.xlsx、.xls）、CSV 都行。\n'
                  '不像刀单的表（没有 DATE、MACHINE 表头）一条都不吃，免得别的单子串进来。\n'
                  f'也可以把表直接丢进 {feed_dir()}，每次开工前自动吃。')

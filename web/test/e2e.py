@@ -211,6 +211,7 @@ def main():
             text = '\n'.join(logs())
             assert '第一次用' in text and '数据库还是空的' in text, text
             assert page.inner_text('#cathint') == '内置 · 专属优化'
+            assert page.inner_text('#feed').strip() == '放入样板资料'
             page.screenshot(path=os.path.join(SHOTS, '1-打开.png'))
 
         @step
@@ -305,7 +306,8 @@ def main():
             ours = [p for p in os.listdir(WORK) if p.startswith('识别结果_') and p.endswith('.xlsx')][0]
             before = len(logs())
             page.click('#feed')
-            assert '一条都不吃' in page.inner_text('#feeddesc')
+            assert '一条都不吃' in page.inner_text('#feeddesc') and '公司' not in page.inner_text('#feeddesc')
+            assert page.inner_text('#dlg-feed h2') == '放入样板资料'
             page.set_input_files('#feedfiles', [os.path.join(WORK, ours), book, xls, csv_, html, broken, pdf])
             page.wait_for_function('n => [...document.querySelectorAll("#log p")].slice(n).some(p => p.textContent.startsWith("数据库："))', arg=before)
             out = '\n'.join(logs()[before:])

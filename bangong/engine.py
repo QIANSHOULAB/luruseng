@@ -31,7 +31,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-VERSION = '1.9.3'
+VERSION = '1.9.4'
 APP_NAME = '录入僧'
 SUBTITLE = '施主去玩，贫僧填表'
 OLD_NAME = '搬工'                   # 改名前的名字：旧账本、旧配置照样认
@@ -895,6 +895,65 @@ def unique_dest(d: str, name: str) -> str:
         p = os.path.join(d, f'{base}_{k}{ext}')
         k += 1
     return p
+
+
+@dataclass
+class CopyResult:
+    copied: list = field(default_factory=list)        # 复制进去的（新路径）
+    already: list = field(default_factory=list)       # 待识别里已经有一模一样的
+    done: list = field(default_factory=list)          # (文件名, 账本里那条)：以前干过的
+    bad: list = field(default_factory=list)           # (文件名, 为什么没复制)
+
+
+def copy_in(paths, folder: str) -> CopyResult:
+    """「选照片…」：把挑的照片复制进待识别（Song 定的：复制，原照片原地不动；复制完还是人点「开始工作」）。
+    待识别没有就当场建。待识别里已经有一模一样的、以前干过的（账本里有，改了名也认得）不再复制。"""
+    import shutil
+    res = CopyResult()
+    os.makedirs(folder, exist_ok=True)
+    ledger = {}
+    for name in (LEDGER, OLD_LEDGER):
+        try:
+            with open(os.path.join(folder, OUT_DIR, name), encoding='utf-8') as fh:
+                ledger = json.load(fh)
+            break
+        except Exception:
+            continue
+    here: dict[str, str] = {}                       # 待识别里已有照片的指纹（要用时才算）
+
+    def known() -> dict[str, str]:
+        if not here:
+            for p in scan(folder):
+                try:
+                    here[file_hash(p)] = p
+                except OSError:
+                    pass
+            here.setdefault('', '')
+        return here
+
+    for src in paths:
+        name = os.path.basename(src)
+        if os.path.splitext(name)[1].lower() not in IMG_EXT:
+            res.bad.append((name, '不是照片'))
+            continue
+        try:
+            if os.path.normcase(os.path.dirname(os.path.abspath(src))) == os.path.normcase(os.path.abspath(folder)):
+                res.already.append(name)            # 本来就在待识别里
+                continue
+            h = file_hash(src)
+            if h in ledger:
+                res.done.append((name, ledger[h]))
+                continue
+            if h in known():
+                res.already.append(name)
+                continue
+            dest = unique_dest(folder, name)
+            shutil.copy2(src, dest)                 # copy2：连拍摄时间、修改时间一起带过去，编号顺序不乱
+            here[h] = dest
+            res.copied.append(dest)
+        except OSError as e:
+            res.bad.append((name, f'复制不了：{e.strerror or e}'))
+    return res
 
 
 class Engine:

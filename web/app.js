@@ -109,7 +109,7 @@ async function refreshCategory(announce = false) {
     const cols = db.columns, n = db.records.length;
     $('#cathint').textContent = cols.length ? `自建 · ${cols.length} 列 · ${n} 条记录` : '自建 · 还没放过表';
     $('#nhead').textContent = cols.length ? `「${cat}」数据库：${n} 条` : `「${cat}」还没放过表`;
-    $('#npath').textContent = cols.length ? '列：' + cols.join('、') : '先认全部内容，改对了点「放入数据库」，表头就定成它的列';
+    $('#npath').textContent = cols.length ? '列：' + cols.join('、') : '先认全部内容，改对了点「放入样板资料」，表头就定成它的列';
     $('#names').hidden = true;
     line = C.tableSummary(db, cat);
   }
@@ -129,7 +129,7 @@ function addFiles(files) {
     added++;
     if (S.busy) S.fresh++;
   }
-  if (sheets) log(`✗ ${sheets} 本表格没放进照片里：表格请点「放入数据库」`);
+  if (sheets) log(`✗ ${sheets} 本表格没放进照片里：表格请点「放入样板资料」`);
   if (other) log(`✗ 跳过 ${other} 个不是照片的文件`);
   refreshQueue();
   if (added && S.busy) log(`又来了 ${added} 张：这批干完再干`);
@@ -377,7 +377,7 @@ async function downloadXlsx(run) {
   }
 }
 
-// ---------------------------------------------------------------- 放入数据库
+// ---------------------------------------------------------------- 放入样板资料（Song 定的叫法；说明里不提公司）
 async function feed(cat, files) {
   if (S.feeding) return;
   S.feeding = true;
@@ -403,7 +403,7 @@ async function feed(cat, files) {
       log(C.tableSummary(db, cat));
     }
   } catch (e) {
-    log(`✗ 放入数据库出错：${e.name || 'Error'}：${e.message}`);
+    log(`✗ 放入样板资料出错：${e.name || 'Error'}：${e.message}`);
   } finally {
     S.feeding = false;
     $('#feed').disabled = false;
@@ -413,7 +413,7 @@ async function feed(cat, files) {
 
 function feedDesc(cat) {
   if (cat === C.BUILTIN) {
-    return '公司的 TOOL BROKEN RECORD，或者核对改好的刀单结果表，可以一次选好几本。\n' +
+    return '改对的刀单表，人工录的、录入僧认完改好的都行，一次能塞好几本。\n' +
       'Excel（.xlsx、.xls）、CSV 都行。\n不像刀单的表（没有 DATE、MACHINE 表头）一条都不吃，免得别的单子串进来。';
   }
   return catDb(cat).then((db) => `认完、改对了的「${cat}」结果表（录入僧出的那本就行），可以一次选好几本。\n` +

@@ -245,7 +245,7 @@ class KnowledgeBase:
         with self._conn() as c:
             n = c.execute('SELECT COUNT(*) FROM records').fetchone()[0]
             if not n:
-                return '数据库还是空的：点「放入数据库」放公司的 TOOL BROKEN RECORD'
+                return '数据库还是空的：点「放入样板资料」喂几本改对的刀单表，喂得越多它越不瞎'
             m = c.execute('SELECT COUNT(DISTINCT machine), COUNT(DISTINCT part_number), COUNT(DISTINCT description) '
                           "FROM records").fetchone()
             p = c.execute('SELECT COUNT(*) FROM people').fetchone()[0]

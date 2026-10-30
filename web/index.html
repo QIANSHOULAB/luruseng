@@ -120,7 +120,7 @@
   .log p.bad { color: #B3261E; }
   .log p.warn { color: #8A5A00; }
 
-  /* 小卡片（新建类别、放入数据库、设置、名单） */
+  /* 小卡片（新建类别、放入样板资料、设置、名单） */
   dialog { border: 0; padding: 0; background: transparent; max-width: calc(100vw - 28px); }
   dialog::backdrop { background: rgba(20, 30, 50, .28); }
   .dcard { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; box-shadow: 0 30px 70px -20px rgba(20, 40, 80, .35); }
@@ -269,7 +269,7 @@
       <button type="button" class="pill big" id="stop" disabled><svg class="i"><use href="#i-stop"/></svg>停止</button>
       <button type="button" class="pill big" id="result"><svg class="i"><use href="#i-down"/></svg>下载结果</button>
       <button type="button" class="pill big" id="check"><svg class="i"><use href="#i-doc"/></svg>核对</button>
-      <button type="button" class="pill big" id="feed"><svg class="i"><use href="#i-db"/></svg>放入数据库</button>
+      <button type="button" class="pill big" id="feed"><svg class="i"><use href="#i-db"/></svg>放入样板资料</button>
     </div>
   </section>
 
@@ -302,9 +302,9 @@
   <div class="foot2"><button type="button" class="pill" data-close>取消</button><button type="submit" class="pill primary" id="newok">建好</button></div>
 </form></dialog>
 
-<!-- 放入数据库 -->
+<!-- 放入样板资料 -->
 <dialog id="dlg-feed"><div class="dcard" style="width:600px">
-  <h2>放入数据库</h2><div class="sep1"></div>
+  <h2>放入样板资料</h2><div class="sep1"></div>
   <div class="row"><span>放进</span><select id="feedcat" class="field combo" style="width:260px"></select>
     <button type="button" class="pill" id="feednew" style="height:38px"><svg class="i"><use href="#i-plus"/></svg>新建类别</button></div>
   <p class="para" id="feeddesc"></p>
