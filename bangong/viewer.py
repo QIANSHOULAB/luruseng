@@ -13,6 +13,7 @@ from openpyxl import load_workbook
 from PIL import Image, ImageTk
 
 from . import engine
+from . import macui as ui
 
 LABELS = ['DATE', 'MACHINE', 'PART NUMBER', 'MO', 'OPR NO.', 'T NO.', 'DESCRIPTION', 'BTMP',
           'TOTAL SCREENED', 'PASSED', 'FAILED', 'SHIFT', 'SETTER']
@@ -121,48 +122,59 @@ class Viewer(tk.Toplevel):
         self._pil = None
         self._tk = None
         self._after = None
+        self.configure(bg=ui.BG)
+        fam = ui.family(self)
+        bf = (fam, 10)
         if not self.runs:
             self.title('核对')
-            ttk.Label(self, text='还没有编号照片：先点「开始工作」干一批。', padding=30).pack()
+            tk.Label(self, text='还没有编号照片：先点「开始工作」干一批。', bg=ui.BG, fg=ui.TEXT, font=bf,
+                     padx=30, pady=30).pack()
             return
 
-        top = ttk.Frame(self, padding=(10, 8))
+        top = tk.Frame(self, bg=ui.BG, padx=14, pady=10)
         top.pack(fill='x')
         self.run_var = tk.StringVar()
-        self.run_box = ttk.Combobox(top, textvariable=self.run_var, state='readonly', width=26,
-                                    values=[run_label(r, len(load_photos(d))) for r, d, _ in self.runs])
-        self.run_box.pack(side='left')
+        holder = ui.Combo(top, self.run_var, [run_label(r, len(load_photos(d))) for r, d, _ in self.runs],
+                          font=bf, bg=ui.BG, width=260)
+        holder.pack(side='left')
+        self.run_box = holder.box
+        self.run_box.configure(state='readonly')
         self.run_box.bind('<<ComboboxSelected>>', lambda e: self.load_run(self.run_box.current()))
-        ttk.Button(top, text='◀ 上一张', command=lambda: self.step(-1)).pack(side='left', padx=(12, 4))
+        ui.Pill(top, radius=8, text='◀ 上一张', command=lambda: self.step(-1), font=bf).pack(side='left', padx=(12, 6))
         self.num = tk.StringVar()
-        self.entry = ttk.Entry(top, textvariable=self.num, width=6, justify='center')
-        self.entry.pack(side='left')
+        box = ui.Field(top, self.num, font=bf, bg=ui.BG)
+        box.configure(width=64)
+        box.pack(side='left')
+        self.entry = box.entry
+        self.entry.configure(justify='center')
         self.entry.bind('<Return>', lambda e: self.jump())
-        ttk.Button(top, text='看', width=4, command=self.jump).pack(side='left', padx=4)
-        ttk.Button(top, text='下一张 ▶', command=lambda: self.step(1)).pack(side='left')
-        ttk.Button(top, text='↺', width=3, command=lambda: self.turn(False)).pack(side='left', padx=(12, 2))
-        ttk.Button(top, text='↻', width=3, command=lambda: self.turn(True)).pack(side='left')
+        ui.Pill(top, radius=8, text='看', command=self.jump, primary=True, font=(fam, 10, 'bold')).pack(side='left', padx=6)
+        ui.Pill(top, radius=8, text='下一张 ▶', command=lambda: self.step(1), font=bf).pack(side='left')
+        ui.Pill(top, radius=8, text='↺', command=lambda: self.turn(False), font=bf).pack(side='left', padx=(12, 6))
+        ui.Pill(top, radius=8, text='↻', command=lambda: self.turn(True), font=bf).pack(side='left')
         self.info = tk.StringVar()
-        ttk.Label(top, textvariable=self.info).pack(side='left', padx=12)
+        tk.Label(top, textvariable=self.info, bg=ui.BG, fg=ui.GREY, font=(fam, 9)).pack(side='left', padx=12)
 
-        body = ttk.Frame(self, padding=(10, 0, 10, 10))
-        body.pack(fill='both', expand=True)
+        body = tk.Frame(self, bg=ui.BG, padx=14, pady=0)
+        body.pack(fill='both', expand=True, pady=(0, 14))
         body.columnconfigure(0, weight=1)
         body.rowconfigure(0, weight=1)
-        self.img = tk.Label(body, background='#2b2b2b', cursor='hand2')
+        self.img = tk.Label(body, background='#1C1C1E', cursor='hand2', bd=0)
         self.img.grid(row=0, column=0, sticky='nsew')
         self.img.bind('<Configure>', lambda e: self._later_render())
         self.img.bind('<Double-Button-1>', lambda e: self.cur in self.photos and _open(self.photos[self.cur]))
-        font = ('Microsoft YaHei UI', 10) if os.name == 'nt' else None
-        self.panel = tk.Text(body, width=40, wrap='word', relief='flat', background='#f7f7f7', padx=10, pady=8,
-                             font=font, tabs=(130,))
-        self.panel.grid(row=0, column=1, sticky='ns', padx=(10, 0))
-        self.panel.tag_configure('h', font=(font[0], 11, 'bold') if font else None)
-        self.panel.tag_configure('k', foreground='#666666')
+        side = ui.Card(body, pad=10, stretch=True)
+        side.configure(width=360)
+        side.grid(row=0, column=1, sticky='ns', padx=(12, 0))
+        self.panel = tk.Text(side.body, width=40, wrap='word', relief='flat', bd=0, highlightthickness=0,
+                             background=ui.CARD, foreground=ui.TEXT, padx=6, pady=4, font=bf, tabs=(130,))
+        self.panel.pack(fill='both', expand=True)
+        self.panel.tag_configure('h', font=(fam, 12, 'bold'))
+        self.panel.tag_configure('k', foreground=ui.GREY)
         self.panel.tag_configure('red', foreground='#9C0006', background='#FFC7CE')
         self.panel.tag_configure('fixed', foreground='#833C0B', background='#FCE4D6')
         self.panel.tag_configure('note', foreground='#9C0006')
-        self.panel.tag_configure('dim', foreground='#888888')
+        self.panel.tag_configure('dim', foreground='#8E8E93')
         for key in ('<Left>', '<Prior>'):
             self.bind(key, lambda e: self._key(-1))
         for key in ('<Right>', '<Next>'):

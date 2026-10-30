@@ -230,96 +230,88 @@ class App:
             root.iconbitmap(os.path.join(base, 'assets', 'bangong.ico'))
         except Exception:
             pass
-        root.geometry('780x660')
-        root.minsize(620, 520)
+        root.geometry('920x640')
+        root.minsize(720, 540)
         root.configure(bg=ui.BG)
         fam = ui.family(root)
-        size = 10
+        size = 11
         root.option_add('*Font', (fam, size))
         ui.style_ttk(root, fam, size)
-        body_font = (fam, size)
-        hint_font = (fam, size - 1)
+        bf = (fam, size)
 
-        f = tk.Frame(root, bg=ui.BG, padx=20, pady=16)
+        f = tk.Frame(root, bg=ui.BG, padx=14, pady=12)
         f.pack(fill='both', expand=True)
         f.columnconfigure(0, weight=1)
 
-        # 标题：大字 + 灰色副标题
+        # 标题：蓝色图标 + 大字 + 竖线 + 灰色副标题
         head = tk.Frame(f, bg=ui.BG)
-        head.grid(row=0, column=0, sticky='w', pady=(0, 12))
-        tk.Label(head, text=engine.APP_NAME, font=(fam, 20, 'bold'), bg=ui.BG, fg=ui.TEXT).pack(side='left')
-        tk.Label(head, text='  —— ' + engine.SUBTITLE, font=(fam, 11), bg=ui.BG, fg=ui.GREY).pack(
-            side='left', pady=(8, 0))
+        head.grid(row=0, column=0, sticky='w', padx=(10, 0), pady=(2, 12))
+        self._icon = ui.app_icon(44)
+        tk.Label(head, image=self._icon, bg=ui.BG, bd=0).pack(side='left', padx=(0, 14))
+        tk.Label(head, text=engine.APP_NAME, font=(fam, 22, 'bold'), bg=ui.BG, fg=ui.TEXT).pack(side='left')
+        tk.Frame(head, bg='#C9CED6', width=1, height=22).pack(side='left', padx=16)
+        tk.Label(head, text=engine.SUBTITLE, font=(fam, 13), bg=ui.BG, fg=ui.GREY).pack(side='left')
 
-        # 设置卡片：一行一项，中间细线隔开（像「系统设置」）
-        card = ui.Card(f, pad=6)
+        # 主卡片：设置 + 按钮 + 进度条都在里面
+        card = ui.Card(f, pad=14, radius=14)
         card.grid(row=1, column=0, sticky='ew')
         g = card.body
         g.columnconfigure(1, weight=1)
-        rows = []
 
         def label(r, text):
-            tk.Label(g, text=text, bg=ui.CARD, fg=ui.TEXT, font=body_font, anchor='w', width=12).grid(
-                row=r, column=0, sticky='w', padx=(10, 8), pady=8)
-
-        def line(r):
-            ui.separator(g).grid(row=r, column=0, columnspan=3, sticky='ew', padx=(10, 0))
+            tk.Label(g, text=text, bg=ui.CARD, fg=ui.TEXT, font=bf, anchor='w').grid(
+                row=r, column=0, sticky='w', padx=(10, 16), pady=5)
 
         label(0, '图片文件夹')
         self.folder = tk.StringVar(value=cfg.get('folder') or default_folder())
-        ui.Field(g, self.folder, font=body_font).grid(row=0, column=1, sticky='ew', pady=8)
-        ui.Pill(g, '选择…', command=self.pick, font=body_font, bg=ui.CARD, height=30).grid(
-            row=0, column=2, padx=(8, 10))
-        line(1)
+        ui.Field(g, self.folder, font=bf).grid(row=0, column=1, sticky='ew', pady=5)
+        ui.Pill(g, '选择…', command=self.pick, font=bf, bg=ui.CARD, height=38, radius=8, minwidth=110).grid(
+            row=0, column=2, padx=(10, 0))
 
         self.key1 = tk.StringVar(value=cfg.get('key1', ''))
         self.key2 = tk.StringVar(value=cfg.get('key2', ''))
-        label(2, '钥匙 1')
-        ui.Field(g, self.key1, show='•', font=body_font).grid(row=2, column=1, columnspan=2, sticky='ew',
-                                                             pady=8, padx=(0, 10))
-        line(3)
-        label(4, '钥匙 2（可空）')
-        ui.Field(g, self.key2, show='•', font=body_font).grid(row=4, column=1, columnspan=2, sticky='ew',
-                                                             pady=8, padx=(0, 10))
-        line(5)
+        label(1, '钥匙 1')
+        ui.Field(g, self.key1, show='•', font=bf).grid(row=1, column=1, columnspan=2, sticky='ew', pady=5)
+        label(2, '钥匙 2（可空）')
+        ui.Field(g, self.key2, show='•', font=bf).grid(row=2, column=1, columnspan=2, sticky='ew', pady=5)
 
-        label(6, '模型')
+        label(3, '模型')
         self.model = tk.StringVar(value=cfg.get('model') or engine.DEFAULT_MODEL)
-        ttk.Combobox(g, textvariable=self.model, values=engine.MODELS, style='Mac.TCombobox',
-                     font=body_font, width=28).grid(row=6, column=1, sticky='w', pady=8)
-        line(7)
-
         self.auto = tk.BooleanVar(value=cfg.get('auto', True))
-        arow = tk.Frame(g, bg=ui.CARD)
-        arow.grid(row=8, column=0, columnspan=3, sticky='ew', padx=(10, 10), pady=8)
-        tk.Label(arow, text='来图就干（文件夹里一有新照片就自己开工）', bg=ui.CARD, fg=ui.TEXT,
-                 font=body_font).pack(side='left')
-        ui.Switch(arow, self.auto, command=self.save).pack(side='right')
+        mrow = tk.Frame(g, bg=ui.CARD)
+        mrow.grid(row=3, column=1, columnspan=2, sticky='ew', pady=5)
+        ui.Combo(mrow, self.model, engine.MODELS, font=bf, width=320).pack(side='left')
+        ui.Switch(mrow, self.auto, command=self.save).pack(side='left', padx=(28, 10))
+        tk.Label(mrow, text='来图就干（文件夹里一有新照片就自己开工）', bg=ui.CARD, fg=ui.TEXT,
+                 font=bf).pack(side='left')
 
-        # 按钮：开始工作是唯一的蓝色按钮，其余白色
-        bar = tk.Frame(f, bg=ui.BG)
-        bar.grid(row=2, column=0, sticky='ew', pady=(14, 8))
-        self.start_btn = ui.Pill(bar, '开始工作', command=self.start, primary=True, font=(fam, size, 'bold'))
+        bar = tk.Frame(g, bg=ui.CARD)
+        bar.grid(row=4, column=0, columnspan=3, sticky='ew', padx=(10, 0), pady=(18, 0))
+        btn = dict(font=bf, bg=ui.CARD, height=40, radius=8, padx=24, minwidth=100)
+        self.start_btn = ui.Pill(bar, '开始工作', command=self.start, primary=True, **btn)
         self.start_btn.pack(side='left')
-        self.stop_btn = ui.Pill(bar, '停止', command=self.halt, state='disabled', font=body_font)
-        self.stop_btn.pack(side='left', padx=(8, 0))
-        ui.Pill(bar, '打开结果文件夹', command=self.open_out, font=body_font).pack(side='left', padx=(20, 0))
-        ui.Pill(bar, '核对', command=self.check, font=body_font).pack(side='left', padx=(8, 0))
-        self.feed_btn = ui.Pill(bar, '投喂数据', command=self.feed, font=body_font)
-        self.feed_btn.pack(side='left', padx=(8, 0))
+        self.stop_btn = ui.Pill(bar, '停止', command=self.halt, state='disabled', **btn)
+        self.stop_btn.pack(side='left', padx=(10, 0))
+        ui.Pill(bar, '打开结果文件夹', command=self.open_out, **btn).pack(side='left', padx=(10, 0))
+        ui.Pill(bar, '核对', command=self.check, **btn).pack(side='left', padx=(10, 0))
+        self.feed_btn = ui.Pill(bar, '投喂数据', command=self.feed, **btn)
+        self.feed_btn.pack(side='left', padx=(10, 0))
         self.status = tk.StringVar(value='')
-        tk.Label(bar, textvariable=self.status, bg=ui.BG, fg=ui.GREY, font=hint_font).pack(side='right')
+        ui.Tag(bar, self.status, font=bf, bg=ui.CARD).pack(side='right')
 
-        self.pb = ui.Bar(f)
-        self.pb.grid(row=3, column=0, sticky='ew', pady=(4, 14))
+        self.pb = ui.Bar(g, bg=ui.CARD)
+        self.pb.grid(row=5, column=0, columnspan=3, sticky='ew', padx=(10, 0), pady=(18, 4))
 
-        logcard = ui.Card(f, pad=12, stretch=True)
-        logcard.grid(row=4, column=0, sticky='nsew')
-        f.rowconfigure(4, weight=1)
-        self.text = tk.Text(logcard.body, height=12, wrap='word', state='disabled', relief='flat', bd=0,
-                            highlightthickness=0, background=ui.CARD, foreground=ui.TEXT, font=body_font,
-                            spacing1=2, spacing3=2, padx=4)
+        # 日志卡片：一行一条，中间细线
+        logcard = ui.Card(f, pad=14, radius=14, stretch=True)
+        logcard.grid(row=2, column=0, sticky='nsew', pady=(12, 0))
+        f.rowconfigure(2, weight=1)
+        self.text = tk.Text(logcard.body, height=8, wrap='word', state='disabled', relief='flat', bd=0,
+                            highlightthickness=0, background=ui.CARD, foreground=ui.TEXT, font=bf,
+                            spacing1=6, spacing3=6, padx=10)
         self.text.pack(fill='both', expand=True)
+        self._rules: list = []
+        self.text.bind('<Configure>', self._fit_rules)
 
         if getattr(sys, 'frozen', False):
             for line in migrate_old_home():
@@ -537,8 +529,19 @@ class App:
         subprocess.Popen([upd, '--install-update', sys.executable], cwd=app_dir())
         self.q.put(('quit', None))
 
+    def _fit_rules(self, e=None):
+        w = max(self.text.winfo_width() - 24, 10)
+        self._rules = [r for r in self._rules if r.winfo_exists()]
+        for r in self._rules:
+            r.configure(width=w)
+
     def write(self, msg: str):
         self.text.config(state='normal')
+        if self.text.get('1.0', 'end-1c'):              # 上一条和这一条之间画一道细线
+            rule = tk.Frame(self.text, bg=ui.LINE, height=1, width=max(self.text.winfo_width() - 24, 10))
+            self._rules.append(rule)
+            self.text.window_create('end', window=rule)
+            self.text.insert('end', '\n')
         self.text.insert('end', msg + '\n')
         self.text.see('end')
         self.text.config(state='disabled')

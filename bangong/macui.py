@@ -13,11 +13,11 @@ from tkinter import font as tkfont, ttk
 from PIL import Image, ImageDraw, ImageTk
 
 # macOS 浅色模式的几种颜色
-BG = '#F5F5F7'          # 窗口底色
-CARD = '#FFFFFF'        # 卡片
-LINE = '#E5E5EA'        # 卡片边、分隔线
-FIELD = '#F2F2F7'       # 输入框底
-FIELD_LINE = '#D9D9DE'
+BG = '#F2F4F7'          # 窗口底色（带一点点蓝的浅灰）
+CARD = '#FAFBFC'        # 卡片
+LINE = '#E3E6EB'        # 卡片边、分隔线
+FIELD = '#FFFFFF'       # 输入框底
+FIELD_LINE = '#D5D9E0'
 TEXT = '#1D1D1F'
 GREY = '#6E6E73'
 BLUE = '#007AFF'
@@ -50,7 +50,8 @@ def rounded(w: int, h: int, r: int, fill: str, bg: str, outline: str | None = No
         if outline:
             d.rounded_rectangle((0, 0, w * _SS - 1, h * _SS - 1), rr, fill=outline)
             k = width * _SS
-            d.rounded_rectangle((k, k, w * _SS - 1 - k, h * _SS - 1 - k), max(rr - k, 0), fill=fill)
+            if w * _SS - 1 - k > k and h * _SS - 1 - k > k:       # 太小（刚建还没撑开）就只画边
+                d.rounded_rectangle((k, k, w * _SS - 1 - k, h * _SS - 1 - k), max(rr - k, 0), fill=fill)
         else:
             d.rounded_rectangle((0, 0, w * _SS - 1, h * _SS - 1), rr, fill=fill)
         img = ImageTk.PhotoImage(big.resize((w, h), Image.LANCZOS))
@@ -71,12 +72,18 @@ class Card(tk.Canvas):
         self._win = self.create_window(pad, pad, window=self.body, anchor='nw')
         self.bind('<Configure>', self._layout)
         if not stretch:
-            self.body.bind('<Configure>', self._fit)
+            self._fit()
 
-    def _fit(self, _e=None):
-        h = self.body.winfo_reqheight() + 2 * self.pad
-        if int(self.cget('height')) != h:
-            self.configure(height=h)
+    def _fit(self):
+        """卡片高度跟着里面的东西走（Tk 不会自己告诉画布，隔一会儿看一眼，很便宜）。"""
+        try:
+            h = self.body.winfo_reqheight()
+            if int(self.cget('height')) != h + 2 * self.pad:
+                self.configure(height=h + 2 * self.pad)
+                self.itemconfigure(self._win, height=h)
+            self.after(300, self._fit)
+        except tk.TclError:                    # 窗口关了
+            pass
 
     def _layout(self, e):
         w, h = e.width, e.height
@@ -90,7 +97,7 @@ class Card(tk.Canvas):
 class Field(tk.Canvas):
     """圆角输入框：浅灰底，点进去有一圈蓝色光环（macOS 的 focus ring）。"""
 
-    def __init__(self, master, textvariable, show=None, font=None, bg=CARD, height=30):
+    def __init__(self, master, textvariable, show=None, font=None, bg=CARD, height=38):
         super().__init__(master, bg=bg, highlightthickness=0, bd=0, height=height, width=120)
         self.outer, self.focused = bg, False
         self.entry = tk.Entry(self, textvariable=textvariable, relief='flat', bd=0, highlightthickness=0,
@@ -99,7 +106,7 @@ class Field(tk.Canvas):
         if show:
             self.entry.configure(show=show)
         self._img = self.create_image(0, 0, anchor='nw')
-        self._win = self.create_window(10, height // 2, window=self.entry, anchor='w')
+        self._win = self.create_window(12, height // 2, window=self.entry, anchor='w')
         self.bind('<Configure>', self._draw)
         self.bind('<Button-1>', lambda e: self.entry.focus_set())
         self.entry.bind('<FocusIn>', lambda e: self._focus(True), add='+')
@@ -118,18 +125,21 @@ class Field(tk.Canvas):
         else:
             img = rounded(w, h, 8, FIELD, self.outer, FIELD_LINE, 1)
         self.itemconfigure(self._img, image=img)
-        self.coords(self._win, 10, h // 2)
-        self.itemconfigure(self._win, width=max(w - 20, 1))
+        self.coords(self._win, 12, h // 2)
+        self.itemconfigure(self._win, width=max(w - 24, 1))
 
 
 class Pill(tk.Canvas):
     """药丸按钮。primary=True 是蓝底白字（每个窗口只放一个），其余是白底灰边。
     跟 ttk.Button 一样认 config(state='disabled'/'normal')、config(text=...)。"""
 
-    def __init__(self, master, text, command=None, primary=False, font=None, bg=BG, state='normal', height=32):
+    def __init__(self, master, text, command=None, primary=False, font=None, bg=BG, state='normal', height=36,
+                 radius=None, padx=18, minwidth=0):
         self.font = tkfont.Font(font=font) if font else tkfont.nametofont('TkDefaultFont')
         self.text, self.command, self.primary, self.outer = text, command, primary, bg
         self.state, self.hover, self.down, self.h = state, False, False, height
+        self.radius = height // 2 if radius is None else radius
+        self.padx, self.minwidth = padx, minwidth
         super().__init__(master, bg=bg, highlightthickness=0, bd=0, height=height, width=self._pw(),
                          cursor='hand2')
         self._img = self.create_image(0, 0, anchor='nw')
@@ -141,7 +151,7 @@ class Pill(tk.Canvas):
         self._draw()
 
     def _pw(self):
-        return self.font.measure(self.text) + 36
+        return max(self.font.measure(self.text) + 2 * self.padx, self.minwidth)
 
     def _set(self, **kw):
         for k, v in kw.items():
@@ -159,10 +169,13 @@ class Pill(tk.Canvas):
         off = self.state == 'disabled'
         if self.primary:
             fill = BLUE_OFF if off else (BLUE_DOWN if self.down else BLUE)
-            img, fg = rounded(w, h, h // 2, fill, self.outer), '#FFFFFF'
+            img, fg = rounded(w, h, self.radius, fill, self.outer), '#FFFFFF'
         else:
-            fill = '#F7F7F7' if off else ('#E8E8ED' if self.down else ('#FAFAFA' if self.hover else '#FFFFFF'))
-            img, fg = rounded(w, h, h // 2, fill, self.outer, '#D2D2D7'), ('#B0B0B5' if off else TEXT)
+            if off:                                   # 灰掉：灰底、没边、浅字
+                img, fg = rounded(w, h, self.radius, '#E4E7EC', self.outer), '#A3A8B0'
+            else:
+                fill = '#E8EAEE' if self.down else ('#F5F6F8' if self.hover else '#FFFFFF')
+                img, fg = rounded(w, h, self.radius, fill, self.outer, '#D5D9E0'), TEXT
         self.configure(width=w, cursor='arrow' if off else 'hand2')
         self.itemconfigure(self._img, image=img)
         self.coords(self._txt, w // 2, h // 2)
@@ -239,7 +252,7 @@ def style_ttk(root, fam: str, size: int):
     except tk.TclError:
         return
     s.configure('Mac.TCombobox', fieldbackground=FIELD, background=FIELD, foreground=TEXT,
-                bordercolor=FIELD_LINE, lightcolor=FIELD, darkcolor=FIELD, arrowcolor=GREY,
+                bordercolor=FIELD, lightcolor=FIELD, darkcolor=FIELD, arrowcolor=GREY,
                 
                 selectbackground=FIELD, selectforeground=TEXT, padding=(8, 4), arrowsize=14)
     s.map('Mac.TCombobox', fieldbackground=[('readonly', FIELD)], bordercolor=[('focus', '#7DB8FF')],
@@ -260,7 +273,7 @@ def style_ttk(root, fam: str, size: int):
 class Bar(tk.Canvas):
     """细进度条（6 像素高、圆头）。跟 ttk.Progressbar 一样认 config(maximum=..., value=...)。"""
 
-    def __init__(self, master, bg=BG, height=6):
+    def __init__(self, master, bg=BG, height=12):
         super().__init__(master, bg=bg, highlightthickness=0, bd=0, height=height)
         self.outer, self.h, self.maximum, self.value = bg, height, 100.0, 0.0
         self._trough = self.create_image(0, 0, anchor='nw')
@@ -271,7 +284,7 @@ class Bar(tk.Canvas):
         w = self.winfo_width()
         if w < 4:
             return
-        self.itemconfigure(self._trough, image=rounded(w, self.h, self.h // 2, LINE, self.outer))
+        self.itemconfigure(self._trough, image=rounded(w, self.h, self.h // 2, '#E6E9EE', self.outer, '#D9DDE3'))
         k = int(w * max(0.0, min(1.0, self.value / (self.maximum or 1))))
         if k >= self.h:
             self.itemconfigure(self._fill, image=rounded(k, self.h, self.h // 2, BLUE, LINE), state='normal')
@@ -288,3 +301,79 @@ class Bar(tk.Canvas):
         self._draw()
 
     configure = config
+
+
+
+class Combo(tk.Canvas):
+    """圆角下拉框：外面一圈圆角边，里面放一个没边框的 ttk.Combobox（照样能手打模型名）。"""
+
+    def __init__(self, master, textvariable, values, font=None, bg=CARD, height=38, width=300):
+        super().__init__(master, bg=bg, highlightthickness=0, bd=0, height=height, width=width)
+        self.outer = bg
+        self.box = ttk.Combobox(self, textvariable=textvariable, values=values, style='Mac.TCombobox', font=font)
+        self._img = self.create_image(0, 0, anchor='nw')
+        self._win = self.create_window(4, height // 2, window=self.box, anchor='w')
+        self.bind('<Configure>', self._draw)
+
+    def _draw(self, _e=None):
+        w, h = self.winfo_width(), self.winfo_height()
+        if w < 4:
+            return
+        self.itemconfigure(self._img, image=rounded(w, h, 8, FIELD, self.outer, FIELD_LINE, 1))
+        self.coords(self._win, 4, h // 2)
+        self.itemconfigure(self._win, width=max(w - 8, 1), height=max(h - 8, 1))
+
+
+class Tag(tk.Canvas):
+    """灰色圆角小牌子（右边的「待识别 0 张」），绑一个 StringVar，字变了牌子跟着变宽。"""
+
+    def __init__(self, master, textvariable, font=None, bg=CARD, height=36):
+        self.font = tkfont.Font(font=font) if font else tkfont.nametofont('TkDefaultFont')
+        super().__init__(master, bg=bg, highlightthickness=0, bd=0, height=height, width=40)
+        self.var, self.outer, self.h = textvariable, bg, height
+        self._img = self.create_image(0, 0, anchor='nw')
+        self._txt = self.create_text(0, height // 2, font=self.font, fill=GREY)
+        textvariable.trace_add('write', lambda *a: self._draw())
+        self._draw()
+
+    def _draw(self):
+        t = self.var.get()
+        if not t:
+            self.configure(width=1)
+            self.itemconfigure(self._img, image='')
+            self.itemconfigure(self._txt, text='')
+            return
+        w = max(self.font.measure(t) + 44, 120)
+        self.configure(width=w)
+        self.itemconfigure(self._img, image=rounded(w, self.h, 8, '#EEF0F3', self.outer, '#E3E6EB'))
+        self.coords(self._txt, w // 2, self.h // 2)
+        self.itemconfigure(self._txt, text=t)
+
+
+def app_icon(size: int, bg: str = BG):
+    """蓝色圆角方块里一张白纸三道线（标题旁边那个图标），Pillow 画的，不用另带图片。"""
+    key = ('icon', size, bg)
+    img = _cache.get(key)
+    if img is None:
+        S = size * _SS
+        big = Image.new('RGB', (S, S), bg)
+        grad = Image.new('RGB', (S, S))
+        gd = ImageDraw.Draw(grad)
+        top, bot = (0x5A, 0xB4, 0xFF), (0x1E, 0x7B, 0xF2)
+        for y in range(S):
+            k = y / max(S - 1, 1)
+            gd.line((0, y, S, y), fill=tuple(int(a + (b - a) * k) for a, b in zip(top, bot)))
+        mask = Image.new('L', (S, S), 0)
+        ImageDraw.Draw(mask).rounded_rectangle((0, 0, S - 1, S - 1), int(S * 0.24), fill=255)
+        big.paste(grad, (0, 0), mask)
+        d = ImageDraw.Draw(big)
+        x0, y0, x1, y1 = S * 0.30, S * 0.24, S * 0.70, S * 0.76
+        d.rounded_rectangle((x0, y0, x1, y1), int(S * 0.07), fill='#FFFFFF')
+        lw = max(int(S * 0.045), 1)
+        for i, frac in enumerate((0.38, 0.50, 0.62)):
+            y = S * frac
+            right = x1 - S * (0.16 if i == 2 else 0.09)
+            d.rounded_rectangle((x0 + S * 0.08, y - lw / 2, right, y + lw / 2), lw // 2, fill='#2F8BF5')
+        img = ImageTk.PhotoImage(big.resize((size, size), Image.LANCZOS))
+        _cache[key] = img
+    return img
