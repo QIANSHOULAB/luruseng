@@ -1010,7 +1010,7 @@ class Engine:
                 raise Fatal(self.fatal)
             i, key = self.keys.pick()
             if i is None:
-                self.wait_until(key, '所有钥匙额度都用完了' if key - self.clock() > 120 else '每分钟次数到顶')
+                self.wait_until(key, '钥匙今天全被榨干了' if key - self.clock() > 120 else '谷歌嫌我太勤快（每分钟次数到顶）')
                 continue
             try:
                 with self.lock:
@@ -1119,7 +1119,7 @@ class Engine:
                 todo.append((p, h))
         total = len(todo)
         if not total:
-            self.log('文件夹里没有新图片，收工。')
+            self.log('文件夹里没有新图片，收工，贫僧去眯会儿。')
             return res
 
         run_id = datetime.now().strftime('%Y%m%d_%H%M%S')

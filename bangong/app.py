@@ -321,7 +321,7 @@ class App:
         ui.Combo(mrow, self.model, engine.MODELS, font=bf, width=280).pack(side='left')
         chk = ui.Check(mrow, self.auto, command=self.save)
         chk.pack(side='left', padx=(24, 10))
-        for txt, color, fnt in (('来图就干', ui.TEXT, bf), ('（文件夹里一有新照片就自己开工）', ui.GREY, (fam, size - 1))):
+        for txt, color, fnt in (('来图就干', ui.TEXT, bf), ('（照片一进文件夹，贫僧自己开工）', ui.GREY, (fam, size - 1))):
             lab = tk.Label(mrow, text=txt, bg=ui.CARD, fg=color, font=fnt, cursor='hand2')
             lab.pack(side='left')
             lab.bind('<Button-1>', chk.toggle)
@@ -409,10 +409,10 @@ class App:
         root.bind_all('<ButtonPress>', self._touched, add='+')
         args = autopilot.startup_args()
         if '--after-update' in args:
-            self.write(f'✓ 换上新版 v{engine.VERSION}')
+            self.write(f'✓ 换上新版 v{engine.VERSION}，焕然一新')
             threading.Thread(target=autopilot.retire_update_file, args=(app_dir(),), daemon=True).start()
         if self.auto.get():
-            self.write('来图就干：开着。往文件夹里放照片，30 秒内放完它就自己开工。')
+            self.write('来图就干：开着。照片往文件夹里一丢，30 秒内没再动静，贫僧就自己开工。')
         root.after(3000, self.tick)
         if '--background' in args:
             root.after(200, root.iconify)
@@ -450,13 +450,13 @@ class App:
         self.auto_run = auto
         k1, k2 = self.key1.get().strip(), self.key2.get().strip()
         if not k1 and not k2:
-            self.write('✗ 先填钥匙')
+            self.write('✗ 钥匙呢？没钥匙贫僧进不了谷歌的门（先填钥匙 1）')
             return
         if k1 and k1 == k2:
-            self.write('✗ 两个钥匙填的是同一把（额度按项目算，同一把没意义）')
+            self.write('✗ 两个钥匙填的是同一把：额度按项目算，一把钥匙配两次也开不了两扇门')
             return
         if auto:
-            self.write('▶ 来图就干：发现新照片，自己开工')
+            self.write('▶ 来图就干：来活了，自己开工')
         self.save()
         self.stop.clear()
         self.start_btn.config(state='disabled')
@@ -499,7 +499,7 @@ class App:
         """把表放进某个类别的数据库（后台干，不卡窗口）。刀单只吃像刀单的表；自建类别第一本的表头定成它的列。"""
         self.feed_btn.config(state='disabled')
         self.feeding = True
-        self.write(f'开始把 {len(paths)} 本表放进「{cat}」的数据库…')
+        self.write(f'开始给「{cat}」喂 {len(paths)} 本表…')
 
         def work():
             try:
@@ -518,7 +518,7 @@ class App:
                             self.log(f'「{cat}」多了这些列：' + '、'.join(fr.new_columns))
                     self.log(db.summary(cat))
             except Exception as e:
-                self.log(f'✗ 放入数据库出错：{type(e).__name__}：{e}')
+                self.log(f'✗ 喂表噎住了：{type(e).__name__}：{e}')
             self.q.put(('fed', None))
 
         threading.Thread(target=work, daemon=True).start()
@@ -550,22 +550,22 @@ class App:
             if cat == tables.BUILTIN:
                 from .kb import KnowledgeBase
                 n = len(engine.load_names(names_path()))
-                self.cat_hint.set('内置 · 专属优化')
+                self.cat_hint.set('内置 · 亲儿子待遇')
                 if n:
                     self.names_head.set(f'名单：{n} 人')
                     self.names_path.set(f'（{names_path()}）')
                 else:
                     self.names_head.set('没找到名单')
-                    self.names_path.set(f'{names_path()}（没有也能用，SETTER 就照单子抄）')
-                line = KnowledgeBase(kb_path()).summary() + f'（也可以把表丢进：{feed_dir()}）'
+                    self.names_path.set(f'{names_path()}（没有也照干，SETTER 照单子抄）')
+                line = KnowledgeBase(kb_path()).summary() + f'（懒得点就把表丢进：{feed_dir()}）'
             else:
                 db = tables.TableDB(tables.db_path(app_dir(), cat))
                 cols, n = db.columns(), db.count()
-                self.cat_hint.set(f'自建 · {len(cols)} 列 · {n} 条记录' if cols else '自建 · 还没放过表')
-                self.names_head.set(f'「{cat}」数据库：{n} 条' if cols else f'「{cat}」还没放过表')
+                self.cat_hint.set(f'自建 · {len(cols)} 列 · {n} 条记录' if cols else '自建 · 还没喂过')
+                self.names_head.set(f'「{cat}」数据库：{n} 条' if cols else f'「{cat}」还没喂过')
                 self.names_path.set(('列：' + '、'.join(cols)) if cols else
-                                    '先认全部内容，改对了点「放入数据库」，表头就定成它的列')
-                line = db.summary(cat) + f'（也可以把表丢进：{tables.feed_path(app_dir(), cat)}）'
+                                    '先让我认全部内容，你改对了点「放入数据库」，表头就定成它的列')
+                line = db.summary(cat) + f'（懒得点就把表丢进：{tables.feed_path(app_dir(), cat)}）'
         except Exception as e:
             line = f'「{cat}」的数据库打不开：{type(e).__name__}：{e}'
         if announce:
@@ -581,7 +581,7 @@ class App:
     def on_close(self):
         self.save()
         if self.auto.get() and self.cfg.get('hide_on_close', True):   # 来图就干开着：× 只是收起来，后台照样盯着
-            self.write('窗口收起来了，后台照样盯着文件夹。真要退出：去掉「来图就干」的勾再点 ×'
+            self.write('贫僧躲任务栏里了，眼睛照样盯着文件夹。真要赶我走：去掉「来图就干」的勾再点 ×'
                        '（或者在右上角 ⚙ 里关掉「点 × 只收起」）。')
             self.root.iconify()
             return
@@ -660,7 +660,7 @@ class App:
         ver = autopilot.probe_version(upd)
         if not ver:
             autopilot.log_update(app_dir(), f'新版 {autopilot.UPDATE_NAME} 打不开，没换')
-            self.log(f'✗ 新版 {autopilot.UPDATE_NAME} 打不开，没换')
+            self.log(f'✗ 新版 {autopilot.UPDATE_NAME} 打不开，不换了，接着用旧的')
             self.update_skip = self.downloaded              # 这次开着就别再下它了
             self.update_asap = False
             try:
@@ -670,7 +670,7 @@ class App:
             self.updating = False
             return
         autopilot.log_update(app_dir(), f'v{engine.VERSION} → v{ver}：开始换')
-        self.log(f'发现新版 v{ver}，换上后自己重开')
+        self.log(f'发现新版 v{ver}，换身新衣服马上回来')
         subprocess.Popen([upd, '--install-update', sys.executable], cwd=app_dir())
         self.q.put(('quit', None))
 
@@ -704,7 +704,8 @@ class App:
                     v = updater.check(app_dir(), log=self.log, skip=self.update_skip)
                     if v:
                         self.downloaded = v
-                    msg = f'新版 v{v} 下载好了，空闲时自己换上' if v else f'已经是最新版 v{engine.VERSION}'
+                    msg = (f'新版 v{v} 下好了，趁你歇着的时候换' if v
+                           else f'已经是最新版 v{engine.VERSION}，没有更新的了，别催')
                 else:
                     remote = updater.latest_version()
                     if updater.is_newer(remote) and remote != self.update_skip:
@@ -715,9 +716,9 @@ class App:
                         else:
                             self.q.put(('call', lambda: self.show_update_pill(remote)))
                     else:
-                        msg = f'已经是最新版 v{engine.VERSION}'
+                        msg = f'已经是最新版 v{engine.VERSION}，没有更新的了，别催'
             except Exception as e:
-                msg = f'查不到新版：{type(e).__name__}：{e}'
+                msg = f'查不到新版（网站没理我）：{type(e).__name__}：{e}'
                 if getattr(sys, 'frozen', False):
                     autopilot.log_update(app_dir(), msg)
             finally:
@@ -759,10 +760,10 @@ class App:
                 self.downloaded = remote
                 self.update_asap = True
                 autopilot.log_update(app_dir(), f'点了「现在更新」：下载好新版 v{remote}')
-                self.log(f'新版 v{remote} 下载好了，马上换上（正在干活的话干完这批再换）')
+                self.log(f'新版 v{remote} 下好了，马上换（手上有活的话干完这批再换）')
                 self.q.put(('call', lambda: card is not None and card.winfo_exists() and card.destroy()))
             except Exception as e:
-                say(f'下载失败：{type(e).__name__}：{e}（过一会儿再点一次）')
+                say(f'下载翻车了：{type(e).__name__}：{e}（过会儿再点一次）')
                 self.q.put(('call', lambda: card is not None and card.winfo_exists() and card.enable()))
 
         if not getattr(sys, 'frozen', False):
@@ -822,7 +823,7 @@ class App:
                     if val and val.xlsx:
                         self.last_xlsx = val.xlsx
                         self.last_photos = val.photos_dir
-                        self.status.set(f'干完：成功 {val.ok} · 失败 {val.failed}')
+                        self.status.set(f'收工：成 {val.ok} 张 · 砸 {val.failed} 张')
                         self.last_run = {'xlsx': val.xlsx, 'ok': val.ok, 'failed': val.failed, 'requests': val.requests,
                                          'stopped': val.stopped_reason, 'auto': self.auto_run,
                                          'at': datetime.now().isoformat(timespec='seconds')}
@@ -877,7 +878,7 @@ class SettingsCard(tk.Toplevel):
         info.pack(side='left')
         tk.Label(info, text=f'{engine.APP_NAME} v{engine.VERSION}', font=(fam, 10), bg=ui.CARD, fg=ui.GREY,
                  anchor='w').pack(anchor='w')
-        tk.Label(info, text=f'制作人 {updater.CONTACT}', font=(fam, 9), bg=ui.CARD, fg=ui.GREY,
+        tk.Label(info, text=f'有锅找制作人 {updater.CONTACT}', font=(fam, 9), bg=ui.CARD, fg=ui.GREY,
                  anchor='w').pack(anchor='w')
         btn = dict(font=(fam, 10), bg=ui.CARD, height=34, radius=8, padx=14)
         ui.Pill(foot, '完成', command=self.destroy, primary=True, **btn).pack(side='right')
@@ -910,14 +911,14 @@ class SettingsCard(tk.Toplevel):
         self.copy_mail()
         subject = urllib.parse.quote(f'录入僧 v{engine.VERSION} 建议')
         open_path(f'mailto:{updater.CONTACT}?subject={subject}')
-        self.note.set(f'邮箱已复制：{updater.CONTACT}。没弹出写邮件的窗口，就粘贴到你常用的邮箱里发')
+        self.note.set(f'邮箱复制好了：{updater.CONTACT}。没弹出写邮件的窗口，就粘到你常用的邮箱里，骂人请注明版本号')
 
     def copy_mail(self):
         self.clipboard_clear()
         self.clipboard_append(updater.CONTACT)
 
     def check(self):
-        self.note.set('正在查…')
+        self.note.set('正在问网站…')
         self.check_btn.config(state='disabled')
 
         def done(msg):
@@ -997,7 +998,7 @@ class NewCategoryCard(CardDialog):
         self.field = ui.Field(b, self.name, font=self.bf)
         self.field.pack(fill='x', pady=(6, 0))
         ui.Para(b, tk.StringVar(value=f'比如「质检单」「送货单」。建好会多一个文件夹 {tables.root(app_dir())}\\<名字>，'
-                                      '它自己的数据库和投喂文件夹都在里面，跟刀单互不串味。'),
+                                      '它自己的数据库、投喂文件夹都在里面。跟刀单分家过日子，互不串味。'),
                 font=(self.fam, 9), width_px=470).pack(fill='x', pady=(8, 0))
         self.err = tk.StringVar()
         tk.Label(b, textvariable=self.err, font=(self.fam, 10), bg=ui.CARD, fg='#C0392B', anchor='w').pack(
@@ -1050,18 +1051,18 @@ class FeedCard(CardDialog):
     def describe(self):
         cat = self.cat.get()
         if cat == tables.BUILTIN:
-            t = ('公司的 TOOL BROKEN RECORD，或者核对改好的刀单结果表，可以一次选好几本。\n'
-                 '不像刀单的表（没有 DATE、MACHINE 表头）一条都不吃，免得别的单子串进来。\n'
-                 f'也可以把表直接丢进 {feed_dir()}，每次开工前自动吃。')
+            t = ('喂公司的 TOOL BROKEN RECORD，或者你核对改好的刀单结果表，一次选好几本也行。\n'
+                 '贫僧嘴刁：没有 DATE、MACHINE 表头的不吃，别的单子休想混进刀单的户口。\n'
+                 f'懒得点就把表丢进 {feed_dir()}，每次开工前我自己去吃。')
         else:
             try:
                 cols = tables.TableDB(tables.db_path(app_dir(), cat)).columns()
             except Exception:
                 cols = []
-            head = (f'现在的列：{"、".join(cols)}。表里多出来的列会接在后面。' if cols
-                    else f'第一本的表头会定成「{cat}」的列。')
-            t = (f'认完、改对了的「{cat}」结果表（录入僧出的那本就行），可以一次选好几本。\n{head}\n'
-                 f'也可以把表直接丢进 {tables.feed_path(app_dir(), cat)}，每次开工前自动吃。')
+            head = (f'现在的列：{"、".join(cols)}。你表里多出来的列我接在后面，来者不拒。' if cols
+                    else f'第一本的表头就是「{cat}」的祖宗家法，列就这么定了。')
+            t = (f'喂认完、改对了的「{cat}」结果表（录入僧出的那本就行），一次选好几本也行。\n{head}\n'
+                 f'懒得点就把表丢进 {tables.feed_path(app_dir(), cat)}，每次开工前我自己去吃。')
         self.desc.set(t)
 
     def new(self):
@@ -1138,7 +1139,7 @@ class UpdateCard(CardDialog):
 
     def always(self):
         self.app.setting_changed('auto_update', True)
-        self.app.write('自动更新打开了：以后有新版自己下载、空闲时换上（⚙ 里可以关）')
+        self.app.write('自动更新打开了：以后有新版我自己下、自己换，你只管用（⚙ 里能关）')
         self.now()
 
     def later(self):

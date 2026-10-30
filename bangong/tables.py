@@ -62,15 +62,15 @@ def check_name(name: str, app_dir: str) -> str:
     """新类别的名字行不行：行就返回 ''，不行返回原因。"""
     n = (name or '').strip()
     if not n:
-        return '名字不能空着'
+        return '名字总得起一个吧'
     if len(n) > MAX_NAME:
-        return f'名字太长了（最多 {MAX_NAME} 个字）'
+        return f'名字太长了，{MAX_NAME} 个字以内，这是类别不是作文'
     if BAD_CHARS.search(n) or n.endswith('.'):
-        return '名字里不能有 \\ / : * ? " < > | 这些符号'
+        return 'Windows 不认 \\ / : * ? " < > | 这些符号，换个名字'
     if n.upper() in RESERVED:
-        return 'Windows 不让用这个名字'
+        return 'Windows 跟这个名字有仇（系统保留的），换一个'
     if n.casefold() in {x.casefold() for x in names(app_dir)}:
-        return f'已经有「{n}」了'
+        return f'已经有「{n}」了，撞衫了，换一个'
     return ''
 
 
@@ -190,7 +190,7 @@ class TableDB:
             res.error = f'读不了：{type(e).__name__}：{e}'
             return res
         if not recs:
-            res.error = '没找到表头和记录（表头要在前 15 行，至少两列）'
+            res.error = '没找到表头和记录（表头得在前 15 行、至少两列，不然贫僧不知道哪列是哪列）'
             return res
         now = datetime.now().isoformat(timespec='seconds')
         with self._conn() as c:
@@ -242,7 +242,7 @@ class TableDB:
     def summary(self, name: str) -> str:
         cols, n = self.columns(), self.count()
         if not cols:
-            return f'「{name}」还没放过表：先认全部内容，改对了点「放入数据库」，表头就定成这个类别的列'
+            return f'「{name}」还没喂过表：先让我认全部内容，你改对了点「放入数据库」，表头就定成它的列'
         return f'「{name}」数据库：{n} 条记录 · {len(cols)} 列（{"、".join(cols[:8])}{"…" if len(cols) > 8 else ""}）'
 
     def load(self) -> 'TableSnapshot':

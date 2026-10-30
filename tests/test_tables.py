@@ -178,11 +178,11 @@ def test_window_flow(tmp_path, monkeypatch):
     try:
         a = app.App(root)
         a.cfg['auto_open'] = False
-        assert a.category.get() == '刀单' and '专属优化' in a.cat_hint.get()
+        assert a.category.get() == '刀单' and '亲儿子' in a.cat_hint.get()
         a.new_category()
         a.dialog.name.set('质检单')
         a.dialog.ok()
-        assert a.category.get() == '质检单' and '还没放过表' in a.cat_hint.get()
+        assert a.category.get() == '质检单' and '还没喂过' in a.cat_hint.get()
         assert list(a.cat_combo.box.cget('values')) == ['刀单', '质检单']
         photos = tmp_path / '待识别'
         make_images(photos, 2)

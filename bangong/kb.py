@@ -207,8 +207,8 @@ class KnowledgeBase:
             res.error = f'读不了：{type(e).__name__}：{e}'
             return res
         if not recs and not people:
-            res.error = ('这本不像刀单：没找到 DATE、MACHINE 那样的表头，一条没吃。'
-                         '是别的单子的话，放进它自己的类别')
+            res.error = ('这本不像刀单：没找到 DATE、MACHINE 那样的表头，一口没吃。'
+                         '是别的单子的话，喂给它自己的类别')
             return res
         now = datetime.now().isoformat(timespec='seconds')
         src = os.path.basename(path)
@@ -250,7 +250,7 @@ class KnowledgeBase:
         with self._conn() as c:
             n = c.execute('SELECT COUNT(*) FROM records').fetchone()[0]
             if not n:
-                return '数据库还是空的：点「放入数据库」放公司的 TOOL BROKEN RECORD'
+                return '数据库还空着，饿着呢：点「放入数据库」喂公司的 TOOL BROKEN RECORD'
             m = c.execute('SELECT COUNT(DISTINCT machine), COUNT(DISTINCT part_number), COUNT(DISTINCT description) '
                           "FROM records").fetchone()
             p = c.execute('SELECT COUNT(*) FROM people').fetchone()[0]

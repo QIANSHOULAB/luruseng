@@ -140,7 +140,7 @@ class Viewer(tk.Toplevel):
         bf = (fam, 10)
         if not self.runs:
             self.title('核对')
-            tk.Label(self, text='还没有编号照片：先点「开始工作」干一批。', bg=ui.BG, fg=ui.TEXT, font=bf,
+            tk.Label(self, text='还没有编号照片：先点「开始工作」干一批，再来核。', bg=ui.BG, fg=ui.TEXT, font=bf,
                      padx=30, pady=30).pack()
             return
 
