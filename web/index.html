@@ -162,7 +162,8 @@
   .vbar .n { display: none; }
   .vbody { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 12px; }
   .photo { background: #1C1C1E; border-radius: 10px; display: grid; place-items: center; overflow: hidden; min-height: 0; cursor: zoom-in; position: relative; }
-  .photo img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+  .photo:focus { outline: none; }
+  .photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
   .photo .none { color: #8E8E93; padding: 20px; text-align: center; }
   .panel { padding: 12px 14px; overflow-y: auto; min-height: 0; }
   .panel h3 { margin: 4px 0 8px; font-size: 16px; }
@@ -357,7 +358,7 @@
     </div>
   </div>
   <div class="vbody" id="vbody">
-    <div class="photo" id="vphoto"></div>
+    <div class="photo" id="vphoto" tabindex="-1"></div>
     <div class="card panel" id="vpanel"></div>
   </div>
   <div class="card empty" id="vempty" hidden>还没有结果：先选照片，点「开始工作」干一批。</div>

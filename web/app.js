@@ -565,6 +565,7 @@ async function openViewer(id = null) {
     sel.add(new Option(r ? runLabel(r) : rid, rid));
   }
   if (!dlg.open) dlg.showModal();
+  $('#vphoto').focus({ preventScroll: true });   // 一打开 ←→ 就能翻页（别让下拉框抢了方向键）
   if (has) await loadRun(id && ids.includes(id) ? id : (S.cfg.lastRun && ids.includes(S.cfg.lastRun) ? S.cfg.lastRun : ids[0]));
   else $('#vinfo').textContent = '';
 }

@@ -236,6 +236,10 @@ def main():
             assert 'No. 1' in panel and '800' in panel and 'VM-07' in panel, panel
             page.wait_for_function('() => { const i = document.querySelector("#vphoto img"); return i && i.naturalWidth > 0; }')
             page.screenshot(path=os.path.join(SHOTS, '2-核对.png'))
+            page.keyboard.press('ArrowRight')                                    # 一打开就能用 ←→ 翻页
+            page.wait_for_function('() => document.querySelector("#vinfo").textContent.includes("第 2 张")')
+            page.keyboard.press('ArrowLeft')
+            page.wait_for_function('() => document.querySelector("#vinfo").textContent.includes("第 1 张")')
             js = download('#vxlsx')
             assert os.path.basename(js).startswith('识别结果_') and js.endswith('.xlsx')
             same_book(js, python_book(imgs))
@@ -436,6 +440,33 @@ def main():
             close_viewer()
 
         @step
+        def title_on_the_right_turns_upright_number_in_top_right():
+            d = os.path.join(WORK, 'side')
+            os.makedirs(d, exist_ok=True)
+            p = os.path.join(d, 'side.jpg')
+            Image.new('RGB', (900, 600), 'white').save(p)
+            mock_server.STATE['modes'] = {K1: 'side_right'}
+            try:
+                run_and_wait([p], '成功 1 张')
+            finally:
+                mock_server.STATE['modes'] = {}
+            page.wait_for_selector('#dlg-view[open]')
+            page.wait_for_function('() => { const i = document.querySelector("#vphoto img"); return i && i.complete && i.naturalWidth > 0; }')
+            fits = page.evaluate('''() => { const b = document.querySelector("#vphoto").getBoundingClientRect();
+                const i = document.querySelector("#vphoto img"), r = i.getBoundingClientRect();
+                const s = Math.min(r.width / i.naturalWidth, r.height / i.naturalHeight);   // object-fit: contain 实际画多大
+                return [i.naturalWidth * s <= b.width + 1, i.naturalHeight * s <= b.height + 1, r.top >= b.top - 1, r.bottom <= b.bottom + 1]; }''')
+            assert all(fits), fits                                               # 竖的照片整张放得下，不被裁掉
+            z = download('#vzip')
+            im = Image.open(io.BytesIO(zipfile.ZipFile(z).read('01.jpg'))).convert('RGB')
+            assert im.size == (600, 900), im.size                                 # 标题在右边：转成竖的
+            red = [(x, y) for x in range(0, im.width, 2) for y in range(0, im.height, 2)
+                   if (lambda q: q[0] > 170 and q[1] < 70 and q[2] < 70)(im.getpixel((x, y)))]
+            corner = [1 for x, y in red if x > im.width * 0.6 and y < im.height * 0.3]
+            assert red and len(corner) / len(red) > 0.95, (len(red), len(corner))   # 编号印在右上角，字是正的
+            close_viewer()
+
+        @step
         def settings_backup_restore_and_forget_keys():
             page.click('#gear')
             page.wait_for_selector('#dlg-set[open]')
@@ -502,7 +533,7 @@ def main():
                    same_photos_again_are_skipped, result_button_downloads_latest, feed_database_xlsx_xls_csv_html,
                    database_fixes_confusable_letters, names_dialog, own_category_matches_desktop_book,
                    bad_key_stops_and_keeps_photos, stop_button_marks_unfinished, photos_of_all_kinds,
-                   settings_backup_restore_and_forget_keys, delete_a_batch, phone_layout):
+                   title_on_the_right_turns_upright_number_in_top_right, settings_backup_restore_and_forget_keys, delete_a_batch, phone_layout):
             try:
                 fn()
             except Exception:

@@ -179,6 +179,7 @@ export function upright(src, side) {         // 标题在右边就逆时针转 9
   else if (side === 'left') { ctx.translate(h, 0); ctx.rotate(Math.PI / 2); }
   else { ctx.translate(w, h); ctx.rotate(Math.PI); }
   ctx.drawImage(src, 0, 0);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);         // 转完复位：后面印编号要按正的坐标画
   return c;
 }
 
@@ -258,5 +259,6 @@ export async function rotate(blob, clockwise) {
   const ctx = c.getContext('2d');
   if (clockwise) { ctx.translate(h, 0); ctx.rotate(Math.PI / 2); } else { ctx.translate(0, w); ctx.rotate(-Math.PI / 2); }
   ctx.drawImage(img, 0, 0);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   return toBlob(c, 0.9);
 }
