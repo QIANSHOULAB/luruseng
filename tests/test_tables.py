@@ -249,6 +249,44 @@ def test_update_card_and_contact(tmp_path, monkeypatch):
         root.destroy()
 
 
+def test_key_tutorial_buttons(tmp_path, monkeypatch):
+    """钥匙框后面：「免费领钥匙」「再领一把」点了打开网站上的教程页；没填钥匙就点开始，也告诉人去哪领。"""
+    import pytest
+    try:
+        import tkinter as tk
+        root = tk.Tk()
+    except Exception:
+        pytest.skip('没有显示器，跳过窗口测试')
+    from bangong import app, updater
+    monkeypatch.setattr(app, 'app_dir', lambda: str(tmp_path / 'app'))
+    monkeypatch.setattr(app, 'CONFIG', str(tmp_path / 'config.json'))
+    opened = []
+    monkeypatch.setattr(app, 'open_path', opened.append)
+    try:
+        a = app.App(root)
+        root.update()
+        assert [b.cget('text') for b in a.key_btns] == ['免费领钥匙', '再领一把']
+        for b in a.key_btns:
+            b.command()
+        assert opened == [updater.KEY_URL, updater.KEY_URL + '#key2']
+        assert updater.KEY_URL == 'https://oilsongchengmin-svg.github.io/luruseng/key.html'
+        a.key1.set('')
+        a.key2.set('')
+        a.start()
+        root.update()
+        assert '免费领钥匙' in a.text.get('1.0', 'end')
+    finally:
+        root.destroy()
+
+
+def test_key_page_is_there():
+    """网站上的教程页：按钮指过去的地方得真有（key.html 和 #key2），去谷歌领钥匙的网址对。"""
+    page = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'key.html')
+    html = open(page, encoding='utf-8').read()
+    assert 'id="key2"' in html and 'https://aistudio.google.com/apikey' in html
+    assert '完全免费，老衲不打诳语' in html
+
+
 def test_pretty_notes():
     from bangong.app import pretty_notes
     assert pretty_notes('v1.9.2\n- 改格子\n- 发邮件') == '• 改格子\n• 发邮件'           # 只跨一版：不写版本号

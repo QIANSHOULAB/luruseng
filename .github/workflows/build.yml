@@ -6,6 +6,7 @@ on:
     tags: ['v*']
     paths-ignore:            # 只改网站或说明，不重新打包
       - 'index.html'
+      - 'key.html'
       - 'screenshot.png'
       - '.nojekyll'
       - 'docs/**'
@@ -28,7 +29,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install
-        run: pip install -r requirements.txt pytest pyinstaller
+        run: pip install -r requirements.txt pytest pyinstaller xlwt   # xlwt 只给测试造老 .xls 用，不进 exe
       - name: Tests (Windows)
         run: python -m pytest -q tests
       - name: Build exe
@@ -88,11 +89,18 @@ jobs:
         shell: pwsh
         run: |
           $book = Join-Path $env:RUNNER_TEMP 'TOOL BROKEN RECORD.xlsx'
-          python -c "import sys; sys.path.insert(0, 'tests'); from test_kb import company_book; company_book(r'$book')"
-          $p = Start-Process dist/luruseng.exe -ArgumentList '--feed',"`"$book`"" -Wait -PassThru
-          if ($p.ExitCode -ne 0) { throw "feed exit $($p.ExitCode)" }
+          $old = Join-Path $env:RUNNER_TEMP 'TOOL BROKEN RECORD.xls'
+          $csv = Join-Path $env:RUNNER_TEMP 'daodan.csv'
+          python -c "import sys; sys.path.insert(0, 'tests'); from test_kb import company_book; from test_formats import to_xls; to_xls(company_book(r'$book'), r'$old')"
+          python -c "open(r'$csv', 'wb').write(b'DATE,MACHINE,PART NUMBER,MO,OPR NO.,T NO.,DESCRIPTION,BTMP,TOTAL SCREENED,PASSED,FAILED,SHIFT,SETTER\r\n30/10,VM-09,TD-1,82669999,150,T4,EM2.5,1,1,1,0,D,639/Lee Ah Kow\r\n')"
+          # 先喂老 .xls（exe 里得带着 xlrd），再喂 .xlsx（同样的 8 条不重复进）和 .csv（多 1 条）
+          $p = Start-Process dist/luruseng.exe -ArgumentList '--feed',"`"$old`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "feed .xls exit $($p.ExitCode)" }
           if (-not (Test-Path 'dist/数据库.sqlite')) { throw 'no database file' }
-          python -c "import sqlite3; c = sqlite3.connect('dist/数据库.sqlite'); n = c.execute('select count(*) from records').fetchone()[0]; print('records', n); assert n == 8"
+          python -c "import sqlite3; c = sqlite3.connect('dist/数据库.sqlite'); n = c.execute('select count(*) from records').fetchone()[0]; print('records from .xls', n); assert n == 8"
+          $p = Start-Process dist/luruseng.exe -ArgumentList '--feed',"`"$book`"","`"$csv`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "feed .xlsx + .csv exit $($p.ExitCode)" }
+          python -c "import sqlite3; c = sqlite3.connect('dist/数据库.sqlite'); n = c.execute('select count(*) from records').fetchone()[0]; print('records', n); assert n == 9"
       - name: Update test (self-replace)
         shell: pwsh
         run: |

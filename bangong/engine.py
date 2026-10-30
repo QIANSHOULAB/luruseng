@@ -31,7 +31,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-VERSION = '1.9.2'
+VERSION = '1.9.3'
 APP_NAME = '录入僧'
 SUBTITLE = '施主去玩，贫僧填表'
 OLD_NAME = '搬工'                   # 改名前的名字：旧账本、旧配置照样认

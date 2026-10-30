@@ -13,6 +13,7 @@ from . import autopilot, engine
 
 REPO = 'oilsongchengmin-svg/luruseng'
 SITE_URL = 'https://oilsongchengmin-svg.github.io/luruseng/'          # 录入僧的网站：下载、怎么用
+KEY_URL = SITE_URL + 'key.html'                                         # 怎么免费领钥匙（钥匙框后面那个按钮）
 RELEASES_URL = f'https://github.com/{REPO}/releases'
 LATEST = os.environ.get('BANGONG_UPDATE', f'https://github.com/{REPO}/releases/latest/download').rstrip('/')
 EXE_ASSET = 'luruseng.exe'

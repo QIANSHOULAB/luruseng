@@ -12,8 +12,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime
 
-from openpyxl import load_workbook
-
+from . import sheets
 from .engine import FIELDS
 
 DB_FILE = '数据库.sqlite'
@@ -147,39 +146,35 @@ def read_people(rows: list[tuple]) -> list[tuple[str, str]]:
 
 def read_workbook(path: str) -> tuple[list[tuple[str, dict]], list[tuple[str, str]], list[str]]:
     """返回 ([(页名, 记录)], [(工号, 名字)], [读到记录的页名])。"""
-    wb = load_workbook(path, read_only=True, data_only=True)
     recs, people, used, loose = [], [], [], []
     has_header = False
-    try:
-        for ws in wb.worksheets:
-            rows = [tuple(r) for r in ws.iter_rows(values_only=True)]
-            hdr = find_header(rows)
-            if not hdr:
-                found = read_people(rows)
-                if re.search(r'NAME|EMP|名单|名字|人员', ws.title, re.I):
-                    people += found
-                else:
-                    loose += found
-                continue
-            has_header = True
-            start, cols = hdr
-            n = 0
-            for row in rows[start:]:
-                rec = {f: '' for f in FIELDS}
-                for c, f in cols.items():
-                    if c < len(row):
-                        rec[f] = cell_text(row[c])
-                core = sum(bool(rec[f]) for f in ('machine', 'part_number', 'mo', 't_no', 'description', 'setter'))
-                if core >= 3:
-                    recs.append((ws.title, rec))
-                    n += 1
-                    m = SETTER_RE.match(rec['setter'])
-                    if m:
-                        people.append((m.group(1), m.group(2).strip()))
-            if n:
-                used.append(ws.title)
-    finally:
-        wb.close()
+    # .xlsx / .xlsm / .xls / .csv 都变成「页名 + 一行一个元组」
+    for title, rows in sheets.read_sheets(path):
+        hdr = find_header(rows)
+        if not hdr:
+            found = read_people(rows)
+            if re.search(r'NAME|EMP|名单|名字|人员', title, re.I):
+                people += found
+            else:
+                loose += found
+            continue
+        has_header = True
+        start, cols = hdr
+        n = 0
+        for row in rows[start:]:
+            rec = {f: '' for f in FIELDS}
+            for c, f in cols.items():
+                if c < len(row):
+                    rec[f] = cell_text(row[c])
+            core = sum(bool(rec[f]) for f in ('machine', 'part_number', 'mo', 't_no', 'description', 'setter'))
+            if core >= 3:
+                recs.append((title, rec))
+                n += 1
+                m = SETTER_RE.match(rec['setter'])
+                if m:
+                    people.append((m.group(1), m.group(2).strip()))
+        if n:
+            used.append(title)
     if has_header:                       # 真是刀单本子，别的页上的工号名字才算数（别的单子不往刀单里串）
         people += loose
     return recs, people, used
@@ -198,13 +193,13 @@ class KnowledgeBase:
 
     def feed(self, path: str) -> FeedResult:
         res = FeedResult(path)
-        if not path.lower().endswith(('.xlsx', '.xlsm')):
-            res.error = '只认 .xlsx / .xlsm（老的 .xls 请先在 Excel 里另存为 .xlsx）'
+        if not sheets.supported(path):
+            res.error = sheets.UNSUPPORTED
             return res
         try:
             recs, people, used = read_workbook(path)
         except Exception as e:
-            res.error = f'读不了：{type(e).__name__}：{e}'
+            res.error = sheets.why(e)
             return res
         if not recs and not people:
             res.error = ('这本不像刀单：没找到 DATE、MACHINE 那样的表头，一条没吃。'
@@ -238,7 +233,7 @@ class KnowledgeBase:
         out = []
         for name in sorted(os.listdir(folder)):
             p = os.path.abspath(os.path.join(folder, name))
-            if name.startswith('~$') or not name.lower().endswith(('.xlsx', '.xlsm')) or not os.path.isfile(p):
+            if not sheets.touch_ok(name) or not os.path.isfile(p):
                 continue
             st = os.stat(p)
             if seen.get(p) == (st.st_mtime, st.st_size):

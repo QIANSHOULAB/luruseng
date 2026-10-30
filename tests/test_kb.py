@@ -64,10 +64,12 @@ def test_feed_company_book_and_dedupe(tmp_path):
     assert s.startswith('数据库：8 条记录') and '机台 7 台' in s
 
 
-def test_reject_old_xls(tmp_path):
+def test_broken_xls_and_unknown_formats(tmp_path):
     db = kb.KnowledgeBase(str(tmp_path / 'db.sqlite'))
-    (tmp_path / 'old.xls').write_bytes(b'xx')
-    assert '另存为 .xlsx' in db.feed(str(tmp_path / 'old.xls')).error
+    (tmp_path / 'old.xls').write_bytes(b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1' + b'xx' * 50)
+    assert '坏了' in db.feed(str(tmp_path / 'old.xls')).error             # .xls 认，但这个是坏的
+    (tmp_path / 'scan.pdf').write_bytes(b'%PDF')
+    assert '只认' in db.feed(str(tmp_path / 'scan.pdf')).error
 
 
 def snapshot(tmp_path):

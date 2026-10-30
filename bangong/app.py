@@ -12,8 +12,9 @@ import time
 import tkinter as tk
 from datetime import datetime
 from tkinter import filedialog
+from tkinter import font as tkfont
 
-from . import autopilot, engine, settings, tables, updater
+from . import autopilot, engine, settings, sheets, tables, updater
 from . import macui as ui
 
 
@@ -303,15 +304,23 @@ class App:
         label(2, '图片文件夹')
         self.folder = tk.StringVar(value=cfg.get('folder') or default_folder())
         ui.Field(g, self.folder, font=bf).grid(row=2, column=1, sticky='ew', pady=5)
-        ui.Pill(g, '选择…', command=self.pick, font=bf, bg=ui.CARD, height=38, radius=8, minwidth=110).grid(
+        key_w = tkfont.Font(font=bf).measure('免费领钥匙') + 19 + 10 + 2 * 14      # 右边一列按钮一样宽
+        ui.Pill(g, '选择…', command=self.pick, font=bf, bg=ui.CARD, height=38, radius=8, minwidth=key_w).grid(
             row=2, column=2, padx=(10, 0))
 
         self.key1 = tk.StringVar(value=cfg.get('key1', ''))
         self.key2 = tk.StringVar(value=cfg.get('key2', ''))
         label(3, '钥匙 1')
-        ui.Field(g, self.key1, show='•', font=bf).grid(row=3, column=1, columnspan=2, sticky='ew', pady=5)
+        ui.Field(g, self.key1, show='•', font=bf).grid(row=3, column=1, sticky='ew', pady=5)
         label(4, '钥匙 2（可空）')
-        ui.Field(g, self.key2, show='•', font=bf).grid(row=4, column=1, columnspan=2, sticky='ew', pady=5)
+        ui.Field(g, self.key2, show='•', font=bf).grid(row=4, column=1, sticky='ew', pady=5)
+        # 钥匙框后面：点了打开网站上的教程页（怎么免费领钥匙；第二把为什么要换个项目）
+        self.key_btns = []
+        for r, text, url in ((3, '免费领钥匙', updater.KEY_URL), (4, '再领一把', updater.KEY_URL + '#key2')):
+            b = ui.Pill(g, text, command=lambda u=url: open_path(u), font=bf, bg=ui.CARD, height=38, radius=8,
+                        padx=14, minwidth=key_w, icon='key', link=True)
+            b.grid(row=r, column=2, padx=(10, 0))
+            self.key_btns.append(b)
 
         label(5, '模型')
         self.model = tk.StringVar(value=cfg.get('model') or engine.DEFAULT_MODEL)
@@ -450,7 +459,7 @@ class App:
         self.auto_run = auto
         k1, k2 = self.key1.get().strip(), self.key2.get().strip()
         if not k1 and not k2:
-            self.write('✗ 先填钥匙')
+            self.write('✗ 先填钥匙。还没有？点钥匙框后面的「免费领钥匙」，两分钟的事，一分钱不花')
             return
         if k1 and k1 == k2:
             self.write('✗ 两个钥匙填的是同一把（额度按项目算，同一把没意义）')
@@ -1051,6 +1060,7 @@ class FeedCard(CardDialog):
         cat = self.cat.get()
         if cat == tables.BUILTIN:
             t = ('公司的 TOOL BROKEN RECORD，或者核对改好的刀单结果表，可以一次选好几本。\n'
+                 'Excel（.xlsx、.xls）、CSV 都行。\n'
                  '不像刀单的表（没有 DATE、MACHINE 表头）一条都不吃，免得别的单子串进来。\n'
                  f'也可以把表直接丢进 {feed_dir()}，每次开工前自动吃。')
         else:
@@ -1060,7 +1070,8 @@ class FeedCard(CardDialog):
                 cols = []
             head = (f'现在的列：{"、".join(cols)}。表里多出来的列会接在后面。' if cols
                     else f'第一本的表头会定成「{cat}」的列。')
-            t = (f'认完、改对了的「{cat}」结果表（录入僧出的那本就行），可以一次选好几本。\n{head}\n'
+            t = (f'认完、改对了的「{cat}」结果表（录入僧出的那本就行），可以一次选好几本。\n'
+                 f'Excel（.xlsx、.xls）、CSV 都行。\n{head}\n'
                  f'也可以把表直接丢进 {tables.feed_path(app_dir(), cat)}，每次开工前自动吃。')
         self.desc.set(t)
 
@@ -1071,7 +1082,7 @@ class FeedCard(CardDialog):
     def choose(self):
         cat = self.cat.get()
         paths = filedialog.askopenfilenames(parent=self, title=f'选要放进「{cat}」的表（可以多选）',
-                                            filetypes=[('Excel', '*.xlsx *.xlsm'), ('全部', '*.*')])
+                                            filetypes=sheets.FILETYPES)
         if not paths:
             return
         self.destroy()

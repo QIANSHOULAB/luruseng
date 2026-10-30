@@ -138,13 +138,13 @@ class Field(tk.Canvas):
 
 
 class Pill(tk.Canvas):
-    """药丸按钮。primary=True 是蓝底白字（每个窗口只放一个），其余是白底灰边。
+    """药丸按钮。primary=True 是蓝底白字（每个窗口只放一个），其余是白底灰边；link=True 白底蓝字（点了去网页）。
     跟 ttk.Button 一样认 config(state='disabled'/'normal')、config(text=...)。"""
 
     def __init__(self, master, text, command=None, primary=False, font=None, bg=BG, state='normal', height=36,
-                 radius=None, padx=18, minwidth=0, icon=None):
+                 radius=None, padx=18, minwidth=0, icon=None, link=False):
         self.font = tkfont.Font(font=font) if font else tkfont.nametofont('TkDefaultFont')
-        self.text, self.command, self.primary, self.outer = text, command, primary, bg
+        self.text, self.command, self.primary, self.outer, self.link = text, command, primary, bg, link
         self.state, self.hover, self.down, self.h = state, False, False, height
         self.radius = height // 2 if radius is None else radius
         self.padx, self.minwidth, self.icon = padx, minwidth, icon
@@ -188,7 +188,7 @@ class Pill(tk.Canvas):
                 img, fg = rounded(w, h, self.radius, '#E4E7EC', self.outer), '#A3A8B0'
             else:
                 fill = '#E8EAEE' if self.down else ('#F5F6F8' if self.hover else '#FFFFFF')
-                img, fg = rounded(w, h, self.radius, fill, self.outer, '#D5D9E0'), TEXT
+                img, fg = rounded(w, h, self.radius, fill, self.outer, '#D5D9E0'), BLUE if self.link else TEXT
         self.configure(width=w, cursor='arrow' if off else 'hand2')
         self.itemconfigure(self._img, image=img)
         x0 = (w - self._cw()) // 2
@@ -402,7 +402,7 @@ def app_icon(size: int, bg: str = BG):
 
 
 def glyph(kind: str, size: int, color: str):
-    """按钮上的小图标（透明底，Pillow 画）：play 开始、stop 停止、folder 文件夹、doc 文件、db 数据库。"""
+    """按钮上的小图标（透明底，Pillow 画）：play 开始、stop 停止、folder 文件夹、doc 文件、db 数据库、key 钥匙。"""
     _fresh()
     key = ('glyph', kind, size, color)
     img = _cache.get(key)
@@ -446,6 +446,12 @@ def glyph(kind: str, size: int, color: str):
         d.arc((l, b - eh, r, b), 0, 180, fill=color, width=lw)
         d.line([(l + lw / 2, t + eh / 2), (l + lw / 2, b - eh / 2)], fill=color, width=lw)
         d.line([(r - lw / 2, t + eh / 2), (r - lw / 2, b - eh / 2)], fill=color, width=lw)
+    elif kind == 'key':
+        r, cy = S * 0.22, S * 0.5
+        d.ellipse((S * 0.04, cy - r, S * 0.04 + 2 * r, cy + r), outline=color, width=int(lw * 1.25))
+        d.line([(S * 0.04 + 2 * r, cy), (S * 0.96, cy)], fill=color, width=lw)
+        for x, dy in ((0.8, 0.2), (0.93, 0.15)):
+            d.line([(S * x, cy), (S * x, cy + S * dy)], fill=color, width=lw)
     img = ImageTk.PhotoImage(big.resize((size, size), Image.LANCZOS))
     _cache[key] = img
     return img

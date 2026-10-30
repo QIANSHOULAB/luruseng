@@ -18,11 +18,12 @@ import time
 from collections import Counter, defaultdict
 from datetime import date, datetime
 
-from openpyxl import Workbook, load_workbook
+from openpyxl import Workbook
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
 from . import engine
+from . import sheets
 from .kb import FeedResult, cell_text, ckey, lev1, nkey
 
 BUILTIN = '刀单'                    # 内置的那一个：公司的 TOOL BROKEN RECORD
@@ -124,34 +125,30 @@ def read_table(rows: list[tuple]) -> tuple[list[tuple[int, str]], list[tuple]] |
 
 def read_book(path: str) -> tuple[list[str], list[tuple[str, dict]], list[str]]:
     """-> (列名, [(页名, {列名: 值})], 读到记录的页名)。"""
-    wb = load_workbook(path, read_only=True, data_only=True)
     columns: list[str] = []
     seen: dict[str, str] = {}
     recs, used = [], []
-    try:
-        for ws in wb.worksheets:
-            rows = [tuple(r) for r in ws.iter_rows(values_only=True)]
-            t = read_table(rows)
-            if not t:
+    # .xlsx / .xlsm / .xls / .csv 都变成「页名 + 一行一个元组」
+    for title, rows in sheets.read_sheets(path):
+        t = read_table(rows)
+        if not t:
+            continue
+        cols, data = t
+        for _, nm in cols:
+            if colkey(nm) not in seen:
+                seen[colkey(nm)] = nm
+                columns.append(nm)
+        heads = {colkey(nm) for _, nm in cols}
+        n = 0
+        for row in data:
+            rec = {seen[colkey(nm)]: (cell_text(row[j]) if j < len(row) else '') for j, nm in cols}
+            vals = [v for v in rec.values() if v]
+            if not vals or {colkey(v) for v in vals} <= heads:      # 空行、又一行表头
                 continue
-            cols, data = t
-            for _, nm in cols:
-                if colkey(nm) not in seen:
-                    seen[colkey(nm)] = nm
-                    columns.append(nm)
-            heads = {colkey(nm) for _, nm in cols}
-            n = 0
-            for row in data:
-                rec = {seen[colkey(nm)]: (cell_text(row[j]) if j < len(row) else '') for j, nm in cols}
-                vals = [v for v in rec.values() if v]
-                if not vals or {colkey(v) for v in vals} <= heads:      # 空行、又一行表头
-                    continue
-                recs.append((ws.title, rec))
-                n += 1
-            if n:
-                used.append(ws.title)
-    finally:
-        wb.close()
+            recs.append((title, rec))
+            n += 1
+        if n:
+            used.append(title)
     return columns, recs, used
 
 
@@ -181,13 +178,13 @@ class TableDB:
 
     def feed(self, path: str) -> FeedResult:
         res = FeedResult(path)
-        if not path.lower().endswith(('.xlsx', '.xlsm')):
-            res.error = '只认 .xlsx / .xlsm（老的 .xls 请先在 Excel 里另存为 .xlsx）'
+        if not sheets.supported(path):
+            res.error = sheets.UNSUPPORTED
             return res
         try:
             cols, recs, used = read_book(path)
         except Exception as e:
-            res.error = f'读不了：{type(e).__name__}：{e}'
+            res.error = sheets.why(e)
             return res
         if not recs:
             res.error = '没找到表头和记录（表头要在前 15 行，至少两列）'
@@ -227,7 +224,7 @@ class TableDB:
         out = []
         for name in sorted(os.listdir(folder)):
             p = os.path.abspath(os.path.join(folder, name))
-            if name.startswith('~$') or not name.lower().endswith(('.xlsx', '.xlsm')) or not os.path.isfile(p):
+            if not sheets.touch_ok(name) or not os.path.isfile(p):
                 continue
             st = os.stat(p)
             if seen.get(p) == (st.st_mtime, st.st_size):
