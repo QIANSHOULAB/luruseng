@@ -31,7 +31,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-VERSION = '1.7.5'
+VERSION = '1.8.0'
 APP_NAME = '录入僧'
 SUBTITLE = '施主去玩，贫僧填表'
 OLD_NAME = '搬工'                   # 改名前的名字：旧账本、旧配置照样认
@@ -867,6 +867,27 @@ def scan(folder: str) -> list[str]:
     return out
 
 
+def recycle(path: str) -> bool:
+    """扔进 Windows 回收站（能从回收站捡回来，不是永久删除）。不是 Windows 或者扔不进去就返回 False。"""
+    if os.name != 'nt':
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class SHFILEOPSTRUCTW(ctypes.Structure):
+            _pack_ = 1 if ctypes.sizeof(ctypes.c_void_p) == 4 else 8
+            _fields_ = [('hwnd', wintypes.HWND), ('wFunc', wintypes.UINT), ('pFrom', wintypes.LPCWSTR),
+                        ('pTo', wintypes.LPCWSTR), ('fFlags', ctypes.c_ushort), ('fAnyOperationsAborted', wintypes.BOOL),
+                        ('hNameMappings', ctypes.c_void_p), ('lpszProgressTitle', wintypes.LPCWSTR)]
+        fo_delete, flags = 3, 0x40 | 0x10 | 0x4 | 0x400     # 可撤销（回收站）| 不确认 | 不弹进度 | 不弹错误框
+        op = SHFILEOPSTRUCTW(None, fo_delete, os.path.abspath(path) + '\0', None, flags, False, None, None)
+        ok = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op)) == 0 and not op.fAnyOperationsAborted
+        return ok and not os.path.exists(path)
+    except Exception:
+        return False
+
+
 def unique_dest(d: str, name: str) -> str:
     base, ext = os.path.splitext(name)
     p, k = os.path.join(d, name), 1
@@ -880,8 +901,10 @@ class Engine:
     def __init__(self, folder: str, keys: list[str], model: str = DEFAULT_MODEL,
                  log=print, progress=None, stop: threading.Event | None = None,
                  clock=time.time, sleep=None, names_path: str | None = None,
-                 kb_path: str | None = None, feed_dir: str | None = None, reads: int | None = None):
+                 kb_path: str | None = None, feed_dir: str | None = None, reads: int | None = None,
+                 keep_originals: bool = True, discard=recycle):
         self.folder = folder
+        self.keep_originals, self.discard = keep_originals, discard   # 不留原图：认完扔进回收站（扔不进去就照旧留着）
         self.reads = max(1, reads if reads is not None else READS)
         self.model = model_name(model)
         self.log = log
@@ -1138,9 +1161,12 @@ class Engine:
                         if recs is not None:
                             res.ok += 1
                             res.records += len(recs)
-                            orig_dir = os.path.join(done_dir, ORIG_DIR)
-                            os.makedirs(orig_dir, exist_ok=True)
-                            os.replace(p, unique_dest(orig_dir, f'{tag}_{name}'))
+                            tossed = (not self.keep_originals and os.path.exists(os.path.join(done_dir, f'{tag}.jpg'))
+                                      and self.discard(p))     # 有编号照片了才扔原图
+                            if not tossed:
+                                orig_dir = os.path.join(done_dir, ORIG_DIR)
+                                os.makedirs(orig_dir, exist_ok=True)
+                                os.replace(p, unique_dest(orig_dir, f'{tag}_{name}'))
                             ledger[h] = {'file': name, 'no': no, 'xlsx': os.path.basename(book.path),
                                          'at': datetime.now().isoformat(timespec='seconds')}
                             self.log(f'✓ {tag} {name} · {len(recs)} 条')

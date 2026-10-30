@@ -50,6 +50,17 @@ if __name__ == '__main__':
         cfg = load_config()
         ensure_shortcuts(cfg)
         sys.exit(0 if cfg.get('shortcut_for') else 1)
+    if a and a[0] == '--check-update':             # 查一次新版，有就下载成 录入僧.new.exe（测试 / 大管家用）
+        from bangong import updater
+        try:
+            v = updater.check(a[1] if len(a) > 1 else os.path.dirname(sys.executable))
+        except Exception as e:
+            if sys.stdout:
+                print(f'✗ {type(e).__name__}：{e}', flush=True)
+            sys.exit(1)
+        if sys.stdout:
+            print(v or '已经是最新版', flush=True)
+        sys.exit(0)
     if a and a[0] == '--feed':                     # 录入僧.exe --feed 表1.xlsx 表2.xlsx（给大管家/计划任务用）
         from bangong.app import kb_path
         from bangong.kb import KnowledgeBase

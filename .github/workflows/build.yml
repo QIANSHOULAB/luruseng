@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+    paths-ignore:            # 只改网站或说明，不重新打包
+      - 'index.html'
+      - 'screenshot.png'
+      - '.nojekyll'
+      - 'docs/**'
+      - '**.md'
   workflow_dispatch:
 
 permissions:
@@ -27,6 +33,14 @@ jobs:
         run: python -m pytest -q tests
       - name: Build exe
         run: pyinstaller --noconfirm --onefile --windowed --name luruseng --icon assets/bangong.ico --add-data "assets/bangong.ico;assets" --collect-all pillow_heif main.py
+      - name: Version file (the app checks this to know a new version is out)
+        id: ver
+        shell: pwsh
+        run: |
+          $v = python -c "from bangong import engine; print(engine.VERSION)"
+          [IO.File]::WriteAllText("$PWD/dist/version.txt", $v.Trim())
+          "v=$($v.Trim())" >> $env:GITHUB_OUTPUT
+          Write-Output "version $v"
       - name: Smoke test the exe against the mock server
         shell: pwsh
         run: |
@@ -89,6 +103,26 @@ jobs:
           $target = $item.GetLink.Path
           Write-Output "target: $target"
           if (-not $target.EndsWith('luruseng.exe')) { throw "bad target $target" }
+      - name: Auto-update test (fake website with a newer version)
+        shell: pwsh
+        run: |
+          $site = Join-Path $env:RUNNER_TEMP '假网站'
+          New-Item -ItemType Directory -Force $site | Out-Null
+          Copy-Item dist/luruseng.exe (Join-Path $site 'luruseng.exe')
+          [IO.File]::WriteAllText((Join-Path $site 'version.txt'), '99.0.0')
+          $srv = Start-Process python -ArgumentList '-m','http.server','8766','--directory',$site -PassThru -WindowStyle Hidden
+          Start-Sleep 3
+          $d = Join-Path $env:RUNNER_TEMP '自动更新测试'
+          New-Item -ItemType Directory -Force $d | Out-Null
+          $env:BANGONG_UPDATE = 'http://127.0.0.1:8766'
+          $p = Start-Process dist/luruseng.exe -ArgumentList '--check-update',$d -Wait -PassThru
+          Stop-Process $srv.Id
+          if ($p.ExitCode -ne 0) { throw "check-update exit $($p.ExitCode)" }
+          $got = Join-Path $d '录入僧.new.exe'
+          if (-not (Test-Path $got)) { throw 'no 录入僧.new.exe downloaded' }
+          if ((Get-FileHash $got).Hash -ne (Get-FileHash dist/luruseng.exe).Hash) { throw 'downloaded exe differs' }
+          if (Get-ChildItem $d -Filter *.part) { throw 'left a .part file' }
+          Get-Content (Join-Path $d '更新日志.txt') -Encoding UTF8
       - uses: actions/upload-artifact@v4
         with:
           name: luruseng-exe
@@ -97,6 +131,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: 录入僧 build ${{ github.run_number }}
-          files: dist/luruseng.exe
+          name: 录入僧 v${{ steps.ver.outputs.v }}（build ${{ github.run_number }}）
+          files: |
+            dist/luruseng.exe
+            dist/version.txt
           make_latest: true

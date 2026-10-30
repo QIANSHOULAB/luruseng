@@ -5,8 +5,6 @@ Tk 在 Windows 上画圆角会有锯齿，所以圆角底图都用 Pillow 放大
 """
 from __future__ import annotations
 
-import os
-import sys
 import tkinter as tk
 from tkinter import font as tkfont, ttk
 
@@ -156,7 +154,7 @@ class Pill(tk.Canvas):
         return max(self._cw() + 2 * self.padx, self.minwidth)
 
     def _cw(self):
-        return self.font.measure(self.text) + (self.isz + 10 if self.icon else 0)
+        return self.font.measure(self.text) + ((self.isz + (10 if self.text else 0)) if self.icon else 0)
 
     def _set(self, **kw):
         for k, v in kw.items():
@@ -187,7 +185,7 @@ class Pill(tk.Canvas):
         if self.icon:
             self.itemconfigure(self._ico, image=glyph(self.icon, self.isz, fg))
             self.coords(self._ico, x0, h // 2)
-            x0 += self.isz + 10
+            x0 += self.isz + (10 if self.text else 0)
         self.coords(self._txt, x0, h // 2)
         self.itemconfigure(self._txt, text=self.text, fill=fg, anchor='w')
 
@@ -230,21 +228,22 @@ class Switch(tk.Canvas):
 
     def _draw(self):
         on = bool(self.var.get())
-        self.itemconfigure(self._track, image=rounded(self.W, self.H, self.H // 2, GREEN if on else SW_OFF, self.outer))
+        self.itemconfigure(self._track, image=rounded(self.W, self.H, self.H // 2, BLUE if on else SW_OFF, self.outer))
         k = self.H - 4
-        knob = _knob(k, GREEN if on else SW_OFF)
+        knob = _knob(k, BLUE if on else SW_OFF)
         self.itemconfigure(self._knob, image=knob)
         self.coords(self._knob, (self.W - k - 2) if on else 2, 2)
 
 
 def _knob(d: int, bg: str):
-    key = ('knob', d, bg)
+    """开关上的白色圆钮：透明底（不然方角会盖住轨道的圆头），带一点点影子。"""
+    key = ('knob', d)
     img = _cache.get(key)
     if img is None:
-        big = Image.new('RGB', (d * _SS, d * _SS), bg)
+        big = Image.new('RGBA', (d * _SS, d * _SS), (0, 0, 0, 0))
         dr = ImageDraw.Draw(big)
-        dr.ellipse((0, _SS, d * _SS - 1, d * _SS - 1), fill='#C7C7CC')   # 一点点影子
-        dr.ellipse((0, 0, d * _SS - 1, d * _SS - 1 - _SS), fill='#FFFFFF')
+        dr.ellipse((0, _SS, d * _SS - 1, d * _SS - 1), fill=(0, 0, 0, 40))     # 一点点影子
+        dr.ellipse((0, 0, d * _SS - 1, d * _SS - 1 - _SS), fill=(255, 255, 255, 255))
         img = ImageTk.PhotoImage(big.resize((d, d), Image.LANCZOS))
         _cache[key] = img
     return img
@@ -414,6 +413,18 @@ def glyph(kind: str, size: int, color: str):
         d.line([(S * 0.58, S * 0.04), (S * 0.58, S * 0.32), (S * 0.86, S * 0.32)], fill=color, width=lw)
         for y in (0.52, 0.68, 0.84):
             d.line([(S * 0.32, S * y), (S * (0.7 if y < 0.8 else 0.56), S * y)], fill=color, width=lw)
+    elif kind == 'gear':
+        import math
+        c, ro, ri, teeth = S / 2, S * 0.48, S * 0.36, 8
+        pts = []
+        for i in range(teeth * 4):
+            a = 2 * math.pi * i / (teeth * 4) - math.pi / 2
+            r = ro if (i % 4) in (0, 1) else ri
+            pts.append((c + r * math.cos(a), c + r * math.sin(a)))
+        d.polygon(pts, fill=color)
+        d.ellipse((c - ri, c - ri, c + ri, c + ri), fill=color)
+        h = S * 0.15
+        d.ellipse((c - h, c - h, c + h, c + h), fill=(0, 0, 0, 0))
     elif kind == 'db':
         t, b, l, r, eh = S * 0.06, S * 0.94, S * 0.1, S * 0.9, S * 0.24
         d.ellipse((l, t, r, t + eh), outline=color, width=lw)

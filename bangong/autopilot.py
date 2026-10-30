@@ -1,6 +1,10 @@
 """自动驾驶：来图就干、自己换新版、开机后台挂着、只开一个。
 
-人不在电脑前也能用：往「待识别」丢照片，它自己开工；往 exe 旁边丢一个「录入僧.new.exe」，它自己换上重启。
+人不在电脑前也能用：往「待识别」丢照片，它自己开工；往 exe 旁边丢一个「录入僧.new.exe」，它自己换上重启
+（自动更新也是走这条路：从网站下载成「录入僧.new.exe」，空闲时自己换上）。
+
+不写死任何人的路径：exe 放在哪，数据就在哪。第一次从别的地方（比如「下载」）打开，
+它会在旁边建一个「录入僧」文件夹，把自己抄进去再从那里开，东西不会撒一地。
 """
 from __future__ import annotations
 
@@ -18,8 +22,8 @@ UPDATE_NAME = engine.APP_NAME + '.new.exe'      # 丢在 exe 旁边就会自己�
 STATUS_NAME = '.录入僧状态.json'                 # 活着没有、哪个版本、在不在干活（给远程看）
 SHOW_NAME = '.录入僧-显示窗口'                   # 第二次双击图标时留的条子：叫已经开着的那个把窗口亮出来
 UPDATE_LOG = '更新日志.txt'
-BIN_DIR = r'F:\songchengmin\待删除'
 STABLE_SECS = 30                                # 照片 30 秒内没再变，才算放完了
+DOWNLOAD_STEM = 'luruseng'                      # 网站上下载下来的文件名
 
 
 def image_snapshot(folder: str) -> dict[str, tuple[int, float]]:
@@ -124,7 +128,15 @@ def probe_version(exe: str, timeout: float = 120) -> str:
             pass
 
 
-def install_update(src: str, target: str, launch: bool = True, wait: float = 90) -> str:
+def bin_dir(app_dir: str) -> str:
+    """要扔的东西不直接删，挪进「待删除」：上一级已经有「待删除」就用它（Song 的 F:\\songchengmin\\待删除），
+    没有就在程序文件夹里建一个。"""
+    up = os.path.join(os.path.dirname(os.path.abspath(app_dir)), '待删除')
+    return up if os.path.isdir(up) else os.path.join(app_dir, '待删除')
+
+
+def install_update(src: str, target: str, launch: bool = True, wait: float = 90,
+                   args: list[str] | tuple = ('--background', '--after-update')) -> str:
     """新版（src，正在运行的就是它）把自己抄到 target 上。旧版刚退出可能还占着文件，抄不进去就等一会儿再试。"""
     tmp = target + '.tmp'
     deadline = time.time() + wait
@@ -138,9 +150,14 @@ def install_update(src: str, target: str, launch: bool = True, wait: float = 90)
                 raise
             time.sleep(1)
     log_update(os.path.dirname(target), f'换上 v{engine.VERSION}')
-    if launch and not os.environ.get('BANGONG_NO_LAUNCH'):
-        subprocess.Popen([target, '--background', '--after-update'], cwd=os.path.dirname(target))
+    if launch:
+        start(target, list(args))
     return target
+
+
+def start(exe: str, args: list[str] | None = None):
+    if not os.environ.get('BANGONG_NO_LAUNCH'):
+        subprocess.Popen([exe, *(args or [])], cwd=os.path.dirname(exe))
 
 
 def retire_update_file(app_dir: str, wait: float = 60) -> str:
@@ -148,7 +165,7 @@ def retire_update_file(app_dir: str, wait: float = 60) -> str:
     src = os.path.join(app_dir, UPDATE_NAME)
     if not os.path.exists(src):
         return ''
-    bin_ = BIN_DIR if os.path.isdir(os.path.dirname(BIN_DIR)) else os.path.join(app_dir, '待删除')
+    bin_ = bin_dir(app_dir)
     deadline = time.time() + wait
     while True:
         try:
@@ -232,18 +249,19 @@ def is_locked(path: str) -> bool:
 
 
 def stray_exes(app_dir: str, me: str) -> list[str]:
-    """exe 旁边别的「录入僧xxx.exe」（测试版之类）：正名之后挪进 待删除。"""
+    """exe 旁边别的「录入僧xxx.exe」（测试版之类）和网站下载的原名「luruseng.exe」：正名之后挪进 待删除。"""
     out = []
     for name in os.listdir(app_dir):
         p = os.path.join(app_dir, name)
-        if (name.lower().endswith('.exe') and name.startswith(engine.APP_NAME) and name != engine.APP_NAME + '.exe'
+        named = name.startswith(engine.APP_NAME) or name.lower().startswith(DOWNLOAD_STEM)
+        if (name.lower().endswith('.exe') and named and name != engine.APP_NAME + '.exe'
                 and name != UPDATE_NAME and os.path.normcase(os.path.abspath(p)) != os.path.normcase(os.path.abspath(me))):
             out.append(p)
     return out
 
 
 def retire_file(path: str, wait: float = 30) -> str:
-    bin_ = BIN_DIR if os.path.isdir(os.path.dirname(BIN_DIR)) else os.path.join(os.path.dirname(path), '待删除')
+    bin_ = bin_dir(os.path.dirname(path))
     deadline = time.time() + wait
     while True:
         try:
@@ -264,3 +282,37 @@ def retire_file(path: str, wait: float = 30) -> str:
 
 def startup_args() -> list[str]:
     return [a for a in sys.argv[1:] if a in ('--background', '--after-update')]
+
+
+def vtuple(v: str) -> tuple:
+    """'1.8.0' -> (1, 8, 0)；不是版本号就是 ()。"""
+    parts = (v or '').strip().lstrip('vV').split('.')
+    return tuple(int(x) for x in parts) if parts and all(x.isdigit() for x in parts) else ()
+
+
+def lived_in(d: str) -> bool:
+    """这个文件夹已经被录入僧用着了（有数据库、名单、待识别……）：那它就是家，别搬走，不然数据就丢在后面了。"""
+    from .kb import DB_FILE, FEED_DIR
+    marks = (DB_FILE, engine.NAMES_FILE, FEED_DIR, '待识别', STATUS_NAME, UPDATE_LOG)
+    return any(os.path.exists(os.path.join(d, m)) for m in marks)
+
+
+def home_plan(me: str, version_of=probe_version) -> tuple[str, str]:
+    """打开的这个 exe 该不该先「回家」。家 = exe 所在的「录入僧」文件夹；不在叫「录入僧」的文件夹里，家就是旁边新建的「录入僧」。
+    -> ('', '') 已经在家（或者是更新包，别管）；('copy', 家里的exe) 把自己抄回家再从家里开；
+       ('open', 家里的exe) 家里已经有一样新或更新的（或者正开着），直接开家里那个。"""
+    me = os.path.abspath(me)
+    d = os.path.dirname(me)
+    if os.path.basename(me) == UPDATE_NAME:
+        return '', ''
+    home = d if os.path.basename(d) == engine.APP_NAME or lived_in(d) else os.path.join(d, engine.APP_NAME)
+    target = canonical_exe(home)
+    if os.path.normcase(target) == os.path.normcase(me):
+        return '', ''
+    if os.path.exists(target):
+        if is_locked(target):
+            return 'open', target
+        theirs = vtuple(version_of(target))
+        if theirs and theirs >= vtuple(engine.VERSION):
+            return 'open', target
+    return 'copy', target

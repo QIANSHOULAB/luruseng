@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>录入僧 · 施主去玩，贫僧填表</title>
+<meta name="description" content="刀具破损记录（TOOL BROKEN RECORD）照片丢进去，Excel 表自己出来。Windows 电脑版，免费下载。">
+<meta property="og:title" content="录入僧 · 施主去玩，贫僧填表">
+<meta property="og:description" content="刀具破损记录照片丢进去，Excel 表自己出来。Windows 电脑版。">
+<meta property="og:image" content="https://oilsongchengmin-svg.github.io/luruseng/screenshot.png">
+<meta property="og:type" content="website">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%235AB4FF'/%3E%3Cstop offset='1' stop-color='%231E7BF2'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='15' fill='url(%23g)'/%3E%3Crect x='19' y='15' width='26' height='34' rx='4.5' fill='%23fff'/%3E%3Crect x='24' y='23' width='14' height='3' rx='1.5' fill='%232F8BF5'/%3E%3Crect x='24' y='30.5' width='14' height='3' rx='1.5' fill='%232F8BF5'/%3E%3Crect x='24' y='38' width='9' height='3' rx='1.5' fill='%232F8BF5'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #EAF1FB;
+    --card: #FAFBFC;
+    --line: #E3E6EB;
+    --text: #1D1D1F;
+    --grey: #6E6E73;
+    --blue: #007AFF;
+    --blue-down: #0062CC;
+    --red-bg: #FFC7CE;
+    --red: #9C0006;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: linear-gradient(180deg, #E4EEFB 0%, #EEF3FA 420px, #F5F7FA 100%);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",
+                 "Segoe UI", "Noto Sans CJK SC", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.6;
+  }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 0 20px; }
+
+  /* 顶部 */
+  .hero { padding: 64px 0 8px; display: grid; grid-template-columns: auto 1fr; gap: 26px; align-items: center; }
+  .icon { width: 88px; height: 88px; display: block; filter: drop-shadow(0 10px 18px rgba(30, 123, 242, .28)); }
+  h1 { font-size: 46px; line-height: 1.1; margin: 0; letter-spacing: .02em; }
+  .tagline { display: flex; align-items: center; gap: 14px; margin-top: 10px; color: var(--grey); font-size: 18px; }
+  .tagline i { width: 1px; height: 18px; background: #C9CED6; display: inline-block; }
+  .lead { font-size: 19px; margin: 26px 0 0; max-width: 680px; }
+  .cta { margin-top: 28px; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 20px; }
+  .dl {
+    display: inline-flex; align-items: center; gap: 12px;
+    background: var(--blue); color: #fff; font-weight: 600; font-size: 17px;
+    padding: 15px 28px; border-radius: 12px;
+    box-shadow: 0 10px 24px -6px rgba(0, 122, 255, .45);
+    transition: background .15s, transform .15s;
+  }
+  .dl:hover { background: #0A84FF; text-decoration: none; transform: translateY(-1px); }
+  .dl:active { background: var(--blue-down); transform: none; }
+  .dl svg { width: 20px; height: 20px; }
+  .meta { color: var(--grey); font-size: 14px; }
+  .meta a { color: var(--grey); text-decoration: underline; text-underline-offset: 3px; }
+  .phone {
+    display: none; margin-top: 22px; padding: 14px 16px; border-radius: 12px;
+    background: #FFF8E6; border: 1px solid #F5DFA8; color: #6B4E00; font-size: 15px;
+  }
+  .phone button {
+    margin-left: 8px; font: inherit; font-size: 14px; padding: 4px 12px; border-radius: 8px;
+    border: 1px solid #E2C877; background: #fff; color: #6B4E00; cursor: pointer;
+  }
+  body.is-phone .phone { display: block; }
+
+  /* 截图 */
+  .shot {
+    margin: 46px 0 0; border-radius: 18px; overflow: hidden; background: #fff;
+    box-shadow: 0 40px 80px -30px rgba(30, 60, 110, .35), 0 0 0 1px rgba(20, 40, 80, .06);
+  }
+  .shot img { display: block; width: 100%; height: auto; }
+
+  /* 小节 */
+  section { padding: 64px 0 0; }
+  h2 { font-size: 28px; margin: 0 0 22px; letter-spacing: .02em; }
+  h2 small { font-size: 16px; color: var(--grey); font-weight: 400; margin-left: 10px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 22px 22px 20px; }
+  .num {
+    width: 30px; height: 30px; border-radius: 50%; background: var(--blue); color: #fff;
+    display: grid; place-items: center; font-weight: 700; font-size: 15px; margin-bottom: 14px;
+  }
+  .card h3 { margin: 0 0 6px; font-size: 18px; }
+  .card p { margin: 0; color: #3A3A3C; font-size: 15px; }
+  .card p + p { margin-top: 8px; }
+  .hint { color: var(--grey) !important; font-size: 14px !important; }
+  code, .path {
+    font-family: ui-monospace, "SF Mono", Consolas, "Microsoft YaHei UI", monospace; font-size: .92em;
+    background: #EEF1F5; border-radius: 6px; padding: 1px 6px;
+  }
+  .red { background: var(--red-bg); color: var(--red); border-radius: 4px; padding: 0 5px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .gate { display: flex; gap: 16px; align-items: flex-start; }
+  .gate .badge {
+    flex: none; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center;
+    background: #EAF2FF; color: var(--blue);
+  }
+  .gate .badge svg { width: 24px; height: 24px; }
+  .steps { margin: 8px 0 0; padding: 0; list-style: none; font-size: 15px; }
+  .steps li { margin: 4px 0; }
+  .btnlike {
+    display: inline-block; border: 1px solid #C9CED6; background: #fff; border-radius: 6px;
+    padding: 0 8px; font-size: 14px; line-height: 1.6; white-space: nowrap;
+  }
+  .facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  .facts li {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 14px 18px 14px 46px; position: relative; font-size: 15px;
+  }
+  .facts li::before {
+    content: ""; position: absolute; left: 18px; top: 20px; width: 12px; height: 12px; border-radius: 50%;
+    background: var(--blue); box-shadow: 0 0 0 4px #DCEBFF;
+  }
+  .facts b { font-weight: 600; }
+  footer { margin: 72px 0 0; padding: 24px 0 40px; border-top: 1px solid var(--line); color: var(--grey); font-size: 14px;
+           display: flex; flex-wrap: wrap; gap: 8px 22px; justify-content: space-between; }
+  footer a { color: var(--grey); }
+
+  @media (max-width: 860px) {
+    .grid, .two { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 560px) {
+    .hero { padding-top: 40px; grid-template-columns: 1fr; gap: 16px; }
+    .icon { width: 64px; height: 64px; }
+    h1 { font-size: 36px; }
+    .tagline { font-size: 16px; }
+    .lead { font-size: 17px; margin-top: 18px; }
+    .dl { width: 100%; justify-content: center; }
+    section { padding-top: 48px; }
+    h2 { font-size: 24px; }
+    h2 small { display: block; margin: 4px 0 0; }
+    .shot { margin-top: 32px; border-radius: 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <svg class="icon" viewBox="0 0 64 64" aria-hidden="true">
+      <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#5AB4FF"/><stop offset="1" stop-color="#1E7BF2"/></linearGradient></defs>
+      <rect width="64" height="64" rx="15" fill="url(#g)"/>
+      <rect x="19" y="15" width="26" height="34" rx="4.5" fill="#fff"/>
+      <rect x="24" y="23" width="14" height="3" rx="1.5" fill="#2F8BF5"/>
+      <rect x="24" y="30.5" width="14" height="3" rx="1.5" fill="#2F8BF5"/>
+      <rect x="24" y="38" width="9" height="3" rx="1.5" fill="#2F8BF5"/>
+    </svg>
+    <div>
+      <h1>录入僧</h1>
+      <div class="tagline"><span>施主去玩，贫僧填表</span></div>
+    </div>
+  </header>
+
+  <p class="lead">刀具破损记录（TOOL BROKEN RECORD）拍照丢进文件夹，Excel 表自己出来。一张照片一行，照片上印好编号对着核；认不准的格子标<span class="red">红</span>，只看红的就行。</p>
+
+  <div class="phone" id="phone">这是 <b>Windows 电脑程序</b>，手机上用不了：把这个网址发到电脑上再点下载。<button type="button" id="copy">复制网址</button></div>
+
+  <div class="cta">
+    <a class="dl" id="dl" href="https://github.com/oilsongchengmin-svg/luruseng/releases/latest/download/luruseng.exe">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 4v11"/><path d="M7 10.5 12 15.5 17 10.5"/><path d="M5 19.5h14"/></svg>
+      下载 Windows 版
+    </a>
+    <span class="meta"><span id="ver">Windows 10 / 11 · 约 30 MB · 免费</span> ·
+      <a href="https://github.com/oilsongchengmin-svg/luruseng/releases">所有版本</a></span>
+  </div>
+
+  <figure class="shot"><img src="screenshot.png" width="1120" height="660"
+       alt="录入僧的窗口：左边填文件夹和钥匙，右边是任务状态，下面是日志"></figure>
+
+  <section>
+    <h2>三步，然后施主去玩</h2>
+    <div class="grid">
+      <div class="card">
+        <div class="num">1</div>
+        <h3>下载，双击</h3>
+        <p>点上面的蓝按钮。最好先建个文件夹放进去，比如 <span class="path">D:\录入僧</span>。</p>
+        <p class="hint">直接在「下载」里双击也行：它会在旁边自己建一个「录入僧」文件夹搬进去，照片、表格、数据库都在那里面，不撒一地。</p>
+      </div>
+      <div class="card">
+        <div class="num">2</div>
+        <h3>填钥匙</h3>
+        <p>去 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>
+          用谷歌账号登录，点 <span class="btnlike">Create API key</span>，复制，贴进「钥匙 1」。免费。</p>
+        <p class="hint">有第二个谷歌账号的，再申请一把贴进「钥匙 2」：一把的额度用完自动换另一把。</p>
+      </div>
+      <div class="card">
+        <div class="num">3</div>
+        <h3>丢照片，点开始</h3>
+        <p>照片放进「待识别」文件夹，点「开始工作」。干完自动打开表格和核对窗口，第几张照片对表格第几行。</p>
+        <p class="hint">勾上「来图就干」，以后照片一放进去它就自己开工，按钮都不用点。</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>第一次打开，会遇到两道门<small>只有第一次</small></h2>
+    <div class="two">
+      <div class="card gate">
+        <div class="badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="M7 10.5 12 15.5 17 10.5"/><path d="M5 19.5h14"/></svg></div>
+        <div>
+          <h3 style="margin:0 0 4px;font-size:17px">浏览器说「不常下载」</h3>
+          <ul class="steps">
+            <li>Chrome：点 <span class="btnlike">保留</span></li>
+            <li>Edge：点 <span class="btnlike">…</span> → <span class="btnlike">保留</span> → <span class="btnlike">仍然保留</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="card gate">
+        <div class="badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.2 7.5 9.5 4.3-1.3 7.5-4.9 7.5-9.5V6z"/></svg></div>
+        <div>
+          <h3 style="margin:0 0 4px;font-size:17px">Windows 蓝框「已保护你的电脑」</h3>
+          <ul class="steps">
+            <li>点 <span class="btnlike">更多信息</span> → <span class="btnlike">仍要运行</span></li>
+            <li class="hint" style="color:var(--grey)">没花钱买签名证书，Windows 不认识它，就这么回事。</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>丑话说在前面</h2>
+    <ul class="facts">
+      <li><b>照片会发给谷歌 Gemini 去认</b>，用的是你自己的钥匙和额度。免费额度用完了，它会自己等额度恢复再接着干。</li>
+      <li><b>表格、名单、数据库、照片都只在你自己电脑上</b>，不往别处传。钥匙也只存在你电脑上；公用电脑可以在右上角 ⚙ 里关掉「记住钥匙」。</li>
+      <li><b>越用越准</b>：点「投喂数据」把公司核对过的 TOOL BROKEN RECORD 喂给它，名字、刀具、机床它就认得越来越熟。</li>
+      <li><b>有新版会自己换上</b>：每 6 小时查一次，空闲时自己换，不打断你干活。不想要就在 ⚙ 里关掉「自动更新」。</li>
+      <li><b>不留原图也行</b>：⚙ 里关掉「保留原图」，认完的原片扔进回收站，省一半硬盘。</li>
+    </ul>
+  </section>
+
+  <footer>
+    <span>录入僧 · 施主去玩，贫僧填表</span>
+    <span><a href="https://github.com/oilsongchengmin-svg/luruseng">源码</a> ·
+      <a href="https://github.com/oilsongchengmin-svg/luruseng/releases">所有版本</a></span>
+  </footer>
+</div>
+
+<script>
+  (function () {
+    var ua = navigator.userAgent || '';
+    if (/Android|iPhone|iPad|iPod|HarmonyOS|Mobile/i.test(ua)) {
+      document.body.className += ' is-phone';
+    }
+    var copy = document.getElementById('copy');
+    copy.addEventListener('click', function () {
+      var done = function () { copy.textContent = '已复制'; };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(location.href).then(done, function () { prompt('复制这个网址', location.href); });
+      } else {
+        prompt('复制这个网址', location.href);
+      }
+    });
+    // 最新版本号、大小、日期（查不到就保留默认文字）
+    fetch('https://api.github.com/repos/oilsongchengmin-svg/luruseng/releases/latest')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (rel) {
+        if (!rel) return;
+        var m = /v(\d+(?:\.\d+)+)/.exec(rel.name || '');
+        var exe = (rel.assets || []).filter(function (a) { return a.name === 'luruseng.exe'; })[0];
+        var parts = [];
+        if (m) parts.push('v' + m[1]);
+        if (exe) parts.push(Math.round(exe.size / 1048576) + ' MB');
+        if (rel.published_at) parts.push(rel.published_at.slice(0, 10) + ' 更新');
+        parts.push('Windows 10 / 11');
+        if (parts.length > 1) document.getElementById('ver').textContent = parts.join(' · ');
+      })
+      .catch(function () {});
+  })();
+</script>
+</body>
+</html>
