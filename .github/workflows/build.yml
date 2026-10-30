@@ -64,6 +64,25 @@ jobs:
           $orig | ForEach-Object { "original: $($_.Name)" }
           if ($stamped.Count -ne 7 -or -not ($stamped | Where-Object { $_.Name -eq '01.jpg' })) { throw 'numbered photos missing' }
           if ($orig.Count -ne 7 -or -not ($orig | Where-Object { $_.Name -like '01_*' })) { throw 'originals missing' }
+      - name: Category smoke test (自建类别：认全部内容)
+        shell: pwsh
+        run: |
+          $mock = Start-Process python -ArgumentList 'tests/mock_server.py','8765' -PassThru -WindowStyle Hidden
+          Start-Sleep 3
+          New-Item -ItemType Directory -Force 'dist/类别/质检单' | Out-Null
+          $dir = Join-Path $env:RUNNER_TEMP '类别测试'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          python -c "from PIL import Image; [Image.new('RGB',(900+i,700),'white').save(r'$dir\q%d.jpg'%i) for i in range(3)]"
+          $env:BANGONG_API = 'http://127.0.0.1:8765/v1beta'
+          $env:BANGONG_KEY1 = 'AIzaSMOKE'
+          $env:BANGONG_CATEGORY = '质检单'
+          $p = Start-Process dist/luruseng.exe -ArgumentList '--cli',$dir -Wait -PassThru
+          Stop-Process $mock.Id
+          Get-Content (Join-Path $dir '识别结果\录入僧日志.txt') -Encoding UTF8
+          if ($p.ExitCode -ne 0) { throw "exe exit $($p.ExitCode)" }
+          $x = Get-ChildItem (Join-Path $dir '识别结果') -Filter '*_质检单.xlsx'
+          if ($x.Count -ne 1) { throw 'no 质检单 xlsx' }
+          Remove-Item -Recurse -Force 'dist/类别'
       - name: Feed test (database)
         shell: pwsh
         run: |

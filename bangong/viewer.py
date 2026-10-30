@@ -58,7 +58,8 @@ def fmt(v) -> str:
 
 
 def load_rows(xlsx: str) -> dict[int, list[dict]]:
-    """{编号: [{'values': 13 个字段, 'red': 标红的字段下标, 'note': 核对提示}]}"""
+    """{编号: [{'labels': 列名, 'values': 各列, 'red': 标红的列下标, 'fixed': 按库改过的, 'note': 核对提示}]}
+    刀单那本（TOOL BROKEN RECORD，第 4 行起）和自建类别的表（第 2 行表头，第 3 行起）都认。"""
     rows: dict[int, list[dict]] = {}
     if not xlsx or not os.path.isfile(xlsx):
         return rows
@@ -66,21 +67,33 @@ def load_rows(xlsx: str) -> dict[int, list[dict]]:
         ws = load_workbook(xlsx).worksheets[0]
     except Exception:
         return rows
-    for r in range(4, ws.max_row + 1):
+    if str(ws.cell(row=1, column=1).value or '').strip() == 'TOOL BROKEN RECORD':
+        labels, first, start, note_col = LABELS, 2, 4, 15
+    else:                                           # 自建类别：第 2 行是表头，最后一列是核对提示
+        heads = []
+        c = 2
+        while c <= ws.max_column:
+            h = ws.cell(row=2, column=c).value
+            if h is None or str(h).startswith('核对提示'):
+                break
+            heads.append(str(h))
+            c += 1
+        labels, first, start, note_col = heads, 2, 3, 2 + len(heads)
+    for r in range(start, ws.max_row + 1):
         no = ws.cell(row=r, column=1).value
         if not isinstance(no, int):
             continue
         vals, red, fixed = [], set(), set()
-        for i in range(len(LABELS)):
-            c = ws.cell(row=r, column=2 + i)
-            vals.append(fmt(c.value))
-            rgb = c.fill.fgColor.rgb if c.fill is not None and c.fill.fill_type == 'solid' else ''
+        for i in range(len(labels)):
+            cell = ws.cell(row=r, column=first + i)
+            vals.append(fmt(cell.value))
+            rgb = cell.fill.fgColor.rgb if cell.fill is not None and cell.fill.fill_type == 'solid' else ''
             if isinstance(rgb, str) and rgb.upper().endswith('FFC7CE'):
                 red.add(i)
             elif isinstance(rgb, str) and rgb.upper().endswith('FCE4D6'):
                 fixed.add(i)
-        note = ws.cell(row=r, column=15).value
-        rows.setdefault(no, []).append({'values': vals, 'red': red, 'fixed': fixed,
+        note = ws.cell(row=r, column=note_col).value
+        rows.setdefault(no, []).append({'labels': labels, 'values': vals, 'red': red, 'fixed': fixed,
                                         'note': '' if note is None else str(note)})
     return rows
 
@@ -270,7 +283,7 @@ class Viewer(tk.Toplevel):
             if not any(rec['values']):
                 p.insert('end', rec['note'] + '\n\n', 'note')
                 continue
-            for i, (lab, val) in enumerate(zip(LABELS, rec['values'])):
+            for i, (lab, val) in enumerate(zip(rec.get('labels', LABELS), rec['values'])):
                 p.insert('end', lab + '\t', 'k')
                 tag = 'red' if i in rec['red'] else ('fixed' if i in rec.get('fixed', ()) else ())
                 p.insert('end', (val or '—') + '\n', tag)

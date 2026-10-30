@@ -1,4 +1,5 @@
-"""录入僧入口。双击 = 窗口；--cli 文件夹 = 无窗口跑一轮（给大管家/计划任务用）。"""
+"""录入僧入口。双击 = 窗口；--cli 文件夹 = 无窗口跑一轮（给大管家/计划任务用；按窗口里选的类别认，
+BANGONG_CATEGORY 环境变量可以指定别的类别）。"""
 import os
 import sys
 
@@ -17,9 +18,16 @@ def cli(folder: str) -> int:
                 print(m, flush=True)
             except Exception:
                 pass
-    from bangong.app import feed_dir, kb_path, names_path
-    res = engine.Engine(folder, keys, model, log=log, names_path=names_path(),
-                        kb_path=kb_path(), feed_dir=feed_dir()).run()
+    from bangong import tables
+    from bangong.app import app_dir, feed_dir, kb_path, names_path
+    cat = os.environ.get('BANGONG_CATEGORY') or cfg.get('category') or tables.BUILTIN
+    if cat != tables.BUILTIN and cat in tables.names(app_dir()):     # 窗口里选的是自建类别：按它认
+        spec = tables.TableSpec(cat, tables.db_path(app_dir(), cat), tables.feed_path(app_dir(), cat))
+        res = engine.Engine(folder, keys, model, log=log, spec=spec,
+                            keep_originals=cfg.get('keep_originals', True)).run()
+    else:
+        res = engine.Engine(folder, keys, model, log=log, names_path=names_path(), kb_path=kb_path(),
+                            feed_dir=feed_dir(), keep_originals=cfg.get('keep_originals', True)).run()
     return 0 if not res.failed and not res.stopped_reason else 2
 
 

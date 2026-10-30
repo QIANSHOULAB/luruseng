@@ -148,14 +148,20 @@ def read_people(rows: list[tuple]) -> list[tuple[str, str]]:
 def read_workbook(path: str) -> tuple[list[tuple[str, dict]], list[tuple[str, str]], list[str]]:
     """返回 ([(页名, 记录)], [(工号, 名字)], [读到记录的页名])。"""
     wb = load_workbook(path, read_only=True, data_only=True)
-    recs, people, used = [], [], []
+    recs, people, used, loose = [], [], [], []
+    has_header = False
     try:
         for ws in wb.worksheets:
             rows = [tuple(r) for r in ws.iter_rows(values_only=True)]
             hdr = find_header(rows)
             if not hdr:
-                people += read_people(rows)
+                found = read_people(rows)
+                if re.search(r'NAME|EMP|名单|名字|人员', ws.title, re.I):
+                    people += found
+                else:
+                    loose += found
                 continue
+            has_header = True
             start, cols = hdr
             n = 0
             for row in rows[start:]:
@@ -174,6 +180,8 @@ def read_workbook(path: str) -> tuple[list[tuple[str, dict]], list[tuple[str, st
                 used.append(ws.title)
     finally:
         wb.close()
+    if has_header:                       # 真是刀单本子，别的页上的工号名字才算数（别的单子不往刀单里串）
+        people += loose
     return recs, people, used
 
 
@@ -197,6 +205,10 @@ class KnowledgeBase:
             recs, people, used = read_workbook(path)
         except Exception as e:
             res.error = f'读不了：{type(e).__name__}：{e}'
+            return res
+        if not recs and not people:
+            res.error = ('这本不像刀单：没找到 DATE、MACHINE 那样的表头，一条没吃。'
+                         '是别的单子的话，放进它自己的类别')
             return res
         now = datetime.now().isoformat(timespec='seconds')
         src = os.path.basename(path)
@@ -238,7 +250,7 @@ class KnowledgeBase:
         with self._conn() as c:
             n = c.execute('SELECT COUNT(*) FROM records').fetchone()[0]
             if not n:
-                return '数据库还是空的：点「投喂数据」喂公司的 TOOL BROKEN RECORD'
+                return '数据库还是空的：点「放入数据库」放公司的 TOOL BROKEN RECORD'
             m = c.execute('SELECT COUNT(DISTINCT machine), COUNT(DISTINCT part_number), COUNT(DISTINCT description) '
                           "FROM records").fetchone()
             p = c.execute('SELECT COUNT(*) FROM people').fetchone()[0]

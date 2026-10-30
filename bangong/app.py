@@ -12,7 +12,7 @@ import tkinter as tk
 from datetime import datetime
 from tkinter import filedialog
 
-from . import autopilot, engine, settings, updater
+from . import autopilot, engine, settings, tables, updater
 from . import macui as ui
 
 
@@ -244,6 +244,7 @@ class App:
         self.last_photos = ''
         self.viewer = None
         self.settings_win = None
+        self.dialog = None
         cfg = load_config()
         self.cfg = cfg
 
@@ -253,8 +254,8 @@ class App:
             root.iconbitmap(os.path.join(base, 'assets', 'bangong.ico'))
         except Exception:
             pass
-        root.geometry('1120x660')
-        root.minsize(1040, 560)
+        root.geometry('1120x700')
+        root.minsize(1040, 600)
         root.configure(bg=ui.BG)
         fam = ui.family(root)
         size = 11
@@ -282,24 +283,39 @@ class App:
             tk.Label(g, text=text, bg=ui.CARD, fg=ui.TEXT, font=bf, anchor='w').grid(
                 row=r, column=0, sticky='w', padx=(0, 16), pady=5)
 
-        label(1, '图片文件夹')
+        label(1, '类别')
+        cats = tables.names(app_dir())
+        self.category = tk.StringVar(value=cfg.get('category') if cfg.get('category') in cats else tables.BUILTIN)
+        crow = tk.Frame(g, bg=ui.CARD)
+        crow.grid(row=1, column=1, columnspan=2, sticky='ew', pady=5)
+        self.cat_combo = ui.Combo(crow, self.category, cats, font=bf, width=280)
+        self.cat_combo.box.configure(state='readonly')
+        self.cat_combo.box.bind('<<ComboboxSelected>>', lambda e: self.on_category())
+        self.cat_combo.pack(side='left')
+        ui.Pill(crow, '＋ 新建类别', command=self.new_category, font=bf, bg=ui.CARD, height=38, radius=8,
+                padx=14).pack(side='left', padx=(10, 0))
+        self.cat_hint = tk.StringVar(value='')
+        tk.Label(crow, textvariable=self.cat_hint, bg=ui.CARD, fg=ui.GREY, font=(fam, size - 1)).pack(
+            side='left', padx=(14, 0))
+
+        label(2, '图片文件夹')
         self.folder = tk.StringVar(value=cfg.get('folder') or default_folder())
-        ui.Field(g, self.folder, font=bf).grid(row=1, column=1, sticky='ew', pady=5)
+        ui.Field(g, self.folder, font=bf).grid(row=2, column=1, sticky='ew', pady=5)
         ui.Pill(g, '选择…', command=self.pick, font=bf, bg=ui.CARD, height=38, radius=8, minwidth=110).grid(
-            row=1, column=2, padx=(10, 0))
+            row=2, column=2, padx=(10, 0))
 
         self.key1 = tk.StringVar(value=cfg.get('key1', ''))
         self.key2 = tk.StringVar(value=cfg.get('key2', ''))
-        label(2, '钥匙 1')
-        ui.Field(g, self.key1, show='•', font=bf).grid(row=2, column=1, columnspan=2, sticky='ew', pady=5)
-        label(3, '钥匙 2（可空）')
-        ui.Field(g, self.key2, show='•', font=bf).grid(row=3, column=1, columnspan=2, sticky='ew', pady=5)
+        label(3, '钥匙 1')
+        ui.Field(g, self.key1, show='•', font=bf).grid(row=3, column=1, columnspan=2, sticky='ew', pady=5)
+        label(4, '钥匙 2（可空）')
+        ui.Field(g, self.key2, show='•', font=bf).grid(row=4, column=1, columnspan=2, sticky='ew', pady=5)
 
-        label(4, '模型')
+        label(5, '模型')
         self.model = tk.StringVar(value=cfg.get('model') or engine.DEFAULT_MODEL)
         self.auto = tk.BooleanVar(value=cfg.get('auto', False))
         mrow = tk.Frame(g, bg=ui.CARD)
-        mrow.grid(row=4, column=1, columnspan=2, sticky='ew', pady=5)
+        mrow.grid(row=5, column=1, columnspan=2, sticky='ew', pady=5)
         ui.Combo(mrow, self.model, engine.MODELS, font=bf, width=280).pack(side='left')
         chk = ui.Check(mrow, self.auto, command=self.save)
         chk.pack(side='left', padx=(24, 10))
@@ -308,10 +324,10 @@ class App:
             lab.pack(side='left')
             lab.bind('<Button-1>', chk.toggle)
 
-        ui.separator(g).grid(row=5, column=0, columnspan=3, sticky='ew', pady=(16, 16))
+        ui.separator(g).grid(row=6, column=0, columnspan=3, sticky='ew', pady=(16, 16))
 
         bar = tk.Frame(g, bg=ui.CARD)
-        bar.grid(row=6, column=0, columnspan=3, sticky='w')
+        bar.grid(row=7, column=0, columnspan=3, sticky='w')
         btn = dict(font=bf, bg=ui.CARD, height=44, radius=8, padx=20)
         self.start_btn = ui.Pill(bar, '开始工作', command=self.start, primary=True, icon='play', **btn)
         self.start_btn.pack(side='left')
@@ -319,7 +335,7 @@ class App:
         self.stop_btn.pack(side='left', padx=(10, 0))
         ui.Pill(bar, '打开结果文件夹', command=self.open_out, icon='folder', **btn).pack(side='left', padx=(10, 0))
         ui.Pill(bar, '核对', command=self.check, icon='doc', **btn).pack(side='left', padx=(10, 0))
-        self.feed_btn = ui.Pill(bar, '投喂数据', command=self.feed, icon='db', **btn)
+        self.feed_btn = ui.Pill(bar, '放入数据库', command=self.feed, icon='db', **btn)
         self.feed_btn.pack(side='left', padx=(10, 0))
 
         # ---- 右边小卡片：任务状态
@@ -363,18 +379,7 @@ class App:
             for line in migrate_old_home():
                 self.write(line)
         self.refresh_count()
-        n = len(engine.load_names(names_path()))
-        if n:                                       # 名单放在右边「任务状态」里
-            self.names_head.set(f'名单：{n} 人')
-            self.names_path.set(f'（{names_path()}）')
-        else:
-            self.names_head.set('没找到名单')
-            self.names_path.set(f'{names_path()}（没有也能用，SETTER 就照单子抄）')
-        try:
-            from .kb import KnowledgeBase
-            self.write(KnowledgeBase(kb_path()).summary() + f'（投喂文件夹：{feed_dir()}）')
-        except Exception as e:
-            self.write(f'数据库打不开：{type(e).__name__}：{e}')
+        self.refresh_category(announce=True)
         threading.Thread(target=sync_shortcuts, args=(cfg,), daemon=True).start()
         root.protocol('WM_DELETE_WINDOW', self.on_close)
         root.after(150, self.pump)
@@ -421,7 +426,7 @@ class App:
 
     def save(self):
         self.cfg.update({'folder': self.folder.get(), 'model': self.model.get().strip(),
-                         'auto': bool(self.auto.get())})
+                         'auto': bool(self.auto.get()), 'category': self.category.get()})
         if self.cfg.get('remember_keys', True):
             self.cfg.update({'key1': self.key1.get().strip(), 'key2': self.key2.get().strip()})
         else:                                       # 不记钥匙：只在这次开着时有效，不写进电脑
@@ -450,10 +455,15 @@ class App:
         self.start_btn.config(state='disabled')
         self.stop_btn.config(state='normal')
         self.pb.config(value=0)
-        eng = engine.Engine(self.folder.get(), [k1, k2], self.model.get(), log=self.log,
-                            progress=lambda d, t: self.q.put(('prog', (d, t))), stop=self.stop,
-                            names_path=names_path(), kb_path=kb_path(), feed_dir=feed_dir(),
-                            keep_originals=self.cfg.get('keep_originals', True))
+        cat = self.category.get()
+        common = dict(log=self.log, progress=lambda d, t: self.q.put(('prog', (d, t))), stop=self.stop,
+                      keep_originals=self.cfg.get('keep_originals', True))
+        if cat == tables.BUILTIN:                    # 刀单：专门的那一套
+            eng = engine.Engine(self.folder.get(), [k1, k2], self.model.get(), names_path=names_path(),
+                                kb_path=kb_path(), feed_dir=feed_dir(), **common)
+        else:                                        # 自建类别：用它自己的数据库，跟刀单互不串味
+            spec = tables.TableSpec(cat, tables.db_path(app_dir(), cat), tables.feed_path(app_dir(), cat))
+            eng = engine.Engine(self.folder.get(), [k1, k2], self.model.get(), spec=spec, **common)
 
         def work():
             try:
@@ -475,27 +485,84 @@ class App:
         open_path(d if os.path.isdir(d) else self.folder.get())
 
     def feed(self):
-        """投喂数据：选公司的 TOOL BROKEN RECORD（或核对过的录入僧结果表），一次可以选好几本。"""
-        paths = filedialog.askopenfilenames(title='选要喂给数据库的表（可以多选）',
-                                            filetypes=[('Excel', '*.xlsx *.xlsm'), ('全部', '*.*')])
-        if not paths:
-            return
+        """放入数据库：先选放进哪个类别（刀单 / 自建的 / ＋新建），再选表。"""
+        self._dialog(FeedCard)
+
+    def do_feed(self, cat: str, paths):
+        """把表放进某个类别的数据库（后台干，不卡窗口）。刀单只吃像刀单的表；自建类别第一本的表头定成它的列。"""
         self.feed_btn.config(state='disabled')
         self.feeding = True
-        self.write(f'开始投喂 {len(paths)} 本表…')
+        self.write(f'开始把 {len(paths)} 本表放进「{cat}」的数据库…')
 
         def work():
             try:
-                from .kb import KnowledgeBase
-                kb = KnowledgeBase(kb_path())
-                for p in paths:
-                    self.log(kb.feed(p).line())
-                self.log(kb.summary())
+                if cat == tables.BUILTIN:
+                    from .kb import KnowledgeBase
+                    kb = KnowledgeBase(kb_path())
+                    for p in paths:
+                        self.log(kb.feed(p).line())
+                    self.log(kb.summary())
+                else:
+                    db = tables.TableDB(tables.db_path(app_dir(), cat))
+                    for p in paths:
+                        fr = db.feed(p)
+                        self.log(fr.line())
+                        if getattr(fr, 'new_columns', None):
+                            self.log(f'「{cat}」多了这些列：' + '、'.join(fr.new_columns))
+                    self.log(db.summary(cat))
             except Exception as e:
-                self.log(f'✗ 投喂出错：{type(e).__name__}：{e}')
+                self.log(f'✗ 放入数据库出错：{type(e).__name__}：{e}')
             self.q.put(('fed', None))
 
         threading.Thread(target=work, daemon=True).start()
+
+    def _dialog(self, cls, *args):
+        """同一时间只开一个小卡片（放入数据库 / 新建类别）。"""
+        if self.dialog is not None and self.dialog.winfo_exists():
+            self.dialog.destroy()
+        self.dialog = cls(self, *args)
+        return self.dialog
+
+    def new_category(self, then=None):
+        def made(name):
+            self.cat_combo.box.configure(values=tables.names(app_dir()))
+            self.category.set(name)
+            self.on_category()
+            if then:
+                then(name)
+        self._dialog(NewCategoryCard, made)
+
+    def on_category(self):
+        self.save()
+        self.refresh_category(announce=True)
+
+    def refresh_category(self, announce: bool = False):
+        """按选中的类别更新：类别旁边的小字、右边卡片下半截；announce 时在日志里说一句这个类别的数据库。"""
+        cat = self.category.get()
+        try:
+            if cat == tables.BUILTIN:
+                from .kb import KnowledgeBase
+                n = len(engine.load_names(names_path()))
+                self.cat_hint.set('内置 · 专属优化')
+                if n:
+                    self.names_head.set(f'名单：{n} 人')
+                    self.names_path.set(f'（{names_path()}）')
+                else:
+                    self.names_head.set('没找到名单')
+                    self.names_path.set(f'{names_path()}（没有也能用，SETTER 就照单子抄）')
+                line = KnowledgeBase(kb_path()).summary() + f'（也可以把表丢进：{feed_dir()}）'
+            else:
+                db = tables.TableDB(tables.db_path(app_dir(), cat))
+                cols, n = db.columns(), db.count()
+                self.cat_hint.set(f'自建 · {len(cols)} 列 · {n} 条记录' if cols else '自建 · 还没放过表')
+                self.names_head.set(f'「{cat}」数据库：{n} 条' if cols else f'「{cat}」还没放过表')
+                self.names_path.set(('列：' + '、'.join(cols)) if cols else
+                                    '先认全部内容，改对了点「放入数据库」，表头就定成它的列')
+                line = db.summary(cat) + f'（也可以把表丢进：{tables.feed_path(app_dir(), cat)}）'
+        except Exception as e:
+            line = f'「{cat}」的数据库打不开：{type(e).__name__}：{e}'
+        if announce:
+            self.write(line)
 
     def check(self, run_dir: str | None = None):
         """核对窗口：编号照片一张一张看，第一张就是 1，←→ 翻页，输入编号直接跳。"""
@@ -611,7 +678,7 @@ class App:
 
     def quiet(self) -> bool:
         """能不能现在换新版（换的时候窗口会关掉重开）：没在核对、没在投喂、没开着设置、两分钟没人碰。"""
-        open_ = [w for w in (self.viewer, self.settings_win) if w is not None and w.winfo_exists()]
+        open_ = [w for w in (self.viewer, self.settings_win, self.dialog) if w is not None and w.winfo_exists()]
         return not self.feeding and not open_ and time.time() - self.last_input >= 120
 
     def check_update(self, report=None):
@@ -681,6 +748,7 @@ class App:
                 elif kind == 'fed':
                     self.feeding = False
                     self.feed_btn.config(state='normal')
+                    self.refresh_category()
                 elif kind == 'quit':                    # 换新版：保存设置后退出，让新版接手
                     self.save()
                     self.root.destroy()
@@ -786,6 +854,148 @@ def handoff_target(here: str | None = None) -> str:
         return ''
     new = os.path.join(os.path.dirname(here), engine.APP_NAME, engine.APP_NAME + '.exe')
     return new if os.path.isfile(new) else ''
+
+
+class CardDialog(tk.Toplevel):
+    """小卡片窗口（放入数据库、新建类别）：标题、内容、底下一排按钮，样子跟 ⚙ 设置一样。"""
+
+    def __init__(self, app: App, title: str, width: int = 560):
+        super().__init__(app.root)
+        self.app = app
+        self.title(title)
+        self.configure(bg=ui.BG)
+        self.transient(app.root)
+        self.resizable(False, False)
+        self.fam = ui.family(self)
+        self.bf = (self.fam, 11)
+        self.card = ui.Card(self, pad=20, radius=14)
+        self.card.configure(width=width)
+        self.card.pack(fill='both', expand=True, padx=14, pady=14)
+        self.body = self.card.body
+        tk.Label(self.body, text=title, font=(self.fam, 16, 'bold'), bg=ui.CARD, fg=ui.TEXT).pack(anchor='w')
+        ui.separator(self.body).pack(fill='x', pady=(10, 14))
+        self.bind('<Escape>', lambda e: self.destroy())
+        self.after(30, self._center)
+
+    def footer(self) -> tk.Frame:
+        ui.separator(self.body).pack(fill='x', pady=(16, 12))
+        f = tk.Frame(self.body, bg=ui.CARD)
+        f.pack(fill='x')
+        return f
+
+    def button(self, parent, text: str, cmd, primary: bool = False):
+        p = ui.Pill(parent, text, command=cmd, primary=primary, font=(self.fam, 10, 'bold' if primary else 'normal'),
+                    bg=ui.CARD, height=34, radius=8, padx=16)
+        p.pack(side='right', padx=(8, 0))
+        return p
+
+    def _center(self):
+        try:
+            self.update_idletasks()
+            self.card._fit()
+            self.update_idletasks()
+            r = self.app.root
+            w, h = self.winfo_reqwidth(), self.winfo_reqheight()
+            x = r.winfo_rootx() + max((r.winfo_width() - w) // 2, 0)
+            y = r.winfo_rooty() + max((r.winfo_height() - h) // 2 - 40, 0)
+            self.geometry(f'+{x}+{y}')
+            self.lift()
+            self.focus_force()
+        except tk.TclError:
+            pass
+
+
+class NewCategoryCard(CardDialog):
+    """新建类别：起个名字，建一个文件夹（它自己的数据库、投喂文件夹都在里面）。"""
+
+    def __init__(self, app: App, on_done):
+        super().__init__(app, '新建类别', 520)
+        self.on_done = on_done
+        b = self.body
+        tk.Label(b, text='名字', font=self.bf, bg=ui.CARD, fg=ui.TEXT).pack(anchor='w')
+        self.name = tk.StringVar()
+        self.field = ui.Field(b, self.name, font=self.bf)
+        self.field.pack(fill='x', pady=(6, 0))
+        ui.Para(b, tk.StringVar(value=f'比如「质检单」「送货单」。建好会多一个文件夹 {tables.root(app_dir())}\\<名字>，'
+                                      '它自己的数据库和投喂文件夹都在里面，跟刀单互不串味。'),
+                font=(self.fam, 9), width_px=470).pack(fill='x', pady=(8, 0))
+        self.err = tk.StringVar()
+        tk.Label(b, textvariable=self.err, font=(self.fam, 10), bg=ui.CARD, fg='#C0392B', anchor='w').pack(
+            anchor='w', pady=(6, 0))
+        f = self.footer()
+        self.button(f, '建好', self.ok, primary=True)
+        self.button(f, '取消', self.destroy)
+        self.field.entry.bind('<Return>', lambda e: self.ok())
+        self.after(80, self.field.entry.focus_set)
+
+    def ok(self):
+        name = self.name.get().strip()
+        why = tables.check_name(name, app_dir())
+        if why:
+            self.err.set(why)
+            return
+        try:
+            tables.create(app_dir(), name)
+        except OSError as e:
+            self.err.set(f'建不了：{e}')
+            return
+        self.destroy()
+        self.on_done(name)
+
+
+class FeedCard(CardDialog):
+    """放入数据库：先选放进哪个类别（刀单 / 自建的 / ＋新建），再选表。"""
+
+    def __init__(self, app: App, preselect: str | None = None):
+        super().__init__(app, '放入数据库', 600)
+        b = self.body
+        row = tk.Frame(b, bg=ui.CARD)
+        row.pack(fill='x')
+        tk.Label(row, text='放进', font=self.bf, bg=ui.CARD, fg=ui.TEXT).pack(side='left', padx=(0, 12))
+        cats = tables.names(app_dir())
+        self.cat = tk.StringVar(value=preselect if preselect in cats else app.category.get())
+        combo = ui.Combo(row, self.cat, cats, font=self.bf, bg=ui.CARD, width=260)
+        combo.box.configure(state='readonly')
+        combo.box.bind('<<ComboboxSelected>>', lambda e: self.describe())
+        combo.pack(side='left')
+        ui.Pill(row, '＋ 新建类别', command=self.new, font=self.bf, bg=ui.CARD, height=38, radius=8,
+                padx=14).pack(side='left', padx=(10, 0))
+        self.desc = tk.StringVar()
+        ui.Para(b, self.desc, font=(self.fam, 10), width_px=540).pack(fill='x', pady=(14, 0))
+        f = self.footer()
+        self.button(f, '选表放进去', self.choose, primary=True)
+        self.button(f, '取消', self.destroy)
+        self.describe()
+
+    def describe(self):
+        cat = self.cat.get()
+        if cat == tables.BUILTIN:
+            t = ('公司的 TOOL BROKEN RECORD，或者核对改好的刀单结果表，可以一次选好几本。\n'
+                 '不像刀单的表（没有 DATE、MACHINE 表头）一条都不吃，免得别的单子串进来。\n'
+                 f'也可以把表直接丢进 {feed_dir()}，每次开工前自动吃。')
+        else:
+            try:
+                cols = tables.TableDB(tables.db_path(app_dir(), cat)).columns()
+            except Exception:
+                cols = []
+            head = (f'现在的列：{"、".join(cols)}。表里多出来的列会接在后面。' if cols
+                    else f'第一本的表头会定成「{cat}」的列。')
+            t = (f'认完、改对了的「{cat}」结果表（录入僧出的那本就行），可以一次选好几本。\n{head}\n'
+                 f'也可以把表直接丢进 {tables.feed_path(app_dir(), cat)}，每次开工前自动吃。')
+        self.desc.set(t)
+
+    def new(self):
+        app = self.app
+        app.new_category(then=lambda name: app._dialog(FeedCard, name))
+
+    def choose(self):
+        cat = self.cat.get()
+        paths = filedialog.askopenfilenames(parent=self, title=f'选要放进「{cat}」的表（可以多选）',
+                                            filetypes=[('Excel', '*.xlsx *.xlsm'), ('全部', '*.*')])
+        if not paths:
+            return
+        self.destroy()
+        self.app.do_feed(cat, paths)
 
 
 def go_home() -> bool:

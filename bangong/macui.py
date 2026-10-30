@@ -507,3 +507,32 @@ class BigStatus(tk.Canvas):
             self.create_text(x, self.h // 2, text=p.strip() if num else p, font=f, anchor='w',
                              fill=BLUE if num else TEXT)
             x += f.measure(p) + 6
+
+
+class Para(tk.Text):
+    """一段会自己折行的灰字。Label 只会在空格处折行，中文没空格就折得乱七八糟；这个按字折，高度跟着内容走。"""
+
+    def __init__(self, master, textvariable: tk.StringVar, font=None, fg=GREY, bg=CARD, width_px: int = 520):
+        super().__init__(master, wrap='char', relief='flat', bd=0, highlightthickness=0, bg=bg, fg=fg, font=font,
+                         height=1, width=1, padx=0, pady=0, cursor='arrow', takefocus=0, spacing3=3)
+        self.var, self.width_px = textvariable, width_px
+        self.configure(width=max(10, width_px // max(1, tkfont.Font(font=font).measure('0'))))
+        textvariable.trace_add('write', lambda *a: self._fill())
+        self.bind('<Configure>', lambda e: self._fit())
+        self._fill()
+
+    def _fill(self):
+        self.configure(state='normal')
+        self.delete('1.0', 'end')
+        self.insert('1.0', self.var.get())
+        self.configure(state='disabled')
+        self.after_idle(self._fit)
+
+    def _fit(self):
+        try:
+            n = self.count('1.0', 'end', 'displaylines')
+            n = n[0] if isinstance(n, tuple) else n
+            if n and int(self.cget('height')) != n:
+                self.configure(height=n)
+        except tk.TclError:
+            pass

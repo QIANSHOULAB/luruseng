@@ -31,7 +31,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-VERSION = '1.8.0'
+VERSION = '1.9.0'
 APP_NAME = '录入僧'
 SUBTITLE = '施主去玩，贫僧填表'
 OLD_NAME = '搬工'                   # 改名前的名字：旧账本、旧配置照样认
@@ -902,8 +902,9 @@ class Engine:
                  log=print, progress=None, stop: threading.Event | None = None,
                  clock=time.time, sleep=None, names_path: str | None = None,
                  kb_path: str | None = None, feed_dir: str | None = None, reads: int | None = None,
-                 keep_originals: bool = True, discard=recycle):
+                 keep_originals: bool = True, discard=recycle, spec=None):
         self.folder = folder
+        self.spec = spec          # None = 刀单（下面这套专门的）；自建类别交给 tables.TableSpec
         self.keep_originals, self.discard = keep_originals, discard   # 不留原图：认完扔进回收站（扔不进去就照旧留着）
         self.reads = max(1, reads if reads is not None else READS)
         self.model = model_name(model)
@@ -956,16 +957,19 @@ class Engine:
         """认一张：先认两遍（第二遍用拉过对比度的图），对得上就收；对不上认第三遍，按多数定。
         顺便按多数定单子标题在照片哪一边（印编号的那份照片拿它转正）。"""
         jpeg = prepare_image(path)
+        clean = self.spec.clean if self.spec else clean_record
+        agree = self.spec.agree if self.spec else records_agree
+        vote_ = self.spec.vote if self.spec else vote
         if self.reads == 1:
             recs, side = self._read(jpeg, path)
-            return vote([[clean_record(r) for r in recs]]), side
+            return vote_([[clean(r) for r in recs]]), side
         plan = [jpeg, prepare_image(path, enhance=True)]
         reads, errs, sides = [], [], []
         while plan:
             img = plan.pop(0)
             try:
                 recs, side = self._read(img, path)
-                reads.append([clean_record(r) for r in recs])
+                reads.append([clean(r) for r in recs])
                 sides.append(side)
             except (Stopped, Fatal):
                 raise
@@ -974,11 +978,11 @@ class Engine:
                 if len(errs) == 1 and len(reads) + len(plan) < 2:
                     plan.append(jpeg)
                 continue
-            if not plan and len(reads) == 2 and not records_agree(reads[0], reads[1]):
+            if not plan and len(reads) == 2 and not agree(reads[0], reads[1]):
                 plan.append(jpeg)                   # 两遍对不上：第三遍当裁判
         if not reads:
             raise errs[0]
-        out = vote(reads)
+        out = vote_(reads)
         if len(reads) == 1:
             for r in out:
                 r['single'] = True
@@ -990,8 +994,13 @@ class Engine:
             side = known[0] if c[known[0]] == top else c.most_common(1)[0][0]
         return out, side
 
+    def _body(self, jpeg: bytes, schema: bool) -> dict:
+        if self.spec:
+            return self.spec.body(jpeg, self.model, schema)
+        return build_body(jpeg, self.model, schema, self.names, self.hints)
+
     def _read(self, jpeg: bytes, path: str) -> tuple[list[dict], str]:
-        body = build_body(jpeg, self.model, self.use_schema, self.names, self.hints)
+        body = self._body(jpeg, self.use_schema)
         minute_hits = 0
         net_tries = 0
         while True:
@@ -1008,7 +1017,7 @@ class Engine:
                     self.res.requests += 1
                 data = call_api(self.model, key, body)
                 self.keys.used[i] += 1
-                return parse_response(data)
+                return self.spec.parse(data) if self.spec else parse_response(data)
             except ApiError as e:
                 if e.status == 429:
                     kind = classify_429(e)
@@ -1031,7 +1040,7 @@ class Engine:
                         self.use_schema = False
                         self.log(f'模型不认结构化输出格式，改用纯 JSON 提示重试 · {e.raw()}')
                     if 'responseSchema' in body['generationConfig']:
-                        body = build_body(jpeg, self.model, False, self.names, self.hints)
+                        body = self._body(jpeg, False)
                         continue
                 if e.status in (400, 401, 403) and re.search(r'API key|API_KEY|permission|PERMISSION', f'{e.message} {e.detail}'):
                     raise Fatal(f'钥匙{i + 1} · {e.raw()}')
@@ -1068,7 +1077,9 @@ class Engine:
             except OSError:
                 pass
         self.log = log
-        if self.kb_path:                            # 数据库：先吃投喂文件夹里新放的表，再拿来当准绳
+        if self.spec:                               # 自建类别：吃它自己的投喂文件夹，拿它自己的库当准绳
+            self.spec.prepare(self.log)
+        elif self.kb_path:                          # 数据库：先吃投喂文件夹里新放的表，再拿来当准绳
             try:
                 from .kb import KnowledgeBase
                 kb = KnowledgeBase(self.kb_path)
@@ -1114,13 +1125,18 @@ class Engine:
         run_id = datetime.now().strftime('%Y%m%d_%H%M%S')
         width = max(2, len(str(total)))
         done_dir = os.path.join(done_root, run_id)
-        res.xlsx = os.path.join(out_dir, f'识别结果_{run_id}.xlsx')
+        tail = f'_{self.spec.name}' if self.spec else ''
+        res.xlsx = os.path.join(out_dir, f'识别结果_{run_id}{tail}.xlsx')
         res.photos_dir = done_dir
-        book = RecordBook(res.xlsx, names=self.names, kb=self.snapshot)
+        book = self.spec.book(res.xlsx) if self.spec else RecordBook(res.xlsx, names=self.names, kb=self.snapshot)
         items = [(i + 1, p, h) for i, (p, h) in enumerate(todo)]      # 按拍摄顺序编号：第 1 张对应表里 No. 1
+        if self.spec:
+            what = f'，类别「{self.spec.name}」' + ('（还没定列：认全部内容）' if self.spec.open_mode
+                                                 else f'（{len(self.spec.columns)} 列）')
+        else:
+            what = '，类别「刀单」' + (f'，名单 {len(self.names)} 人' if self.names else '，没找到名单')
         self.log(f'▶ 开工（录入僧 v{VERSION}）：{total} 张，按拍摄顺序编号 1–{total}，每批 {BATCH} 张，模型 {self.model}'
-                 + ('，每张认两遍对答案' if self.reads >= 2 else '')
-                 + (f'，名单 {len(self.names)} 人' if self.names else '，没找到名单'))
+                 + ('，每张认两遍对答案' if self.reads >= 2 else '') + what)
         done = 0
         self.progress(0, total)
 

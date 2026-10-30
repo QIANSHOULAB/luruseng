@@ -76,7 +76,24 @@ def answer(mode, body):
                      'T NO.': 'T4', 'Description': 'EM2.5', 'BTMP': '1', 'Total Screened': '1', 'Passed': '1',
                      'Failed': '0', 'Shift': 'Day', 'Setter': '639/Lee Ah Kow'}]
         side = {'side_right': 'right', 'side_left': '左边', 'side_flip': 'right' if nth != 2 else 'top'}.get(mode, 'top')
-        text = json.dumps({'title_side': side, 'records': recs}, ensure_ascii=False)
+        sys_text = body['systemInstruction']['parts'][0]['text']
+        if '这种单子还没有定好的表头' in sys_text:          # 自建类别 · 认全部内容
+            cols = ['Date', 'M/C No.', 'Qty', 'Remark']
+            vals = ['28/10', 'VM-07', str(width), '']
+            if mode == 'open_flip' and nth == 2:            # 第 2 遍列名写法不一样、数量也认错
+                cols, vals = ['date', 'M/C No', 'QTY', 'Remark'], ['28/10', 'VM-07', '1', '']
+            text = json.dumps({'title_side': side, 'columns': cols,
+                               'records': [{'values': vals, 'unsure': ['Remark'] if mode == 'open_unsure' else []}]},
+                              ensure_ascii=False)
+        elif '每条记录填下面这些列' in sys_text and '「' in sys_text:   # 自建类别 · 按定好的列认
+            n = len([ln for ln in sys_text.splitlines() if ln.startswith('- c')])
+            rec = {f'c{i}': '' for i in range(1, n + 1)}
+            got = {'c1': '28/10', 'c2': 'VM-O7' if mode == 'cat_confusable' else 'VM-07', 'c3': str(width)}
+            rec.update({k: v for k, v in got.items() if k in rec})
+            rec['unsure'] = ['c3'] if mode == 'cat_unsure' else []
+            text = json.dumps({'title_side': side, 'records': [rec]}, ensure_ascii=False)
+        else:
+            text = json.dumps({'title_side': side, 'records': recs}, ensure_ascii=False)
     return 200, {'candidates': [{'content': {'parts': [{'text': text}]}, 'finishReason': 'STOP'}]}
 
 
