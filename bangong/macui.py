@@ -13,7 +13,7 @@ from tkinter import font as tkfont, ttk
 from PIL import Image, ImageDraw, ImageTk
 
 # macOS 浅色模式的几种颜色
-BG = '#F2F4F7'          # 窗口底色（带一点点蓝的浅灰）
+BG = '#EAF1FB'          # 窗口底色（很淡的天蓝）
 CARD = '#FAFBFC'        # 卡片
 LINE = '#E3E6EB'        # 卡片边、分隔线
 FIELD = '#FFFFFF'       # 输入框底
@@ -134,15 +134,17 @@ class Pill(tk.Canvas):
     跟 ttk.Button 一样认 config(state='disabled'/'normal')、config(text=...)。"""
 
     def __init__(self, master, text, command=None, primary=False, font=None, bg=BG, state='normal', height=36,
-                 radius=None, padx=18, minwidth=0):
+                 radius=None, padx=18, minwidth=0, icon=None):
         self.font = tkfont.Font(font=font) if font else tkfont.nametofont('TkDefaultFont')
         self.text, self.command, self.primary, self.outer = text, command, primary, bg
         self.state, self.hover, self.down, self.h = state, False, False, height
         self.radius = height // 2 if radius is None else radius
-        self.padx, self.minwidth = padx, minwidth
+        self.padx, self.minwidth, self.icon = padx, minwidth, icon
+        self.isz = int(height * 0.5) if icon else 0
         super().__init__(master, bg=bg, highlightthickness=0, bd=0, height=height, width=self._pw(),
                          cursor='hand2')
         self._img = self.create_image(0, 0, anchor='nw')
+        self._ico = self.create_image(0, height // 2, anchor='w')
         self._txt = self.create_text(0, height // 2, text=text, font=self.font)
         self.bind('<Enter>', lambda e: self._set(hover=True))
         self.bind('<Leave>', lambda e: self._set(hover=False, down=False))
@@ -151,7 +153,10 @@ class Pill(tk.Canvas):
         self._draw()
 
     def _pw(self):
-        return max(self.font.measure(self.text) + 2 * self.padx, self.minwidth)
+        return max(self._cw() + 2 * self.padx, self.minwidth)
+
+    def _cw(self):
+        return self.font.measure(self.text) + (self.isz + 10 if self.icon else 0)
 
     def _set(self, **kw):
         for k, v in kw.items():
@@ -178,8 +183,13 @@ class Pill(tk.Canvas):
                 img, fg = rounded(w, h, self.radius, fill, self.outer, '#D5D9E0'), TEXT
         self.configure(width=w, cursor='arrow' if off else 'hand2')
         self.itemconfigure(self._img, image=img)
-        self.coords(self._txt, w // 2, h // 2)
-        self.itemconfigure(self._txt, text=self.text, fill=fg)
+        x0 = (w - self._cw()) // 2
+        if self.icon:
+            self.itemconfigure(self._ico, image=glyph(self.icon, self.isz, fg))
+            self.coords(self._ico, x0, h // 2)
+            x0 += self.isz + 10
+        self.coords(self._txt, x0, h // 2)
+        self.itemconfigure(self._txt, text=self.text, fill=fg, anchor='w')
 
     def config(self, cnf=None, **kw):          # noqa: A003  (跟 Tk 同名，好让旧代码不用改)
         kw = dict(cnf or {}, **kw)
@@ -377,3 +387,112 @@ def app_icon(size: int, bg: str = BG):
         img = ImageTk.PhotoImage(big.resize((size, size), Image.LANCZOS))
         _cache[key] = img
     return img
+
+
+
+def glyph(kind: str, size: int, color: str):
+    """按钮上的小图标（透明底，Pillow 画）：play 开始、stop 停止、folder 文件夹、doc 文件、db 数据库。"""
+    key = ('glyph', kind, size, color)
+    img = _cache.get(key)
+    if img is not None:
+        return img
+    S = size * _SS
+    big = Image.new('RGBA', (S, S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(big)
+    lw = max(int(S * 0.09), 1)
+    if kind == 'play':
+        d.polygon([(S * 0.18, S * 0.08), (S * 0.18, S * 0.92), (S * 0.9, S * 0.5)], fill=color)
+    elif kind == 'stop':
+        d.rounded_rectangle((S * 0.12, S * 0.12, S * 0.88, S * 0.88), int(S * 0.12), fill=color)
+    elif kind == 'folder':
+        d.line([(S * 0.06, S * 0.84), (S * 0.06, S * 0.16), (S * 0.38, S * 0.16), (S * 0.48, S * 0.28),
+                (S * 0.94, S * 0.28), (S * 0.94, S * 0.84), (S * 0.06, S * 0.84)], fill=color, width=lw, joint='curve')
+        d.line([(S * 0.06, S * 0.42), (S * 0.94, S * 0.42)], fill=color, width=lw)
+    elif kind == 'doc':
+        d.line([(S * 0.16, S * 0.04), (S * 0.6, S * 0.04), (S * 0.86, S * 0.3), (S * 0.86, S * 0.96),
+                (S * 0.16, S * 0.96), (S * 0.16, S * 0.04)], fill=color, width=lw, joint='curve')
+        d.line([(S * 0.58, S * 0.04), (S * 0.58, S * 0.32), (S * 0.86, S * 0.32)], fill=color, width=lw)
+        for y in (0.52, 0.68, 0.84):
+            d.line([(S * 0.32, S * y), (S * (0.7 if y < 0.8 else 0.56), S * y)], fill=color, width=lw)
+    elif kind == 'db':
+        t, b, l, r, eh = S * 0.06, S * 0.94, S * 0.1, S * 0.9, S * 0.24
+        d.ellipse((l, t, r, t + eh), outline=color, width=lw)
+        for y in (S * 0.38, S * 0.62):
+            d.arc((l, y - eh / 2, r, y + eh / 2), 0, 180, fill=color, width=lw)
+        d.arc((l, b - eh, r, b), 0, 180, fill=color, width=lw)
+        d.line([(l + lw / 2, t + eh / 2), (l + lw / 2, b - eh / 2)], fill=color, width=lw)
+        d.line([(r - lw / 2, t + eh / 2), (r - lw / 2, b - eh / 2)], fill=color, width=lw)
+    img = ImageTk.PhotoImage(big.resize((size, size), Image.LANCZOS))
+    _cache[key] = img
+    return img
+
+
+class Check(tk.Canvas):
+    """方形勾选框（蓝底白勾），绑一个 BooleanVar；点它或点旁边的字都能勾，勾了就调 command。"""
+
+    S = 22
+
+    def __init__(self, master, variable: tk.BooleanVar, command=None, bg=CARD):
+        super().__init__(master, bg=bg, highlightthickness=0, bd=0, width=self.S, height=self.S, cursor='hand2')
+        self.var, self.command, self.outer = variable, command, bg
+        self._img = self.create_image(0, 0, anchor='nw')
+        self.bind('<Button-1>', self.toggle)
+        variable.trace_add('write', lambda *a: self._draw())
+        self._draw()
+
+    def toggle(self, _e=None):
+        self.var.set(not self.var.get())
+        if self.command:
+            self.command()
+
+    def _draw(self):
+        on = bool(self.var.get())
+        key = ('check', on, self.outer)
+        img = _cache.get(key)
+        if img is None:
+            S = self.S * _SS
+            big = Image.new('RGB', (S, S), self.outer)
+            d = ImageDraw.Draw(big)
+            if on:
+                d.rounded_rectangle((0, 0, S - 1, S - 1), int(S * 0.24), fill=BLUE)
+                d.line([(S * 0.26, S * 0.52), (S * 0.43, S * 0.69), (S * 0.75, S * 0.33)], fill='#FFFFFF',
+                       width=int(S * 0.11), joint='curve')
+            else:
+                d.rounded_rectangle((0, 0, S - 1, S - 1), int(S * 0.24), fill=FIELD_LINE)
+                k = int(S * 0.06)
+                d.rounded_rectangle((k, k, S - 1 - k, S - 1 - k), int(S * 0.2), fill='#FFFFFF')
+            img = ImageTk.PhotoImage(big.resize((self.S, self.S), Image.LANCZOS))
+            _cache[key] = img
+        self.itemconfigure(self._img, image=img)
+
+
+class BigStatus(tk.Canvas):
+    """右边「任务状态」的大字：绑 StringVar，数字（含 4/10 这种）是蓝色，其余黑色；太长就自动缩小字号。"""
+
+    def __init__(self, master, textvariable, family_: str, size=24, bg=CARD, height=56):
+        super().__init__(master, bg=bg, highlightthickness=0, bd=0, height=height, width=200)
+        self.var, self.fam, self.size, self.h = textvariable, family_, size, height
+        textvariable.trace_add('write', lambda *a: self._draw())
+        self.bind('<Configure>', lambda e: self._draw())
+
+    def _draw(self):
+        import re
+        self.delete('all')
+        t = self.var.get()
+        w = max(self.winfo_width(), 50)
+        parts = [p for p in re.split(r'(\d+(?:/\d+)?)', t) if p]
+        size = self.size
+        while size > 11:
+            f_txt = tkfont.Font(family=self.fam, size=size, weight='bold')
+            f_num = tkfont.Font(family=self.fam, size=int(size * 1.35), weight='bold')
+            total = sum((f_num if re.fullmatch(r'\d+(?:/\d+)?', p) else f_txt).measure(p) + 6 for p in parts)
+            if total <= w:
+                break
+            size -= 2
+        x = 0
+        for p in parts:
+            num = bool(re.fullmatch(r'\d+(?:/\d+)?', p))
+            f = f_num if num else f_txt
+            self.create_text(x, self.h // 2, text=p.strip() if num else p, font=f, anchor='w',
+                             fill=BLUE if num else TEXT)
+            x += f.measure(p) + 6

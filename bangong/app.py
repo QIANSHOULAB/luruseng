@@ -230,8 +230,8 @@ class App:
             root.iconbitmap(os.path.join(base, 'assets', 'bangong.ico'))
         except Exception:
             pass
-        root.geometry('920x640')
-        root.minsize(720, 540)
+        root.geometry('1120x660')
+        root.minsize(1040, 560)
         root.configure(bg=ui.BG)
         fam = ui.family(root)
         size = 11
@@ -239,77 +239,96 @@ class App:
         ui.style_ttk(root, fam, size)
         bf = (fam, size)
 
-        f = tk.Frame(root, bg=ui.BG, padx=14, pady=12)
+        f = tk.Frame(root, bg=ui.BG, padx=14, pady=14)
         f.pack(fill='both', expand=True)
         f.columnconfigure(0, weight=1)
 
-        # 标题：蓝色图标 + 大字 + 竖线 + 灰色副标题
-        head = tk.Frame(f, bg=ui.BG)
-        head.grid(row=0, column=0, sticky='w', padx=(10, 0), pady=(2, 12))
-        self._icon = ui.app_icon(44)
-        tk.Label(head, image=self._icon, bg=ui.BG, bd=0).pack(side='left', padx=(0, 14))
-        tk.Label(head, text=engine.APP_NAME, font=(fam, 22, 'bold'), bg=ui.BG, fg=ui.TEXT).pack(side='left')
-        tk.Frame(head, bg='#C9CED6', width=1, height=22).pack(side='left', padx=16)
-        tk.Label(head, text=engine.SUBTITLE, font=(fam, 13), bg=ui.BG, fg=ui.GREY).pack(side='left')
-
-        # 主卡片：设置 + 按钮 + 进度条都在里面
-        card = ui.Card(f, pad=14, radius=14)
-        card.grid(row=1, column=0, sticky='ew')
+        # ---- 左边大卡片：标题、设置、按钮
+        card = ui.Card(f, pad=18, radius=14)
+        card.grid(row=0, column=0, sticky='nsew')
         g = card.body
         g.columnconfigure(1, weight=1)
 
+        head = tk.Frame(g, bg=ui.CARD)
+        head.grid(row=0, column=0, columnspan=3, sticky='w', pady=(0, 14))
+        tk.Label(head, text=engine.APP_NAME, font=(fam, 24, 'bold'), bg=ui.CARD, fg=ui.TEXT).pack(side='left')
+        tk.Frame(head, bg='#D5DAE1', width=1, height=26).pack(side='left', padx=20)
+        tk.Label(head, text=engine.SUBTITLE, font=(fam, 13), bg=ui.CARD, fg=ui.GREY).pack(side='left')
+
         def label(r, text):
             tk.Label(g, text=text, bg=ui.CARD, fg=ui.TEXT, font=bf, anchor='w').grid(
-                row=r, column=0, sticky='w', padx=(10, 16), pady=5)
+                row=r, column=0, sticky='w', padx=(0, 16), pady=5)
 
-        label(0, '图片文件夹')
+        label(1, '图片文件夹')
         self.folder = tk.StringVar(value=cfg.get('folder') or default_folder())
-        ui.Field(g, self.folder, font=bf).grid(row=0, column=1, sticky='ew', pady=5)
+        ui.Field(g, self.folder, font=bf).grid(row=1, column=1, sticky='ew', pady=5)
         ui.Pill(g, '选择…', command=self.pick, font=bf, bg=ui.CARD, height=38, radius=8, minwidth=110).grid(
-            row=0, column=2, padx=(10, 0))
+            row=1, column=2, padx=(10, 0))
 
         self.key1 = tk.StringVar(value=cfg.get('key1', ''))
         self.key2 = tk.StringVar(value=cfg.get('key2', ''))
-        label(1, '钥匙 1')
-        ui.Field(g, self.key1, show='•', font=bf).grid(row=1, column=1, columnspan=2, sticky='ew', pady=5)
-        label(2, '钥匙 2（可空）')
-        ui.Field(g, self.key2, show='•', font=bf).grid(row=2, column=1, columnspan=2, sticky='ew', pady=5)
+        label(2, '钥匙 1')
+        ui.Field(g, self.key1, show='•', font=bf).grid(row=2, column=1, columnspan=2, sticky='ew', pady=5)
+        label(3, '钥匙 2（可空）')
+        ui.Field(g, self.key2, show='•', font=bf).grid(row=3, column=1, columnspan=2, sticky='ew', pady=5)
 
-        label(3, '模型')
+        label(4, '模型')
         self.model = tk.StringVar(value=cfg.get('model') or engine.DEFAULT_MODEL)
         self.auto = tk.BooleanVar(value=cfg.get('auto', True))
         mrow = tk.Frame(g, bg=ui.CARD)
-        mrow.grid(row=3, column=1, columnspan=2, sticky='ew', pady=5)
-        ui.Combo(mrow, self.model, engine.MODELS, font=bf, width=320).pack(side='left')
-        ui.Switch(mrow, self.auto, command=self.save).pack(side='left', padx=(28, 10))
-        tk.Label(mrow, text='来图就干（文件夹里一有新照片就自己开工）', bg=ui.CARD, fg=ui.TEXT,
-                 font=bf).pack(side='left')
+        mrow.grid(row=4, column=1, columnspan=2, sticky='ew', pady=5)
+        ui.Combo(mrow, self.model, engine.MODELS, font=bf, width=280).pack(side='left')
+        chk = ui.Check(mrow, self.auto, command=self.save)
+        chk.pack(side='left', padx=(24, 10))
+        for txt, color, fnt in (('来图就干', ui.TEXT, bf), ('（文件夹里一有新照片就自己开工）', ui.GREY, (fam, size - 1))):
+            lab = tk.Label(mrow, text=txt, bg=ui.CARD, fg=color, font=fnt, cursor='hand2')
+            lab.pack(side='left')
+            lab.bind('<Button-1>', chk.toggle)
+
+        ui.separator(g).grid(row=5, column=0, columnspan=3, sticky='ew', pady=(16, 16))
 
         bar = tk.Frame(g, bg=ui.CARD)
-        bar.grid(row=4, column=0, columnspan=3, sticky='ew', padx=(10, 0), pady=(18, 0))
-        btn = dict(font=bf, bg=ui.CARD, height=40, radius=8, padx=24, minwidth=100)
-        self.start_btn = ui.Pill(bar, '开始工作', command=self.start, primary=True, **btn)
+        bar.grid(row=6, column=0, columnspan=3, sticky='w')
+        btn = dict(font=bf, bg=ui.CARD, height=44, radius=8, padx=20)
+        self.start_btn = ui.Pill(bar, '开始工作', command=self.start, primary=True, icon='play', **btn)
         self.start_btn.pack(side='left')
-        self.stop_btn = ui.Pill(bar, '停止', command=self.halt, state='disabled', **btn)
+        self.stop_btn = ui.Pill(bar, '停止', command=self.halt, state='disabled', icon='stop', **btn)
         self.stop_btn.pack(side='left', padx=(10, 0))
-        ui.Pill(bar, '打开结果文件夹', command=self.open_out, **btn).pack(side='left', padx=(10, 0))
-        ui.Pill(bar, '核对', command=self.check, **btn).pack(side='left', padx=(10, 0))
-        self.feed_btn = ui.Pill(bar, '投喂数据', command=self.feed, **btn)
+        ui.Pill(bar, '打开结果文件夹', command=self.open_out, icon='folder', **btn).pack(side='left', padx=(10, 0))
+        ui.Pill(bar, '核对', command=self.check, icon='doc', **btn).pack(side='left', padx=(10, 0))
+        self.feed_btn = ui.Pill(bar, '投喂数据', command=self.feed, icon='db', **btn)
         self.feed_btn.pack(side='left', padx=(10, 0))
+
+        # ---- 右边小卡片：任务状态
+        side = ui.Card(f, pad=18, radius=14, stretch=True)
+        side.configure(width=290)
+        side.grid(row=0, column=1, sticky='ns', padx=(14, 0))
+        s_ = side.body
+        tk.Label(s_, text='任务状态', bg=ui.CARD, fg=ui.TEXT, font=(fam, 12)).pack(anchor='w')
+        ui.separator(s_).pack(fill='x', pady=(12, 10))
         self.status = tk.StringVar(value='')
-        ui.Tag(bar, self.status, font=bf, bg=ui.CARD).pack(side='right')
+        ui.BigStatus(s_, self.status, fam, size=20).pack(fill='x')
+        self.pb = ui.Bar(s_, bg=ui.CARD, height=14)
+        self.pb.pack(fill='x', pady=(10, 0))
+        ui.separator(s_).pack(fill='x', pady=(28, 14))
+        self.names_head = tk.StringVar()
+        self.names_path = tk.StringVar()
+        tk.Label(s_, textvariable=self.names_head, bg=ui.CARD, fg=ui.TEXT, font=(fam, 12), anchor='w',
+                 justify='left', wraplength=260).pack(anchor='w')
+        tk.Label(s_, textvariable=self.names_path, bg=ui.CARD, fg=ui.GREY, font=(fam, size - 1), anchor='w',
+                 justify='left', wraplength=260).pack(anchor='w', pady=(4, 0))
 
-        self.pb = ui.Bar(g, bg=ui.CARD)
-        self.pb.grid(row=5, column=0, columnspan=3, sticky='ew', padx=(10, 0), pady=(18, 4))
-
-        # 日志卡片：一行一条，中间细线
+        # ---- 下面：日志
         logcard = ui.Card(f, pad=14, radius=14, stretch=True)
-        logcard.grid(row=2, column=0, sticky='nsew', pady=(12, 0))
-        f.rowconfigure(2, weight=1)
-        self.text = tk.Text(logcard.body, height=8, wrap='word', state='disabled', relief='flat', bd=0,
+        logcard.grid(row=1, column=0, columnspan=2, sticky='nsew', pady=(14, 0))
+        f.rowconfigure(1, weight=1)
+        lb = logcard.body
+        self._logicon = ui.glyph('doc', 26, '#4A5568')
+        tk.Label(lb, image=self._logicon, bg=ui.CARD, bd=0).pack(side='left', anchor='n', padx=(14, 4), pady=(10, 0))
+        self.text = tk.Text(lb, height=4, wrap='word', state='disabled', relief='flat', bd=0,
                             highlightthickness=0, background=ui.CARD, foreground=ui.TEXT, font=bf,
                             spacing1=6, spacing3=6, padx=10)
-        self.text.pack(fill='both', expand=True)
+        self.text.pack(side='left', fill='both', expand=True)
         self._rules: list = []
         self.text.bind('<Configure>', self._fit_rules)
 
@@ -318,7 +337,12 @@ class App:
                 self.write(line)
         self.refresh_count()
         n = len(engine.load_names(names_path()))
-        self.write(f'名单：{n} 人（{names_path()}）' if n else f'没找到名单：{names_path()}（没有也能用，SETTER 就照单子抄）')
+        if n:                                       # 名单放在右边「任务状态」里
+            self.names_head.set(f'名单：{n} 人')
+            self.names_path.set(f'（{names_path()}）')
+        else:
+            self.names_head.set('没找到名单')
+            self.names_path.set(f'{names_path()}（没有也能用，SETTER 就照单子抄）')
         try:
             from .kb import KnowledgeBase
             self.write(KnowledgeBase(kb_path()).summary() + f'（投喂文件夹：{feed_dir()}）')

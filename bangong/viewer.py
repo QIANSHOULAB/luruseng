@@ -131,29 +131,30 @@ class Viewer(tk.Toplevel):
                      padx=30, pady=30).pack()
             return
 
-        top = tk.Frame(self, bg=ui.BG, padx=14, pady=10)
-        top.pack(fill='x')
+        bar = ui.Card(self, pad=10, radius=14)
+        bar.pack(fill='x', padx=14, pady=(14, 12))
+        top = bar.body
         self.run_var = tk.StringVar()
         holder = ui.Combo(top, self.run_var, [run_label(r, len(load_photos(d))) for r, d, _ in self.runs],
-                          font=bf, bg=ui.BG, width=260)
+                          font=bf, bg=ui.CARD, width=260)
         holder.pack(side='left')
         self.run_box = holder.box
         self.run_box.configure(state='readonly')
         self.run_box.bind('<<ComboboxSelected>>', lambda e: self.load_run(self.run_box.current()))
-        ui.Pill(top, radius=8, text='◀ 上一张', command=lambda: self.step(-1), font=bf).pack(side='left', padx=(12, 6))
+        ui.Pill(top, radius=8, bg=ui.CARD, height=38, padx=16, text='◀ 上一张', command=lambda: self.step(-1), font=bf).pack(side='left', padx=(12, 6))
         self.num = tk.StringVar()
-        box = ui.Field(top, self.num, font=bf, bg=ui.BG)
+        box = ui.Field(top, self.num, font=bf, bg=ui.CARD)
         box.configure(width=64)
         box.pack(side='left')
         self.entry = box.entry
         self.entry.configure(justify='center')
         self.entry.bind('<Return>', lambda e: self.jump())
-        ui.Pill(top, radius=8, text='看', command=self.jump, primary=True, font=(fam, 10, 'bold')).pack(side='left', padx=6)
-        ui.Pill(top, radius=8, text='下一张 ▶', command=lambda: self.step(1), font=bf).pack(side='left')
-        ui.Pill(top, radius=8, text='↺', command=lambda: self.turn(False), font=bf).pack(side='left', padx=(12, 6))
-        ui.Pill(top, radius=8, text='↻', command=lambda: self.turn(True), font=bf).pack(side='left')
+        ui.Pill(top, radius=8, bg=ui.CARD, height=38, padx=16, text='看', command=self.jump, primary=True, font=(fam, 10, 'bold')).pack(side='left', padx=6)
+        ui.Pill(top, radius=8, bg=ui.CARD, height=38, padx=16, text='下一张 ▶', command=lambda: self.step(1), font=bf).pack(side='left')
+        ui.Pill(top, radius=8, bg=ui.CARD, height=38, padx=16, text='↺', command=lambda: self.turn(False), font=bf).pack(side='left', padx=(12, 6))
+        ui.Pill(top, radius=8, bg=ui.CARD, height=38, padx=16, text='↻', command=lambda: self.turn(True), font=bf).pack(side='left')
         self.info = tk.StringVar()
-        tk.Label(top, textvariable=self.info, bg=ui.BG, fg=ui.GREY, font=(fam, 9)).pack(side='left', padx=12)
+        tk.Label(top, textvariable=self.info, bg=ui.CARD, fg=ui.GREY, font=(fam, 9)).pack(side='left', padx=12)
 
         body = tk.Frame(self, bg=ui.BG, padx=14, pady=0)
         body.pack(fill='both', expand=True, pady=(0, 14))
