@@ -269,7 +269,7 @@ def test_key_tutorial_buttons(tmp_path, monkeypatch):
         for b in a.key_btns:
             b.command()
         assert opened == [updater.KEY_URL, updater.KEY_URL + '#key2']
-        assert updater.KEY_URL == 'https://oilsongchengmin-svg.github.io/luruseng/key.html'
+        assert updater.KEY_URL == 'https://qianshoulab.github.io/luruseng/key.html'
         a.key1.set('')
         a.key2.set('')
         a.start()

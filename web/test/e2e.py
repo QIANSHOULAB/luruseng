@@ -475,7 +475,7 @@ def main():
             assert '录入僧网页版 v' in page.inner_text('#setver') and '千手院方丈释手' in page.inner_text('#setver')
             assert '数据库 22 条' in page.inner_text('#usage'), page.inner_text('#usage')
             page.screenshot(path=os.path.join(SHOTS, '4-设置.png'))
-            assert page.get_attribute('#hub', 'href') == 'https://oilsongchengmin-svg.github.io/'
+            assert page.get_attribute('#hub', 'href') == 'https://qianshoulab.github.io/'
             page.eval_on_selector('#mail', 'a => a.addEventListener("click", e => e.preventDefault())')   # 测试里不真去开邮件程序
             page.click('#mail')                                                   # 方丈邮箱：先复制邮箱，底下一行写出来
             page.wait_for_function('() => document.querySelector("#setnote").textContent.includes("邮箱已复制")')

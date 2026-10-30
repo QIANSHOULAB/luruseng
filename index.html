@@ -7,7 +7,7 @@
 <meta name="description" content="刀具破损记录（TOOL BROKEN RECORD）照片丢进去，Excel 表自己出来。Windows 电脑版，免费下载。">
 <meta property="og:title" content="录入僧 · 施主去玩，贫僧填表">
 <meta property="og:description" content="刀具破损记录照片丢进去，Excel 表自己出来；别的单子建个类别也能教会它。Windows 电脑版。">
-<meta property="og:image" content="https://oilsongchengmin-svg.github.io/luruseng/screenshot.png">
+<meta property="og:image" content="https://qianshoulab.github.io/luruseng/screenshot.png">
 <meta property="og:type" content="website">
 <meta name="color-scheme" content="light">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%235AB4FF'/%3E%3Cstop offset='1' stop-color='%231E7BF2'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='15' fill='url(%23g)'/%3E%3Crect x='19' y='15' width='26' height='34' rx='4.5' fill='%23fff'/%3E%3Crect x='24' y='23' width='14' height='3' rx='1.5' fill='%232F8BF5'/%3E%3Crect x='24' y='30.5' width='14' height='3' rx='1.5' fill='%232F8BF5'/%3E%3Crect x='24' y='38' width='9' height='3' rx='1.5' fill='%232F8BF5'/%3E%3C/svg%3E">
@@ -171,7 +171,7 @@
   <div class="phone" id="phone">手机上用 <a href="web/"><b>网页版</b></a>，不用装。要电脑版：把这个网址发到电脑上再下载。<button type="button" id="copy">复制网址</button></div>
 
   <div class="cta">
-    <a class="dl" id="dl" href="https://github.com/oilsongchengmin-svg/luruseng/releases/latest/download/luruseng.exe">
+    <a class="dl" id="dl" href="https://github.com/QIANSHOULAB/luruseng/releases/latest/download/luruseng.exe">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M12 4v11"/><path d="M7 10.5 12 15.5 17 10.5"/><path d="M5 19.5h14"/></svg>
       下载 Windows 版
@@ -182,7 +182,7 @@
       用网页版 <small>不用装，手机也行</small>
     </a>
     <span class="meta"><span id="ver">Windows 10 / 11 · 约 30 MB · 免费</span> ·
-      <a href="https://github.com/oilsongchengmin-svg/luruseng/releases">所有版本</a></span>
+      <a href="https://github.com/QIANSHOULAB/luruseng/releases">所有版本</a></span>
   </div>
 
   <figure class="shot"><img src="screenshot.png" width="1120" height="700"
@@ -253,8 +253,8 @@
 
   <footer>
     <span>录入僧 · 施主去玩，贫僧填表 · 修改建议、想要的功能：<a id="mail" href="#">联系制作人</a></span>
-    <span><a href="https://github.com/oilsongchengmin-svg/luruseng">源码</a> ·
-      <a href="https://github.com/oilsongchengmin-svg/luruseng/releases">所有版本</a></span>
+    <span><a href="https://github.com/QIANSHOULAB/luruseng">源码</a> ·
+      <a href="https://github.com/QIANSHOULAB/luruseng/releases">所有版本</a></span>
   </footer>
 </div>
 
@@ -278,7 +278,7 @@
       }
     });
     // 最新版本号、大小、日期（查不到就保留默认文字）
-    fetch('https://api.github.com/repos/oilsongchengmin-svg/luruseng/releases/latest')
+    fetch('https://api.github.com/repos/QIANSHOULAB/luruseng/releases/latest')
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (rel) {
         if (!rel) return;

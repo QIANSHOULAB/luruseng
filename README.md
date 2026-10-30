@@ -4,11 +4,11 @@
 
 把一个文件夹里的刀具破损记录照片（照片、扫描件、HEIC 都行）送给 Gemini，认出每一条 TOOL BROKEN RECORD，边干边写进一本跟公司那本长得一样的 Excel。
 
-- 网站（下载、怎么用）：https://oilsongchengmin-svg.github.io/luruseng/
-- 网页版（不用装，电脑、手机都行）：https://oilsongchengmin-svg.github.io/luruseng/web/ 。功能跟电脑版一样，东西存在那个浏览器里（⚙ 里能备份）。代码在 `web/`：`core.js` 跟 `engine.py`、`kb.py`、`tables.py` 是同一套规矩，改一边要改另一边；`web/test/e2e.py` 让两边拿同样的照片各出一本表，一格一格对。
+- 网站（下载、怎么用）：https://qianshoulab.github.io/luruseng/
+- 网页版（不用装，电脑、手机都行）：https://qianshoulab.github.io/luruseng/web/ 。功能跟电脑版一样，东西存在那个浏览器里（⚙ 里能备份）。代码在 `web/`：`core.js` 跟 `engine.py`、`kb.py`、`tables.py` 是同一套规矩，改一边要改另一边；`web/test/e2e.py` 让两边拿同样的照片各出一本表，一格一格对。
 - 联系制作人（修改建议、想要的功能）：oilsongchengmin@gmail.com（程序里 ⚙ →「联系制作人」）
 - 发新版：改 `bangong/engine.py` 的 `VERSION`，在 `changes.md` 顶上加一段「## 新版本号」写更新了啥，推到 main。
-- 下载：https://github.com/oilsongchengmin-svg/luruseng/releases/latest/download/luruseng.exe （双击就能用，不用装 Python；直接在「下载」里双击也行，它会在旁边建「录入僧」文件夹搬进去）
+- 下载：https://github.com/QIANSHOULAB/luruseng/releases/latest/download/luruseng.exe （双击就能用，不用装 Python；直接在「下载」里双击也行，它会在旁边建「录入僧」文件夹搬进去）
 - 用法：填钥匙（Google AI Studio 的 API Key，可以填两把），点「选照片…」挑照片，点「开始工作」。挑的照片复制进「图片文件夹」（默认 exe 旁边的「待识别」，没有就当场建），原照片原地不动；待识别里已经有的、以前干过的（按内容认，改了名也认得）不再复制。换文件夹：在「图片文件夹」框里改路径。还没钥匙：点钥匙框后面的「免费领钥匙」，打开网站上的教程页 `key.html`（「再领一把」跳到钥匙 2 那段）。
 - ⚙ 设置（右上角）：开机自动启动、点 × 只收起、干完自动打开、保留原图、自动更新、记住钥匙、桌面和开始菜单图标。用过录入僧的电脑全开照旧；新装的电脑开机启动关、× 直接退出、来图就干不勾，其余开。
 - 来图就干：往「待识别」放照片，30 秒内没再放新的就自己开工；自动开工的不弹 Excel 和核对窗口。认失败留在原地的照片不会被反复重试，等有新照片进来再一起干。⚙ 里开着「点 × 只收起」时，点 × 只是收起窗口；真要退出，先去掉「来图就干」的勾。
