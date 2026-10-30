@@ -222,8 +222,8 @@ def test_release_notes_since():
     assert updater.notes_since(text, '1.9.1') == '' and updater.notes_since('', '1.0.0') == ''
 
 
-def test_notes_from_site(tmp_path, site):
+def test_notes_from_site(tmp_path, site, monkeypatch):
     (site / 'changes.md').write_text('## 99.0.0\n- 大更新\n## 1.0.0\n- 老的\n', encoding='utf-8')
     assert updater.notes() == 'v99.0.0\n- 大更新'
-    (site / 'changes.md').unlink()
+    monkeypatch.setattr(updater, 'LATEST', updater.LATEST + '/没有这个')   # 拿不到说明（404）
     assert updater.notes() == ''                              # 拿不到说明不耽误更新
