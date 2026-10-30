@@ -284,7 +284,7 @@ def test_key_page_is_there():
     page = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'key.html')
     html = open(page, encoding='utf-8').read()
     assert 'id="key2"' in html and 'https://aistudio.google.com/apikey' in html
-    assert '完全免费，老衲不打诳语' in html
+    assert '老衲不打诳语' in html and '打死别绑银行卡' in html
 
 
 def test_pretty_notes():

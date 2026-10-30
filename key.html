@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>领钥匙 · 录入僧</title>
-<meta name="description" content="录入僧的钥匙（Gemini API Key）怎么领：谷歌账号登录 Google AI Studio，两分钟，完全免费。">
-<meta property="og:title" content="领钥匙 · 录入僧">
-<meta property="og:description" content="完全免费，老衲不打诳语：四步领到钥匙，贴进录入僧就能开工。">
+<title>免费领取钥匙 · 录入僧</title>
+<meta name="description" content="白嫖谷歌手艺，老衲只指路，不收香油钱：四步领到录入僧的钥匙（Gemini API Key）。">
+<meta property="og:title" content="免费领取钥匙 · 录入僧">
+<meta property="og:description" content="白嫖谷歌手艺，老衲只指路，不收香油钱。">
 <meta property="og:image" content="https://oilsongchengmin-svg.github.io/luruseng/screenshot.png">
 <meta property="og:type" content="article">
 <meta name="color-scheme" content="light">
@@ -38,9 +38,11 @@
   .back { display: inline-block; margin-top: 26px; color: var(--grey); font-size: 15px; }
   .hero { padding: 26px 0 8px; display: grid; grid-template-columns: auto 1fr; gap: 26px; align-items: center; }
   .icon { width: 88px; height: 88px; display: block; filter: drop-shadow(0 10px 18px rgba(30, 123, 242, .28)); }
-  h1 { font-size: 46px; line-height: 1.1; margin: 0; letter-spacing: .02em; }
+  h1 { font-size: 46px; line-height: 1.15; margin: 0; letter-spacing: .02em; }
+  h1 span { display: inline-block; margin-left: .35em; color: var(--blue); }
   .tagline { margin-top: 10px; color: var(--grey); font-size: 18px; }
-  .cta { margin-top: 30px; }
+  .lead { font-size: 19px; margin: 26px 0 0; max-width: 700px; }
+  .cta { margin-top: 28px; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 20px; }
   .dl {
     display: inline-flex; align-items: center; gap: 12px;
     background: var(--blue); color: #fff; font-weight: 600; font-size: 17px;
@@ -51,9 +53,11 @@
   .dl:hover { background: #0A84FF; text-decoration: none; transform: translateY(-1px); }
   .dl:active { background: var(--blue-down); transform: none; }
   .dl svg { width: 20px; height: 20px; }
+  .meta { color: var(--grey); font-size: 14px; }
 
   section { padding: 56px 0 0; }
   h2 { font-size: 28px; margin: 0 0 22px; letter-spacing: .02em; }
+  h2 small { font-size: 16px; color: var(--grey); font-weight: 400; margin-left: 10px; }
   .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 22px 22px 20px; }
   .num {
@@ -70,11 +74,20 @@
     display: inline-block; border: 1px solid #C9CED6; background: #fff; border-radius: 6px;
     padding: 0 8px; font-size: 14px; line-height: 1.6; white-space: nowrap;
   }
-  .card-mt { margin-top: 16px; }
-  .money { display: flex; align-items: center; gap: 18px; background: #FFF8EC; border-color: #F5DFA8; }
-  .money .big { font-size: 22px; font-weight: 700; color: #6B4E00; }
-  .money .small { color: #6B4E00; font-size: 15px; margin-top: 2px; }
-  .money svg { flex: none; width: 40px; height: 40px; }
+  .facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  .facts li {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 14px 18px 14px 46px; position: relative; font-size: 15px; scroll-margin-top: 24px;
+  }
+  .facts li::before {
+    content: ""; position: absolute; left: 18px; top: 20px; width: 12px; height: 12px; border-radius: 50%;
+    background: var(--blue); box-shadow: 0 0 0 4px #DCEBFF;
+  }
+  .facts li:target { border-color: var(--blue); box-shadow: 0 0 0 3px #DCEBFF; }
+  .facts b { font-weight: 600; }
+  .facts .hot { background: #FFF8EC; border-color: #F5DFA8; }
+  .facts .hot::before { background: #FF9500; box-shadow: 0 0 0 4px #FFEBCC; }
+  .facts .hot em { font-style: normal; font-weight: 700; color: #B42318; }
   footer { margin: 72px 0 0; padding: 24px 0 40px; border-top: 1px solid var(--line); color: var(--grey); font-size: 14px;
            display: flex; flex-wrap: wrap; gap: 8px 22px; justify-content: space-between; }
   footer a { color: var(--grey); }
@@ -84,12 +97,14 @@
     .grid { grid-template-columns: 1fr; }
     .hero { grid-template-columns: 1fr; gap: 16px; }
     .icon { width: 64px; height: 64px; }
-    h1 { font-size: 36px; }
+    h1 { font-size: 34px; }
+    h1 span { margin-left: 0; }
     .tagline { font-size: 16px; }
+    .lead { font-size: 17px; margin-top: 18px; }
     .dl { width: 100%; justify-content: center; }
     section { padding-top: 44px; }
     h2 { font-size: 24px; }
-    .money .big { font-size: 19px; }
+    h2 small { display: block; margin: 4px 0 0; }
   }
 </style>
 </head>
@@ -107,61 +122,55 @@
       <path d="M31.5 32H50M43 32v8M49 32v6" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
     </svg>
     <div>
-      <h1>领钥匙</h1>
-      <div class="tagline">完全免费，老衲不打诳语</div>
+      <h1>免费领取钥匙<span>老衲不打诳语</span></h1>
+      <div class="tagline">白嫖谷歌手艺，老衲只指路，不收香油钱。</div>
     </div>
   </header>
+
+  <p class="lead">所谓的「钥匙（API Key）」，就是一串长得像猫咪踩键盘踩出来的乱码暗号。去谷歌领一串塞进「钥匙 1」，这尊赛博苦力就能立刻给你干活。</p>
 
   <div class="cta">
     <a class="dl" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <circle cx="8" cy="12" r="3.5"/><path d="M11.5 12H21M18 12v3.5M21 12v2.5"/></svg>
-      去谷歌领钥匙
+      去谷歌领暗号
     </a>
+    <a class="meta" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>
   </div>
 
   <section>
-    <h2>四步，钥匙到手</h2>
+    <h2>四步把锁撬开</h2>
     <div class="grid">
       <div class="card">
         <div class="num">1</div>
-        <h3>登录</h3>
-        <p>点上面的蓝按钮，用谷歌账号登录。</p>
+        <h3>刷脸进门</h3>
+        <p>点上面蓝按钮，用 Gmail 账号登录，遇到霸王条款闭眼点同意就行。</p>
       </div>
       <div class="card">
         <div class="num">2</div>
-        <h3>找到钥匙</h3>
-        <p>新号进去一般已经有一把；没有就点 <span class="btnlike">Create API key</span>。</p>
+        <h3>伸手摸钥</h3>
+        <p>进门找 <span class="btnlike">Create API key</span> 戳一下（新号通常进门就塞给你一把现成的）。</p>
       </div>
       <div class="card">
         <div class="num">3</div>
-        <h3>复制</h3>
-        <p>整串复制，<code>AQ.</code> 开头那一长串。</p>
+        <h3>整串顺走</h3>
+        <p>把那串 <code>AQ.</code> 或 <code>AIza</code> 开头的神秘咒语全选复制，漏一个字母它就装死给你看。</p>
       </div>
       <div class="card">
         <div class="num">4</div>
-        <h3>贴进录入僧</h3>
-        <p>贴进「钥匙 1」，点「开始工作」。</p>
-      </div>
-    </div>
-    <div class="card card-mt money">
-      <svg viewBox="0 0 40 40" aria-hidden="true">
-        <rect x="3" y="9" width="34" height="22" rx="4" fill="none" stroke="#B07D00" stroke-width="2.6"/>
-        <path d="M3 16h34" stroke="#B07D00" stroke-width="2.6"/>
-        <path d="M6 4 34 36" stroke="#E5484D" stroke-width="3" stroke-linecap="round"/>
-      </svg>
-      <div>
-        <div class="big">打死别绑卡，就不会花钱。</div>
-        <div class="small">免费额度：每分钟 15 次，每天 500 次。</div>
+        <h3>对孔插锁</h3>
+        <p>贴进录入僧的「钥匙 1」，点「开始工作」，施主可以去喝茶了。</p>
       </div>
     </div>
   </section>
 
-  <section id="key2">
-    <h2>钥匙 2</h2>
-    <div class="card">
-      <p>可以空着。要填，就在另一个项目里再建一把：同一个项目的钥匙共用额度，填了白填。</p>
-    </div>
+  <section>
+    <h2>三条铁律<small>看完少走十年弯路</small></h2>
+    <ul class="facts">
+      <li class="hot"><b>护驾铁律</b>：<em>打死别绑银行卡！</em>只要你不手欠往里塞卡号，谷歌就算破产也顺不走你一分钱。</li>
+      <li><b>化缘胃口</b>：<b>1 分钟 15 次，1 天 500 次。</b>免费的驴不能往死里抽，刷太猛谷歌会装死；放心，程序全自动卡点，自己去蹲点继续干活。</li>
+      <li id="key2"><b>钥匙 2 是备胎（平时空着）</b>：1 号钥匙今天把 500 次刷爆了，程序会自动换第二把，不用你动手。一个 Google 邮箱一把。</li>
+    </ul>
   </section>
 
   <footer>
