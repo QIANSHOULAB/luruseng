@@ -232,13 +232,13 @@
       <li><b>表格、名单、数据库、照片都只在你自己电脑上</b>，不往别处传。钥匙也只存在你电脑上；公用电脑可以在右上角 ⚙ 里关掉「记住钥匙」。</li>
       <li><b>越用越准</b>：点「放入数据库」把公司核对过的 TOOL BROKEN RECORD 放进去，名字、刀具、机床它就认得越来越熟。</li>
       <li><b>不只刀单</b>：点「＋ 新建类别」起个名字（比如质检单），它先把单子上的内容全认出来；你改对了点「放入数据库」放进这个类别，表头就定成它的列，越放越准。每个类别一个自己的数据库，跟刀单互不串味。</li>
-      <li><b>有新版会自己换上</b>：每 6 小时查一次，空闲时自己换，不打断你干活。不想要就在 ⚙ 里关掉「自动更新」。</li>
+      <li><b>有新版会告诉你</b>：每 6 小时查一次，出了新版就弹出来告诉你更新了啥，点「现在更新」它自己下载、自己换上，设置和数据都不动。嫌麻烦就点「以后都自动更新」，以后空闲时自己换。</li>
       <li><b>不留原图也行</b>：⚙ 里关掉「保留原图」，认完的原片扔进回收站，省一半硬盘。</li>
     </ul>
   </section>
 
   <footer>
-    <span>录入僧 · 施主去玩，贫僧填表</span>
+    <span>录入僧 · 施主去玩，贫僧填表 · 修改建议、想要的功能：<a id="mail" href="#">联系制作人</a></span>
     <span><a href="https://github.com/oilsongchengmin-svg/luruseng">源码</a> ·
       <a href="https://github.com/oilsongchengmin-svg/luruseng/releases">所有版本</a></span>
   </footer>
@@ -250,6 +250,10 @@
     if (/Android|iPhone|iPad|iPod|HarmonyOS|Mobile/i.test(ua)) {
       document.body.className += ' is-phone';
     }
+    var mail = document.getElementById('mail');
+    var addr = ['oilsongchengmin', 'gmail.com'].join('@');       // 拼起来写，少招点垃圾邮件
+    mail.href = 'mailto:' + addr + '?subject=' + encodeURIComponent('录入僧 建议');
+    mail.textContent = addr;
     var copy = document.getElementById('copy');
     copy.addEventListener('click', function () {
       var done = function () { copy.textContent = '已复制'; };

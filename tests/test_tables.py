@@ -205,3 +205,44 @@ def test_window_flow(tmp_path, monkeypatch):
         assert app.load_config()['category'] == '质检单'
     finally:
         root.destroy()
+
+
+def test_update_card_and_contact(tmp_path, monkeypatch):
+    """别人的电脑：有新版弹卡片（更新了啥 + 现在更新 / 以后都自动更新 / 以后再说），右上角留蓝色小按钮；⚙ 里能联系制作人。"""
+    import pytest
+    try:
+        import tkinter as tk
+        root = tk.Tk()
+    except Exception:
+        pytest.skip('没有显示器，跳过窗口测试')
+    from bangong import app, updater
+    monkeypatch.setattr(app, 'app_dir', lambda: str(tmp_path / 'app'))
+    monkeypatch.setattr(app, 'CONFIG', str(tmp_path / 'config.json'))
+    monkeypatch.setattr(updater, 'notes', lambda since=None, timeout=15: '- 后来拿到的说明')
+    try:
+        a = app.App(root)
+        assert a.cfg['auto_update'] is False                         # 新装：不自动更新
+        a.offer_update('99.0.0', '- 大更新')
+        root.update()
+        card = a.dialog
+        assert isinstance(card, app.UpdateCard) and card.notes.get() == '- 大更新'
+        assert a.update_pill.winfo_ismapped() and a.update_pill.cget('text') == '新版本 v99.0.0'
+        card.later()
+        assert a.update_dismissed == '99.0.0' and not card.winfo_exists()
+        a.reopen_update()                                          # 点右上角蓝色小按钮：卡片回来，说明自己去拿
+        import time
+        for _ in range(60):
+            root.update()
+            if a.dialog.notes.get() == '- 后来拿到的说明':
+                break
+            time.sleep(0.05)
+        assert a.dialog.notes.get() == '- 后来拿到的说明'
+        a.dialog.always()                                          # 以后都自动更新
+        root.update()
+        assert a.cfg['auto_update'] is True and app.load_config()['auto_update'] is True
+        a.open_settings()
+        root.update()
+        a.settings_win.copy_mail()
+        assert root.clipboard_get() == updater.CONTACT == 'oilsongchengmin@gmail.com'
+    finally:
+        root.destroy()

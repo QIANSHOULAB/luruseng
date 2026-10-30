@@ -14,7 +14,7 @@ ROWS = [
     ('hide_on_close', '点 × 只收起', '开着「来图就干」时，点 × 收进任务栏，后台照样盯着文件夹'),
     ('auto_open', '干完自动打开', '手动点「开始工作」干完后，自动打开表格和核对窗口'),
     ('keep_originals', '保留原图', '原片留在「已识别 › 批次 › 原图」；关掉就扔进回收站，省一半硬盘'),
-    ('auto_update', '自动更新', '每 6 小时去网站查一次新版，有就下载，空闲时自己换上'),
+    ('auto_update', '自动更新', '开着：有新版自己下载、空闲时换上。关着：只提醒你有新版、更新了啥，你点了才换'),
     ('remember_keys', '记住钥匙', '钥匙存在这台电脑上，下次不用再填；公用电脑建议关掉'),
     ('shortcuts', '桌面和开始菜单图标', '在桌面和开始菜单放「录入僧」的图标'),
 ]
@@ -25,12 +25,13 @@ NEW = {                     # 新装的电脑
     'hide_on_close': False,
     'auto_open': True,
     'keep_originals': True,
-    'auto_update': True,
+    'auto_update': False,   # 别人的电脑：有新版只提醒，点了才换（Song 定的：他自己的全自动，别人的让他自己开）
     'remember_keys': True,
     'shortcuts': True,
 }
 
-OLD = {k: True for k in NEW}  # 用过的电脑：以前就是这样，全开
+OLD = {k: True for k in NEW}  # 用过的电脑：以前就是这样，全开……
+OLD['auto_update'] = False    # ……除了自动更新：没在 v1.8 存过设置的老电脑都是别人的（Song 的早就存成开着了）
 
 
 def upgrade(cfg: dict, existed: bool) -> dict:

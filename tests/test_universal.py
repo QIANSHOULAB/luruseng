@@ -19,13 +19,15 @@ def test_new_computer_gets_polite_defaults():
     cfg = settings.upgrade({}, existed=False)
     assert cfg['settings_ver'] == settings.SETTINGS_VER
     assert cfg['auto'] is False and cfg['startup'] is False and cfg['hide_on_close'] is False
-    assert cfg['auto_open'] and cfg['keep_originals'] and cfg['auto_update'] and cfg['remember_keys'] and cfg['shortcuts']
+    assert cfg['auto_update'] is False                       # 别人的电脑：有新版只提醒，点了才换
+    assert cfg['auto_open'] and cfg['keep_originals'] and cfg['remember_keys'] and cfg['shortcuts']
 
 
 def test_old_computer_keeps_everything_on():
     old = {'folder': r'F:\songchengmin\录入僧\待识别', 'key1': 'AIzaX', 'auto': True, 'model': 'm'}
     cfg = settings.upgrade(dict(old), existed=True)
-    assert all(cfg[k] is True for k in settings.NEW), cfg
+    assert all(cfg[k] is True for k in settings.NEW if k != 'auto_update'), cfg
+    assert cfg['auto_update'] is False                       # 没存过新设置的老电脑都是别人的
     assert {k: cfg[k] for k in old} == old                      # 原来的值一个不动
     again = settings.upgrade(dict(cfg), existed=True)
     assert again == cfg
@@ -194,3 +196,34 @@ def test_recycle_is_a_no_op_off_windows(tmp_path):
         assert engine.recycle(str(p)) is False and p.exists()
     else:                                 # Windows：真扔进回收站
         assert engine.recycle(str(p)) is True and not p.exists()
+
+
+def test_song_pc_keeps_auto_update():
+    """Song 的电脑 v1.8 起就存成「自动更新开着」（settings_ver=1），升级不动它。"""
+    saved = {'folder': 'x', 'settings_ver': 1, 'auto_update': True, 'startup': True}
+    assert settings.upgrade(dict(saved), existed=True)['auto_update'] is True
+
+
+def test_release_notes_since():
+    text = """# 说明
+
+## 1.9.1
+- 新的一条
+- 第二条
+
+## 1.9.0
+- 类别
+
+## 1.8.0
+- 设置
+"""
+    assert updater.notes_since(text, '1.9.0') == 'v1.9.1\n- 新的一条\n- 第二条'
+    assert updater.notes_since(text, '1.8.0').startswith('v1.9.1') and 'v1.9.0\n- 类别' in updater.notes_since(text, '1.8.0')
+    assert updater.notes_since(text, '1.9.1') == '' and updater.notes_since('', '1.0.0') == ''
+
+
+def test_notes_from_site(tmp_path, site):
+    (site / 'changes.md').write_text('## 99.0.0\n- 大更新\n## 1.0.0\n- 老的\n', encoding='utf-8')
+    assert updater.notes() == 'v99.0.0\n- 大更新'
+    (site / 'changes.md').unlink()
+    assert updater.notes() == ''                              # 拿不到说明不耽误更新

@@ -254,8 +254,9 @@ class App:
             root.iconbitmap(os.path.join(base, 'assets', 'bangong.ico'))
         except Exception:
             pass
-        root.geometry('1120x700')
-        root.minsize(1040, 600)
+        sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()     # 小屏幕、放大 150% 的笔记本也放得下
+        root.geometry(f'{min(1120, sw - 40)}x{min(700, sh - 90)}')
+        root.minsize(min(1040, sw - 40), min(600, sh - 90))
         root.configure(bg=ui.BG)
         fam = ui.family(root)
         size = 11
@@ -348,6 +349,8 @@ class App:
         tk.Label(hrow, text='任务状态', bg=ui.CARD, fg=ui.TEXT, font=(fam, 12)).pack(side='left')
         ui.Pill(hrow, '', command=self.open_settings, icon='gear', font=bf, bg=ui.CARD, height=32, radius=16,
                 padx=8).pack(side='right')
+        self.update_pill = ui.Pill(hrow, '新版本', command=self.reopen_update, primary=True, font=(fam, 9, 'bold'),
+                                   bg=ui.CARD, height=28, radius=14, padx=10)      # 有新版才露出来
         ui.separator(s_).pack(fill='x', pady=(10, 10))
         self.status = tk.StringVar(value='')
         ui.BigStatus(s_, self.status, fam, size=20).pack(fill='x')
@@ -396,6 +399,9 @@ class App:
         self.checking = False
         self.next_update = time.time() + 60          # 打开 1 分钟后查第一次新版，之后每 6 小时
         self.downloaded = ''                         # 下载好的新版本号
+        self.update_asap = False                     # 人点了「现在更新」：下好就换，不等两分钟
+        self.update_dismissed = ''                   # 点了「以后再说」的版本：这次开着不再弹卡片
+        self.offered = ''                            # 网站上有、还没换的新版本号（右上角蓝色小按钮）
         self.update_skip = ''                        # 换失败的版本：这次开着就别再下它了
         self.last_input = time.time()
         root.bind_all('<KeyPress>', self._touched, add='+')
@@ -606,7 +612,7 @@ class App:
         if getattr(sys, 'frozen', False) and os.path.exists(upd) and self.settle.ready(upd):
             if autopilot.same_file(upd, sys.executable):
                 threading.Thread(target=autopilot.retire_update_file, args=(d, 5), daemon=True).start()
-            elif self.quiet():                      # 空闲才换：没在核对、没在投喂、两分钟没人碰
+            elif self.quiet() or (self.update_asap and not self.feeding):   # 空闲才换；点了「现在更新」就不等
                 self.updating = True
                 threading.Thread(target=self._update, args=(upd,), daemon=True).start()
                 return
@@ -614,10 +620,9 @@ class App:
             self.next_canon = time.time() + 300
             if self._canonicalize(d):
                 return
-        if (getattr(sys, 'frozen', False) and self.cfg.get('auto_update', True) and not self.checking
-                and time.time() >= self.next_update):
+        if getattr(sys, 'frozen', False) and not self.checking and time.time() >= self.next_update:
             self.next_update = time.time() + updater.CHECK_EVERY
-            self.check_update()
+            self.check_update()                     # 自动更新开着：自己下、空闲时换；关着：只提醒
         if self.auto.get() and (self.key1.get().strip() or self.key2.get().strip()):
             snap = autopilot.image_snapshot(self.folder.get())
             if self.watcher.poll(snap):
@@ -656,6 +661,7 @@ class App:
             autopilot.log_update(app_dir(), f'新版 {autopilot.UPDATE_NAME} 打不开，没换')
             self.log(f'✗ 新版 {autopilot.UPDATE_NAME} 打不开，没换')
             self.update_skip = self.downloaded              # 这次开着就别再下它了
+            self.update_asap = False
             try:
                 os.replace(upd, upd + '.坏的')
             except OSError:
@@ -681,21 +687,34 @@ class App:
         open_ = [w for w in (self.viewer, self.settings_win, self.dialog) if w is not None and w.winfo_exists()]
         return not self.feeding and not open_ and time.time() - self.last_input >= 120
 
-    def check_update(self, report=None):
-        """去网站查新版（后台线程，不卡窗口）。report(一句话) 给设置卡片显示结果。"""
+    def check_update(self, report=None, manual: bool = False):
+        """去网站查新版（后台线程，不卡窗口）。自动更新开着：有就下载，空闲时换上（Song 的电脑）。
+        关着（别人的电脑默认）：只弹卡片告诉他有新版、更新了啥，他点了才换。report(一句话) 给设置卡片显示结果。"""
         if self.checking:
             return
         self.checking = True
+        auto = self.cfg.get('auto_update', False)
 
         def go():
             try:
-                if getattr(sys, 'frozen', False):
+                if not getattr(sys, 'frozen', False):
+                    msg = f'网站上最新是 v{updater.latest_version()}（这是开发版，不下载）'
+                elif auto:
                     v = updater.check(app_dir(), log=self.log, skip=self.update_skip)
                     if v:
                         self.downloaded = v
                     msg = f'新版 v{v} 下载好了，空闲时自己换上' if v else f'已经是最新版 v{engine.VERSION}'
                 else:
-                    msg = f'网站上最新是 v{updater.latest_version()}（这是开发版，不下载）'
+                    remote = updater.latest_version()
+                    if updater.is_newer(remote) and remote != self.update_skip:
+                        msg = f'有新版本 v{remote}'
+                        if manual or remote != self.update_dismissed:
+                            text = updater.notes()
+                            self.q.put(('call', lambda: self.offer_update(remote, text)))
+                        else:
+                            self.q.put(('call', lambda: self.show_update_pill(remote)))
+                    else:
+                        msg = f'已经是最新版 v{engine.VERSION}'
             except Exception as e:
                 msg = f'查不到新版：{type(e).__name__}：{e}'
                 if getattr(sys, 'frozen', False):
@@ -705,6 +724,49 @@ class App:
             if report:
                 self.q.put(('call', lambda: report(msg)))
 
+        threading.Thread(target=go, daemon=True).start()
+
+    def show_update_pill(self, remote: str):
+        self.offered = remote
+        self.update_pill.config(text=f'新版本 v{remote}')
+        if not self.update_pill.winfo_ismapped():
+            self.update_pill.pack(side='right', padx=(0, 8))
+
+    def offer_update(self, remote: str, text: str = ''):
+        """有新版：右上角留一个蓝色小按钮，再弹一张卡片（更新了啥 + 现在更新 / 以后都自动更新 / 以后再说）。"""
+        self.show_update_pill(remote)
+        if self.updating or self.update_asap:
+            return
+        self._dialog(UpdateCard, remote, text)
+
+    def reopen_update(self):
+        if self.offered:
+            self._dialog(UpdateCard, self.offered, '')
+
+    def update_now(self, remote: str, card=None):
+        """人点了「现在更新」：下载新版（显示进度），下好就换（正在干活的话干完这批再换）。"""
+        def say(t):
+            self.q.put(('call', lambda: card is not None and card.winfo_exists() and card.status.set(t)))
+
+        def go():
+            dst = os.path.join(app_dir(), autopilot.UPDATE_NAME)
+            try:
+                if not os.path.exists(dst):
+                    say('正在下载…')
+                    updater.download(f'{updater.LATEST}/{updater.EXE_ASSET}', dst,
+                                     progress=lambda n, t: say(f'正在下载… {n // 1048576} / {max(t, n) // 1048576} MB'))
+                self.downloaded = remote
+                self.update_asap = True
+                autopilot.log_update(app_dir(), f'点了「现在更新」：下载好新版 v{remote}')
+                self.log(f'新版 v{remote} 下载好了，马上换上（正在干活的话干完这批再换）')
+                self.q.put(('call', lambda: card is not None and card.winfo_exists() and card.destroy()))
+            except Exception as e:
+                say(f'下载失败：{type(e).__name__}：{e}（过一会儿再点一次）')
+                self.q.put(('call', lambda: card is not None and card.winfo_exists() and card.enable()))
+
+        if not getattr(sys, 'frozen', False):
+            say('这是开发版，不下载')
+            return
         threading.Thread(target=go, daemon=True).start()
 
     def open_settings(self):
@@ -787,7 +849,7 @@ class SettingsCard(tk.Toplevel):
         fam = ui.family(self)
         bf = (fam, 11)
         self.card = card = ui.Card(self, pad=20, radius=14)
-        card.configure(width=600)
+        card.configure(width=720)
         card.pack(fill='both', expand=True, padx=14, pady=14)
         g = card.body
         tk.Label(g, text='设置', font=(fam, 16, 'bold'), bg=ui.CARD, fg=ui.TEXT).pack(anchor='w')
@@ -795,7 +857,7 @@ class SettingsCard(tk.Toplevel):
         self.vars = {}
         for i, (key, title, desc) in enumerate(settings.ROWS):
             row = tk.Frame(g, bg=ui.CARD)
-            row.pack(fill='x', pady=5)
+            row.pack(fill='x', pady=4)
             v = tk.BooleanVar(value=bool(app.cfg.get(key)))
             ui.Switch(row, v, command=lambda k=key, var=v: app.setting_changed(k, bool(var.get()))).pack(
                 side='right', padx=(18, 0))
@@ -803,20 +865,25 @@ class SettingsCard(tk.Toplevel):
             left.pack(side='left', fill='x', expand=True)
             tk.Label(left, text=title, font=bf, bg=ui.CARD, fg=ui.TEXT, anchor='w').pack(anchor='w')
             tk.Label(left, text=desc, font=(fam, 9), bg=ui.CARD, fg=ui.GREY, anchor='w', justify='left',
-                     wraplength=460).pack(anchor='w', pady=(1, 0))
+                     wraplength=560).pack(anchor='w', pady=(1, 0))
             self.vars[key] = v
             if i < len(settings.ROWS) - 1:
                 ui.separator(g).pack(fill='x')
         ui.separator(g).pack(fill='x', pady=(0, 12))
         foot = tk.Frame(g, bg=ui.CARD)
         foot.pack(fill='x')
-        tk.Label(foot, text=f'{engine.APP_NAME} v{engine.VERSION}', font=(fam, 10), bg=ui.CARD, fg=ui.GREY).pack(
-            side='left')
+        info = tk.Frame(foot, bg=ui.CARD)
+        info.pack(side='left')
+        tk.Label(info, text=f'{engine.APP_NAME} v{engine.VERSION}', font=(fam, 10), bg=ui.CARD, fg=ui.GREY,
+                 anchor='w').pack(anchor='w')
+        tk.Label(info, text=f'制作人 {updater.CONTACT}', font=(fam, 9), bg=ui.CARD, fg=ui.GREY,
+                 anchor='w').pack(anchor='w')
         btn = dict(font=(fam, 10), bg=ui.CARD, height=34, radius=8, padx=14)
         ui.Pill(foot, '完成', command=self.destroy, primary=True, **btn).pack(side='right')
         ui.Pill(foot, '录入僧网站', command=lambda: open_path(updater.SITE_URL), **btn).pack(side='right', padx=8)
         self.check_btn = ui.Pill(foot, '检查新版', command=self.check, **btn)
         self.check_btn.pack(side='right')
+        ui.Pill(foot, '联系制作人', command=self.mail, **btn).pack(side='right', padx=(0, 8))
         self.note = tk.StringVar(value='')
         tk.Label(g, textvariable=self.note, font=(fam, 9), bg=ui.CARD, fg=ui.GREY, anchor='e').pack(
             fill='x', pady=(6, 0))
@@ -836,6 +903,18 @@ class SettingsCard(tk.Toplevel):
         except tk.TclError:
             pass
 
+    def mail(self):
+        """联系制作人：邮箱先复制好，再打开写邮件（电脑没设邮件程序的话，粘贴到常用的邮箱里发就行）。"""
+        import urllib.parse
+        self.copy_mail()
+        subject = urllib.parse.quote(f'录入僧 v{engine.VERSION} 建议')
+        open_path(f'mailto:{updater.CONTACT}?subject={subject}')
+        self.note.set(f'邮箱已复制：{updater.CONTACT}。没弹出写邮件的窗口，就粘贴到你常用的邮箱里发')
+
+    def copy_mail(self):
+        self.clipboard_clear()
+        self.clipboard_append(updater.CONTACT)
+
     def check(self):
         self.note.set('正在查…')
         self.check_btn.config(state='disabled')
@@ -844,7 +923,7 @@ class SettingsCard(tk.Toplevel):
             if self.winfo_exists():
                 self.note.set(msg)
                 self.check_btn.config(state='normal')
-        self.app.check_update(report=done)
+        self.app.check_update(report=done, manual=True)
 
 
 def handoff_target(here: str | None = None) -> str:
@@ -996,6 +1075,53 @@ class FeedCard(CardDialog):
             return
         self.destroy()
         self.app.do_feed(cat, paths)
+
+
+class UpdateCard(CardDialog):
+    """有新版：告诉他出了哪一版、更新了啥；他自己点「现在更新」，也可以点「以后都自动更新」。"""
+
+    def __init__(self, app: App, remote: str, text: str = ''):
+        super().__init__(app, '有新版本', 560)
+        self.remote = remote
+        b = self.body
+        tk.Label(b, text=f'录入僧 v{remote} 出来了（你现在用的是 v{engine.VERSION}）', font=self.bf, bg=ui.CARD,
+                 fg=ui.TEXT, anchor='w').pack(anchor='w')
+        tk.Label(b, text='更新了啥', font=(self.fam, 10, 'bold'), bg=ui.CARD, fg=ui.TEXT, anchor='w').pack(
+            anchor='w', pady=(14, 4))
+        self.notes = tk.StringVar(value=text or '正在拿更新说明…')
+        ui.Para(b, self.notes, font=(self.fam, 10), fg=ui.TEXT, width_px=500).pack(fill='x')
+        ui.Para(b, tk.StringVar(value=f'换版本不动你的设置、数据库和照片；换完自己重开。'
+                                      f'想要什么功能、有修改建议：发邮件给制作人 {updater.CONTACT}'),
+                font=(self.fam, 9), width_px=500).pack(fill='x', pady=(12, 0))
+        self.status = tk.StringVar(value='')
+        tk.Label(b, textvariable=self.status, font=(self.fam, 10), bg=ui.CARD, fg=ui.BLUE, anchor='w').pack(
+            anchor='w', pady=(8, 0))
+        f = self.footer()
+        self.btns = [self.button(f, '现在更新', self.now, primary=True),
+                     self.button(f, '以后都自动更新', self.always),
+                     self.button(f, '以后再说', self.later)]
+        if not text:
+            def go():
+                t = updater.notes()
+                app.q.put(('call', lambda: self.winfo_exists() and self.notes.set(t or '这次没写更新说明。')))
+            threading.Thread(target=go, daemon=True).start()
+
+    def enable(self, on: bool = True):
+        for btn in self.btns:
+            btn.config(state='normal' if on else 'disabled')
+
+    def now(self):
+        self.enable(False)
+        self.app.update_now(self.remote, self)
+
+    def always(self):
+        self.app.setting_changed('auto_update', True)
+        self.app.write('自动更新打开了：以后有新版自己下载、空闲时换上（⚙ 里可以关）')
+        self.now()
+
+    def later(self):
+        self.app.update_dismissed = self.remote
+        self.destroy()
 
 
 def go_home() -> bool:

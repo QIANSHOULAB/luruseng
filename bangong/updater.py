@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+import re
 import urllib.request
 
 from . import autopilot, engine
@@ -16,6 +17,8 @@ RELEASES_URL = f'https://github.com/{REPO}/releases'
 LATEST = os.environ.get('BANGONG_UPDATE', f'https://github.com/{REPO}/releases/latest/download').rstrip('/')
 EXE_ASSET = 'luruseng.exe'
 VERSION_ASSET = 'version.txt'
+CHANGES_ASSET = 'changes.md'           # 更新说明：每个版本一段「## 1.9.1」
+CONTACT = 'oilsongchengmin@gmail.com'  # 制作人：修改建议、想要的功能
 CHECK_EVERY = 6 * 3600                  # 每 6 小时查一次
 MIN_SIZE = 5 * 1024 * 1024              # 正经的 exe 起码这么大；小于这个就是下坏了（或者下到一张网页）
 
@@ -66,6 +69,31 @@ def download(url: str, dst: str, timeout: float = 60, progress=None) -> int:
                 os.remove(part)                     # 半截的不留
             except OSError:
                 pass
+
+
+def notes_since(text: str, since: str = engine.VERSION, limit: int = 40) -> str:
+    """从更新说明里挑出比 since 新的那几段：「v1.9.1」一行，下面是那一版的条目。"""
+    out, keep = [], False
+    for line in (text or '').splitlines():
+        m = re.match(r'^#{1,6}\s*v?(\d+(?:\.\d+)+)\s*$', line.strip())
+        if m:
+            keep = autopilot.vtuple(m.group(1)) > autopilot.vtuple(since)
+            if keep:
+                out.append(f'v{m.group(1)}')
+            continue
+        if keep and line.strip():
+            out.append(line.rstrip())
+    return '\n'.join(out[:limit])
+
+
+def notes(since: str = engine.VERSION, timeout: float = 15) -> str:
+    """网站上的更新说明里，比 since 新的部分。拿不到就是 ''（不耽误更新）。"""
+    try:
+        with _open(f'{LATEST}/{CHANGES_ASSET}', timeout) as r:
+            text = r.read(200_000).decode('utf-8', 'replace').lstrip('\ufeff')
+        return notes_since(text, since)
+    except Exception:
+        return ''
 
 
 def check(app_dir: str, log=lambda m: None, skip: str = '') -> str:

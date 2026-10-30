@@ -26,6 +26,15 @@ GREEN = '#34C759'       # 开关打开是绿色（跟 iPhone/Mac 一样）
 
 _SS = 4                 # 抗锯齿：放大几倍画
 _cache: dict = {}
+_cache_root = None
+
+
+def _fresh():
+    """图片是挂在 Tk 窗口上的：换了一个 Tk（测试里一个接一个开）旧图就不能用了，清掉重画。"""
+    global _cache_root
+    if tk._default_root is not _cache_root:
+        _cache.clear()
+        _cache_root = tk._default_root
 
 
 def family(root) -> str:
@@ -38,6 +47,7 @@ def family(root) -> str:
 
 def rounded(w: int, h: int, r: int, fill: str, bg: str, outline: str | None = None, width: int = 1):
     """圆角矩形的图（抗锯齿），四个角外面填 bg。"""
+    _fresh()
     w, h = max(int(w), 2), max(int(h), 2)
     key = (w, h, r, fill, bg, outline, width)
     img = _cache.get(key)
@@ -237,6 +247,7 @@ class Switch(tk.Canvas):
 
 def _knob(d: int, bg: str):
     """开关上的白色圆钮：透明底（不然方角会盖住轨道的圆头），带一点点影子。"""
+    _fresh()
     key = ('knob', d)
     img = _cache.get(key)
     if img is None:
@@ -361,6 +372,7 @@ class Tag(tk.Canvas):
 
 def app_icon(size: int, bg: str = BG):
     """蓝色圆角方块里一张白纸三道线（标题旁边那个图标），Pillow 画的，不用另带图片。"""
+    _fresh()
     key = ('icon', size, bg)
     img = _cache.get(key)
     if img is None:
@@ -391,6 +403,7 @@ def app_icon(size: int, bg: str = BG):
 
 def glyph(kind: str, size: int, color: str):
     """按钮上的小图标（透明底，Pillow 画）：play 开始、stop 停止、folder 文件夹、doc 文件、db 数据库。"""
+    _fresh()
     key = ('glyph', kind, size, color)
     img = _cache.get(key)
     if img is not None:
@@ -458,6 +471,7 @@ class Check(tk.Canvas):
 
     def _draw(self):
         on = bool(self.var.get())
+        _fresh()
         key = ('check', on, self.outer)
         img = _cache.get(key)
         if img is None:

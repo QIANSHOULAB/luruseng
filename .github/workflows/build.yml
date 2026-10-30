@@ -39,6 +39,7 @@ jobs:
         run: |
           $v = python -c "from bangong import engine; print(engine.VERSION)"
           [IO.File]::WriteAllText("$PWD/dist/version.txt", $v.Trim())
+          Copy-Item changes.md dist/changes.md
           "v=$($v.Trim())" >> $env:GITHUB_OUTPUT
           Write-Output "version $v"
       - name: Smoke test the exe against the mock server
@@ -154,4 +155,5 @@ jobs:
           files: |
             dist/luruseng.exe
             dist/version.txt
+            dist/changes.md
           make_latest: true
