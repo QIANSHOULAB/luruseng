@@ -361,6 +361,17 @@ function save(blob, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 60000);
 }
 
+async function copyText(text, host) {          // host：开着的对话框（对话框外面的东西点不着，临时框得放在它里面）
+  try { await navigator.clipboard.writeText(text); return true; } catch (e) {
+    const ta = Object.assign(document.createElement('textarea'), { value: text });
+    host.appendChild(ta); ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e2) { /* 这个浏览器不让复制 */ }
+    ta.remove();
+    return ok;
+  }
+}
+
 async function latestRun() {
   if (S.cfg.lastRun) { const r = await S.st.get('runs', S.cfg.lastRun); if (r) return r; }
   const ids = (await S.st.keys('runs')).sort();
@@ -506,9 +517,17 @@ function setupSettings() {
     rows.appendChild(r);
   }
   $('#setver').innerHTML = '';
-  $('#setver').append(`录入僧网页版 v${C.VERSION}`, document.createElement('br'), `制作人 ${CONTACT}`);
-  $('#mail').href = `mailto:${CONTACT}?subject=${encodeURIComponent(`录入僧网页版 v${C.VERSION} 建议`)}`;
+  $('#setver').append(`录入僧网页版 v${C.VERSION}`, document.createElement('br'), '千手院方丈释手');
+  const mail = $('#mail');
+  mail.href = `mailto:${CONTACT}?subject=${encodeURIComponent(`录入僧网页版 v${C.VERSION} 建议`)}`;
+  mail.title = CONTACT;
+  mail.onclick = async () => {                  // 方丈邮箱：邮箱先复制好，再打开写邮件；没设邮件程序的电脑，底下这行照着发
+    const ok = await copyText(CONTACT, dlg);
+    $('#setnote').textContent = ok ? `邮箱已复制：${CONTACT}。没弹出写邮件的窗口，就粘贴到你常用的邮箱里发`
+      : `方丈邮箱：${CONTACT}`;
+  };
   $('#gear').onclick = async () => {
+    $('#setnote').textContent = '';
     for (const box of rows.querySelectorAll('input')) box.checked = !!S.cfg[box.dataset.key];
     $('#seterr').textContent = S.st.kind === 'memory' ? '这个浏览器不让存东西（无痕窗口？）：关掉页面数据就没了，记得备份' : '';
     const u = await ST.usage();
@@ -692,10 +711,7 @@ function setupViewer() {
   $('#vcopy').onclick = async () => {
     const [text, n] = B.tsv(V.run);
     if (!n) { $('#vinfo').textContent = '这批没有认出来的记录'; return; }
-    try { await navigator.clipboard.writeText(text); } catch (e) {
-      const ta = Object.assign(document.createElement('textarea'), { value: text });
-      dlg.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
-    }
+    await copyText(text, dlg);
     $('#vinfo').textContent = `复制好了：${n} 行（认失败的不算）。到公司的表里点第一个空格子，粘贴`;
   };
   $('#vzip').onclick = async () => {

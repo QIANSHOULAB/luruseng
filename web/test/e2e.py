@@ -472,9 +472,15 @@ def main():
         def settings_backup_restore_and_forget_keys():
             page.click('#gear')
             page.wait_for_selector('#dlg-set[open]')
-            assert '录入僧网页版 v' in page.inner_text('#setver')
+            assert '录入僧网页版 v' in page.inner_text('#setver') and '千手院方丈释手' in page.inner_text('#setver')
             assert '数据库 22 条' in page.inner_text('#usage'), page.inner_text('#usage')
             page.screenshot(path=os.path.join(SHOTS, '4-设置.png'))
+            assert page.get_attribute('#hub', 'href') == 'https://oilsongchengmin-svg.github.io/'
+            page.eval_on_selector('#mail', 'a => a.addEventListener("click", e => e.preventDefault())')   # 测试里不真去开邮件程序
+            page.click('#mail')                                                   # 方丈邮箱：先复制邮箱，底下一行写出来
+            page.wait_for_function('() => document.querySelector("#setnote").textContent.includes("邮箱已复制")')
+            assert page.evaluate('navigator.clipboard.readText()') == page.get_attribute('#mail', 'title')
+            assert page.get_attribute('#mail', 'title').startswith('oilsongchengmin@')
             path = download('#backup')
             data = json.load(open(path, encoding='utf-8'))
             assert data['app'] == 'luruseng-web' and len(data['kb']['records']) == 22 and '质检单' in data['cats']
@@ -521,6 +527,15 @@ def main():
             sw = p.evaluate('() => [document.documentElement.scrollWidth, window.innerWidth]')
             assert sw[0] <= sw[1], sw                                             # 不横着滚
             p.screenshot(path=os.path.join(SHOTS, '5-手机.png'), full_page=True)
+            for btn, dlg in (('#gear', '#dlg-set'), ('#names', '#dlg-names'), ('#feed', '#dlg-feed'), ('#newcat', '#dlg-new')):
+                p.click(btn)
+                p.wait_for_selector(f'{dlg}[open]')
+                box = p.evaluate('d => { const r = document.querySelector(d + " .dcard").getBoundingClientRect(); return [r.left, r.right, innerWidth]; }', dlg)
+                assert 0 <= box[0] and box[1] <= box[2], (dlg, box)              # 对话框整个在屏幕里，左边不被切掉
+                if dlg == '#dlg-set':
+                    p.screenshot(path=os.path.join(SHOTS, '5-手机设置.png'))
+                p.click(f'{dlg} [data-close]')
+                p.wait_for_selector(f'{dlg}:not([open])', state='attached')
             p.set_input_files('#files', imgs[:3])
             p.fill('#key1', K1)
             p.click('#start')
