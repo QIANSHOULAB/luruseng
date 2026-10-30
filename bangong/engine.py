@@ -31,9 +31,10 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-VERSION = '1.9.6'
+VERSION = '1.9.7'
 APP_NAME = '录入僧'
 SUBTITLE = '施主去玩，贫僧填表'
+TITLE = '入我千手院，凡事尽释手；千僧替牛马，施主自风流。'      # 窗口标题栏只写这一句（Song 定的）
 OLD_NAME = '搬工'                   # 改名前的名字：旧账本、旧配置照样认
 API_BASE = os.environ.get('BANGONG_API', 'https://generativelanguage.googleapis.com/v1beta').rstrip('/')
 DEFAULT_MODEL = 'gemini-3.5-flash-lite'

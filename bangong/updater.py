@@ -13,6 +13,7 @@ from . import autopilot, engine
 
 REPO = 'QIANSHOULAB/luruseng'
 SITE_URL = 'https://qianshoulab.github.io/luruseng/'          # 录入僧的网站：下载、怎么用
+HUB_URL = 'https://qianshoulab.github.io/'                            # 千手院总舵
 KEY_URL = SITE_URL + 'key.html'                                         # 怎么免费领钥匙（钥匙框后面那个按钮）
 RELEASES_URL = f'https://github.com/{REPO}/releases'
 LATEST = os.environ.get('BANGONG_UPDATE', f'https://github.com/{REPO}/releases/latest/download').rstrip('/')

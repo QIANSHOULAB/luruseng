@@ -147,8 +147,8 @@ class Viewer(tk.Toplevel):
     def __init__(self, master, folder: str, run_dir: str | None = None, start: int | None = None):
         super().__init__(master)
         self.folder = folder
-        self.geometry('1100x720')
-        self.minsize(640, 420)
+        self.geometry(f'{ui.px(1100)}x{ui.px(720)}')
+        self.minsize(ui.px(640), ui.px(420))
         self.runs = list_runs(folder)
         self.photos: dict[int, str] = {}
         self.nos: list[int] = []
@@ -163,11 +163,11 @@ class Viewer(tk.Toplevel):
         if not self.runs:
             self.title('核对')
             tk.Label(self, text='还没有编号照片：先点「开始工作」干一批。', bg=ui.BG, fg=ui.TEXT, font=bf,
-                     padx=30, pady=30).pack()
+                     padx=ui.px(30), pady=ui.px(30)).pack()
             return
 
         bar = ui.Card(self, pad=10, radius=14)
-        bar.pack(fill='x', padx=14, pady=(14, 12))
+        bar.pack(fill='x', padx=9, pady=(12, 4))                 # 卡片自带影子的边：看着离窗口边 14、离照片 12
         top = bar.body
         self.run_var = tk.StringVar()
         holder = ui.Combo(top, self.run_var, [run_label(r, len(load_photos(d))) for r, d, _ in self.runs],
@@ -179,7 +179,7 @@ class Viewer(tk.Toplevel):
         ui.Pill(top, radius=8, bg=ui.CARD, height=38, padx=16, text='◀ 上一张', command=lambda: self.step(-1), font=bf).pack(side='left', padx=(12, 6))
         self.num = tk.StringVar()
         box = ui.Field(top, self.num, font=bf, bg=ui.CARD)
-        box.configure(width=64)
+        box.configure(width=ui.px(64))
         box.pack(side='left')
         self.entry = box.entry
         self.entry.configure(justify='center')
@@ -194,19 +194,20 @@ class Viewer(tk.Toplevel):
         self.info = tk.StringVar()
         tk.Label(top, textvariable=self.info, bg=ui.CARD, fg=ui.GREY, font=(fam, 9)).pack(side='left', padx=12)
 
-        body = tk.Frame(self, bg=ui.BG, padx=14, pady=0)
-        body.pack(fill='both', expand=True, pady=(0, 14))
+        body = tk.Frame(self, bg=ui.BG)
+        body.pack(fill='both', expand=True, padx=(14, 9), pady=(0, 6))
         body.columnconfigure(0, weight=1)
         body.rowconfigure(0, weight=1)
         self.img = tk.Label(body, background='#1C1C1E', cursor='hand2', bd=0)
-        self.img.grid(row=0, column=0, sticky='nsew')
+        self.img.grid(row=0, column=0, sticky='nsew', pady=(2, 8))   # 跟右边卡片（自带影子的边）上下对齐
         self.img.bind('<Configure>', lambda e: self._later_render())
         self.img.bind('<Double-Button-1>', lambda e: self.cur in self.photos and _open(self.photos[self.cur]))
         side = ui.Card(body, pad=10, stretch=True)
-        side.configure(width=360)
-        side.grid(row=0, column=1, sticky='ns', padx=(12, 0))
+        side.configure(width=ui.px(370))                         # 看着 360 宽
+        side.grid(row=0, column=1, sticky='ns', padx=(7, 0))
         self.panel = tk.Text(side.body, width=40, wrap='word', relief='flat', bd=0, highlightthickness=0,
-                             background=ui.CARD, foreground=ui.TEXT, padx=6, pady=4, font=bf, tabs=(130,))
+                             background=ui.CARD, foreground=ui.TEXT, padx=ui.px(6), pady=ui.px(4), font=bf,
+                             tabs=(ui.px(130),))
         self.panel.pack(fill='both', expand=True)
         self.panel.tag_configure('h', font=(fam, 12, 'bold'))
         self.panel.tag_configure('k', foreground=ui.GREY)

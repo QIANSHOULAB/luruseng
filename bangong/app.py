@@ -269,16 +269,20 @@ class App:
         self.dialog = None
         cfg = load_config()
         self.cfg = cfg
+        ui.init_scale(root)                     # 屏幕放大 125%/150%：所有尺寸跟着放大，字和图才清楚
 
-        root.title(f'{engine.APP_NAME} —— {engine.SUBTITLE}  v{engine.VERSION}')
+        root.title(engine.TITLE)                # 标题栏只写山门偈语（Song 定的）
+        root.after(50, lambda: ui.tint_titlebar(root))
+        root.bind_class('Toplevel', '<Map>', lambda e: ui.tint_titlebar(e.widget), add='+')
         try:
             base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             root.iconbitmap(os.path.join(base, 'assets', 'bangong.ico'))
         except Exception:
             pass
         sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()     # 小屏幕、放大 150% 的笔记本也放得下
-        root.geometry(f'{min(1120, sw - 40)}x{min(700, sh - 90)}')
-        root.minsize(min(1040, sw - 40), min(600, sh - 90))
+        px = ui.px
+        root.geometry(f'{min(px(1120), sw - px(40))}x{min(px(700), sh - px(90))}')
+        root.minsize(min(px(1040), sw - px(40)), min(px(600), sh - px(90)))
         root.configure(bg=ui.BG)
         fam = ui.family(root)
         size = 11
@@ -286,8 +290,8 @@ class App:
         ui.style_ttk(root, fam, size)
         bf = (fam, size)
 
-        f = tk.Frame(root, bg=ui.BG, padx=14, pady=14)
-        f.pack(fill='both', expand=True)
+        f = tk.Frame(root, bg=ui.BG)
+        f.pack(fill='both', expand=True, padx=9, pady=(12, 6))      # 卡片自带影子的边，看着还是离窗口边 14
         f.columnconfigure(0, weight=1)
 
         # ---- 左边大卡片：标题、设置、按钮
@@ -299,7 +303,7 @@ class App:
         head = tk.Frame(g, bg=ui.CARD)
         head.grid(row=0, column=0, columnspan=3, sticky='w', pady=(0, 14))
         tk.Label(head, text=engine.APP_NAME, font=(fam, 24, 'bold'), bg=ui.CARD, fg=ui.TEXT).pack(side='left')
-        tk.Frame(head, bg='#D5DAE1', width=1, height=26).pack(side='left', padx=20)
+        tk.Frame(head, bg=ui.FIELD_LINE, width=ui.hairline(), height=px(26)).pack(side='left', padx=20)
         tk.Label(head, text=engine.SUBTITLE, font=(fam, 13), bg=ui.CARD, fg=ui.GREY).pack(side='left')
 
         def label(r, text):
@@ -324,7 +328,7 @@ class App:
         label(2, '图片文件夹')
         self.folder = tk.StringVar(value=cfg.get('folder') or default_folder())
         ui.Field(g, self.folder, font=bf).grid(row=2, column=1, sticky='ew', pady=5)
-        key_w = tkfont.Font(font=bf).measure('免费领钥匙') + 19 + 10 + 2 * 14      # 右边一列按钮一样宽
+        key_w = tkfont.Font(font=bf).measure('免费领钥匙') + int(px(38) * 0.5) + px(10) + 2 * px(14)   # 右边一列按钮一样宽
         self.pick_btn = ui.Pill(g, '选照片…', command=self.pick, font=bf, bg=ui.CARD, height=38, radius=8,
                                 minwidth=key_w)
         self.pick_btn.grid(row=2, column=2, padx=(10, 0))         # 挑照片，自己复制进图片文件夹；换文件夹在框里改
@@ -373,8 +377,8 @@ class App:
 
         # ---- 右边小卡片：任务状态
         side = ui.Card(f, pad=18, radius=14, stretch=True)
-        side.configure(width=290)
-        side.grid(row=0, column=1, sticky='ns', padx=(14, 0))
+        side.configure(width=px(300))                             # 看着 290 宽，两边各 5 是影子
+        side.grid(row=0, column=1, sticky='ns', padx=(4, 0))
         s_ = side.body
         hrow = tk.Frame(s_, bg=ui.CARD)
         hrow.pack(fill='x')
@@ -392,23 +396,23 @@ class App:
         self.names_head = tk.StringVar()
         self.names_path = tk.StringVar()
         tk.Label(s_, textvariable=self.names_head, bg=ui.CARD, fg=ui.TEXT, font=(fam, 12), anchor='w',
-                 justify='left', wraplength=260).pack(anchor='w')
+                 justify='left', wraplength=px(260)).pack(anchor='w')
         tk.Label(s_, textvariable=self.names_path, bg=ui.CARD, fg=ui.GREY, font=(fam, size - 1), anchor='w',
-                 justify='left', wraplength=260).pack(anchor='w', pady=(4, 0))
+                 justify='left', wraplength=px(260)).pack(anchor='w', pady=(4, 0))
         self.names_btn = ui.Pill(s_, '编辑名单', command=self.edit_names, font=(fam, size - 1), bg=ui.CARD, height=32,
                                  radius=8, padx=12)
         self.names_btn.pack(anchor='w', pady=(10, 0))           # 名单在窗口里改，不用去找 名单.txt
 
         # ---- 下面：日志
         logcard = ui.Card(f, pad=14, radius=14, stretch=True)
-        logcard.grid(row=1, column=0, columnspan=2, sticky='nsew', pady=(14, 0))
+        logcard.grid(row=1, column=0, columnspan=2, sticky='nsew', pady=(4, 0))
         f.rowconfigure(1, weight=1)
         lb = logcard.body
-        self._logicon = ui.glyph('doc', 26, '#4A5568')
+        self._logicon = ui.glyph('doc', px(26), '#8E8E93')
         tk.Label(lb, image=self._logicon, bg=ui.CARD, bd=0).pack(side='left', anchor='n', padx=(14, 4), pady=(10, 0))
         self.text = tk.Text(lb, height=4, wrap='word', state='disabled', relief='flat', bd=0,
                             highlightthickness=0, background=ui.CARD, foreground=ui.TEXT, font=bf,
-                            spacing1=6, spacing3=6, padx=10)
+                            spacing1=px(6), spacing3=px(6), padx=px(10))
         self.text.pack(side='left', fill='both', expand=True)
         self._rules: list = []
         self.text.bind('<Configure>', self._fit_rules)
@@ -743,7 +747,7 @@ class App:
         self.q.put(('quit', None))
 
     def _fit_rules(self, e=None):
-        w = max(self.text.winfo_width() - 24, 10)
+        w = max(self.text.winfo_width() - ui.px(24), ui.px(10))
         self._rules = [r for r in self._rules if r.winfo_exists()]
         for r in self._rules:
             r.configure(width=w)
@@ -856,7 +860,8 @@ class App:
     def write(self, msg: str):
         self.text.config(state='normal')
         if self.text.get('1.0', 'end-1c'):              # 上一条和这一条之间画一道细线
-            rule = tk.Frame(self.text, bg=ui.LINE, height=1, width=max(self.text.winfo_width() - 24, 10))
+            rule = tk.Frame(self.text, bg=ui.LINE, height=ui.hairline(),
+                            width=max(self.text.winfo_width() - ui.px(24), ui.px(10)))
             self._rules.append(rule)
             self.text.window_create('end', window=rule)
             self.text.insert('end', '\n')
@@ -906,7 +911,7 @@ class App:
 
 
 class SettingsCard(tk.Toplevel):
-    """⚙ 设置：一排拨动开关，拨了马上生效、马上存。底下是版本号、查新版、录入僧网站。"""
+    """⚙ 设置：一排拨动开关，拨了马上生效、马上存。底下落款「千手院方丈释手」，千手院总舵、方丈邮箱、查新版。"""
 
     def __init__(self, app: App):
         super().__init__(app.root)
@@ -918,8 +923,8 @@ class SettingsCard(tk.Toplevel):
         fam = ui.family(self)
         bf = (fam, 11)
         self.card = card = ui.Card(self, pad=20, radius=14)
-        card.configure(width=720)
-        card.pack(fill='both', expand=True, padx=14, pady=14)
+        card.configure(width=ui.px(730))                         # 看着 720 宽，两边各 5 是影子
+        card.pack(fill='both', expand=True, padx=9, pady=(12, 6))
         g = card.body
         tk.Label(g, text='设置', font=(fam, 16, 'bold'), bg=ui.CARD, fg=ui.TEXT).pack(anchor='w')
         ui.separator(g).pack(fill='x', pady=(10, 0))
@@ -934,7 +939,7 @@ class SettingsCard(tk.Toplevel):
             left.pack(side='left', fill='x', expand=True)
             tk.Label(left, text=title, font=bf, bg=ui.CARD, fg=ui.TEXT, anchor='w').pack(anchor='w')
             tk.Label(left, text=desc, font=(fam, 9), bg=ui.CARD, fg=ui.GREY, anchor='w', justify='left',
-                     wraplength=560).pack(anchor='w', pady=(1, 0))
+                     wraplength=ui.px(560)).pack(anchor='w', pady=(1, 0))
             self.vars[key] = v
             if i < len(settings.ROWS) - 1:
                 ui.separator(g).pack(fill='x')
@@ -945,14 +950,14 @@ class SettingsCard(tk.Toplevel):
         info.pack(side='left')
         tk.Label(info, text=f'{engine.APP_NAME} v{engine.VERSION}', font=(fam, 10), bg=ui.CARD, fg=ui.GREY,
                  anchor='w').pack(anchor='w')
-        tk.Label(info, text=f'制作人 {updater.CONTACT}', font=(fam, 9), bg=ui.CARD, fg=ui.GREY,
+        tk.Label(info, text='千手院方丈释手', font=(fam, 9), bg=ui.CARD, fg=ui.GREY,
                  anchor='w').pack(anchor='w')
         btn = dict(font=(fam, 10), bg=ui.CARD, height=34, radius=8, padx=14)
         ui.Pill(foot, '完成', command=self.destroy, primary=True, **btn).pack(side='right')
-        ui.Pill(foot, '录入僧网站', command=lambda: open_path(updater.SITE_URL), **btn).pack(side='right', padx=8)
         self.check_btn = ui.Pill(foot, '检查新版', command=self.check, **btn)
-        self.check_btn.pack(side='right')
-        ui.Pill(foot, '联系制作人', command=self.mail, **btn).pack(side='right', padx=(0, 8))
+        self.check_btn.pack(side='right', padx=8)
+        ui.Pill(foot, '方丈邮箱', command=self.mail, **btn).pack(side='right')
+        ui.Pill(foot, '千手院总舵', command=lambda: open_path(updater.HUB_URL), **btn).pack(side='right', padx=(0, 8))
         self.note = tk.StringVar(value='')
         tk.Label(g, textvariable=self.note, font=(fam, 9), bg=ui.CARD, fg=ui.GREY, anchor='e').pack(
             fill='x', pady=(6, 0))
@@ -967,13 +972,13 @@ class SettingsCard(tk.Toplevel):
             r = self.app.root
             w, h = self.winfo_reqwidth(), self.winfo_reqheight()
             x = r.winfo_rootx() + max((r.winfo_width() - w) // 2, 0)
-            y = r.winfo_rooty() + max((r.winfo_height() - h) // 2 - 20, 0)
+            y = r.winfo_rooty() + max((r.winfo_height() - h) // 2 - ui.px(20), 0)
             self.geometry(f'+{x}+{y}')
         except tk.TclError:
             pass
 
     def mail(self):
-        """联系制作人：邮箱先复制好，再打开写邮件（电脑没设邮件程序的话，粘贴到常用的邮箱里发就行）。"""
+        """方丈邮箱：邮箱先复制好，再打开写邮件（电脑没设邮件程序的话，粘贴到常用的邮箱里发就行）。"""
         import urllib.parse
         self.copy_mail()
         subject = urllib.parse.quote(f'录入僧 v{engine.VERSION} 建议')
@@ -1017,8 +1022,8 @@ class CardDialog(tk.Toplevel):
         self.fam = ui.family(self)
         self.bf = (self.fam, 11)
         self.card = ui.Card(self, pad=20, radius=14)
-        self.card.configure(width=width)
-        self.card.pack(fill='both', expand=True, padx=14, pady=14)
+        self.card.configure(width=ui.px(width + 10))              # 两边各 5 是影子
+        self.card.pack(fill='both', expand=True, padx=9, pady=(12, 6))
         self.body = self.card.body
         tk.Label(self.body, text=title, font=(self.fam, 16, 'bold'), bg=ui.CARD, fg=ui.TEXT).pack(anchor='w')
         ui.separator(self.body).pack(fill='x', pady=(10, 14))
@@ -1045,7 +1050,7 @@ class CardDialog(tk.Toplevel):
             r = self.app.root
             w, h = self.winfo_reqwidth(), self.winfo_reqheight()
             x = r.winfo_rootx() + max((r.winfo_width() - w) // 2, 0)
-            y = r.winfo_rooty() + max((r.winfo_height() - h) // 2 - 40, 0)
+            y = r.winfo_rooty() + max((r.winfo_height() - h) // 2 - ui.px(40), 0)
             self.geometry(f'+{x}+{y}')
             self.lift()
             self.focus_force()
@@ -1324,6 +1329,7 @@ def run_gui():
         if '--background' not in args:              # 已经开着一个：叫它把窗口亮出来，自己退出
             autopilot.ask_running_to_show(app_dir())
         return
+    ui.dpi_aware()                              # 先告诉 Windows「放大我自己来」，再建窗口：字和图标才清楚
     root = tk.Tk()
     App(root)
     root.mainloop()

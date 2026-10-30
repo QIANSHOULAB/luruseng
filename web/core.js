@@ -1,7 +1,7 @@
 // 录入僧网页版 · 认单子的核心（跟电脑版 bangong/engine.py、kb.py、tables.py 同一套规矩，改一边要改另一边）
 // 纯逻辑：不碰页面、不碰存储，浏览器和 node 测试都能跑。
 
-export const VERSION = '1.9.6';
+export const VERSION = '1.9.7';
 export const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 export const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
 export const MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro'];
