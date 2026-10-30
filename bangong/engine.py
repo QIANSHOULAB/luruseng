@@ -31,7 +31,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-VERSION = '1.9.4'
+VERSION = '1.9.5'
 APP_NAME = '录入僧'
 SUBTITLE = '施主去玩，贫僧填表'
 OLD_NAME = '搬工'                   # 改名前的名字：旧账本、旧配置照样认
@@ -278,14 +278,16 @@ def load_names(path: str | None) -> list[tuple[str, str]]:
     out = []
     if not path or not os.path.isfile(path):
         return out
-    with open(path, encoding='utf-8-sig') as fh:
-        for line in fh:
-            t = line.strip()
-            if not t or t.startswith('#'):
-                continue
-            mm = re.match(r'^(\d+)\s*[/／\s]\s*(.+?)$', t)
-            if mm:
-                out.append((mm.group(1), re.sub(r'\s+', ' ', mm.group(2))))
+    from .sheets import _decode                       # 记事本存的 GBK（ANSI）、UTF-8、UTF-16 都认
+    with open(path, 'rb') as fh:
+        text = _decode(fh.read())
+    for line in text.splitlines():
+        t = line.strip()
+        if not t or t.startswith('#'):
+            continue
+        mm = re.match(r'^(\d+)\s*[/／\s]\s*(.+?)$', t)
+        if mm:
+            out.append((mm.group(1), re.sub(r'\s+', ' ', mm.group(2))))
     return out
 
 

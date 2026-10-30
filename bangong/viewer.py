@@ -51,6 +51,28 @@ def list_runs(folder: str) -> list[tuple[str, str, str]]:
     return out
 
 
+RESULT_RE = re.compile(r'识别结果_(\d{8}_\d{6})(?:_(.+))?\.xlsx', re.I)
+
+
+def list_results(folder: str) -> list[dict]:
+    """「所有结果」：图片文件夹里每一批的表，新的在前。
+    [{'run': 批次号, 'xlsx': 表, 'cat': 类别, 'photos': 编号照片几张, 'dir': 编号照片文件夹}]"""
+    od = os.path.join(folder, engine.OUT_DIR)
+    out = []
+    if not os.path.isdir(od):
+        return out
+    for f in os.listdir(od):
+        m = RESULT_RE.fullmatch(f)
+        if not m or f.startswith('~$'):
+            continue
+        cat = re.sub(r'(?:^|_)\d{6}$', '', m.group(2) or '')      # Excel 开着时另存的「…_181502.xlsx」
+        d = os.path.join(folder, engine.DONE_DIR, m.group(1))
+        out.append({'run': m.group(1), 'xlsx': os.path.join(od, f), 'cat': cat or '刀单',
+                    'photos': len(load_photos(d)), 'dir': d})
+    out.sort(key=lambda r: (r['run'], r['xlsx']), reverse=True)
+    return out
+
+
 def fmt(v) -> str:
     if isinstance(v, datetime):
         return f'{v.day}-{v.strftime("%b")}'
@@ -149,7 +171,7 @@ class Viewer(tk.Toplevel):
         top = bar.body
         self.run_var = tk.StringVar()
         holder = ui.Combo(top, self.run_var, [run_label(r, len(load_photos(d))) for r, d, _ in self.runs],
-                          font=bf, bg=ui.CARD, width=260)
+                          font=bf, bg=ui.CARD, width=236)
         holder.pack(side='left')
         self.run_box = holder.box
         self.run_box.configure(state='readonly')
@@ -166,6 +188,9 @@ class Viewer(tk.Toplevel):
         ui.Pill(top, radius=8, bg=ui.CARD, height=38, padx=16, text='下一张 ▶', command=lambda: self.step(1), font=bf).pack(side='left')
         ui.Pill(top, radius=8, bg=ui.CARD, height=38, padx=16, text='↺', command=lambda: self.turn(False), font=bf).pack(side='left', padx=(12, 6))
         ui.Pill(top, radius=8, bg=ui.CARD, height=38, padx=16, text='↻', command=lambda: self.turn(True), font=bf).pack(side='left')
+        self.table_btn = ui.Pill(top, radius=8, bg=ui.CARD, height=38, padx=14, text='打开表', icon='table',
+                                 command=self.open_table, font=bf)
+        self.table_btn.pack(side='left', padx=(10, 0))
         self.info = tk.StringVar()
         tk.Label(top, textvariable=self.info, bg=ui.CARD, fg=ui.GREY, font=(fam, 9)).pack(side='left', padx=12)
 
@@ -209,11 +234,19 @@ class Viewer(tk.Toplevel):
 
     def load_run(self, i: int, start: int | None = None):
         run_id, d, xlsx = self.runs[i]
+        self.xlsx = xlsx
         self.run_box.current(i)
         self.photos = load_photos(d)
         self.nos = sorted(self.photos)
         self.rows = load_rows(xlsx)
         self.show(start if start in self.photos else self.nos[0])
+
+    def open_table(self):
+        """看到哪批开哪批的表，不用去文件夹里找。"""
+        if getattr(self, 'xlsx', '') and os.path.isfile(self.xlsx):
+            _open(self.xlsx)
+        else:
+            self.info.set('这批的表找不到了（挪走或者删了？）')
 
     def step(self, delta: int):
         if not self.nos:
@@ -233,7 +266,7 @@ class Viewer(tk.Toplevel):
         self.cur = no
         self.num.set(str(no))
         self.title(f'核对 · 第 {no} 张 / 共 {len(self.nos)} 张')
-        self.info.set(f'第 {no} 张 / 共 {len(self.nos)} 张　←→ 翻页，双击照片看原尺寸')
+        self.info.set(f'第 {no} 张 / 共 {len(self.nos)} 张　←→ 翻页，双击看大图')
         try:
             with Image.open(self.photos[no]) as im:
                 self._pil = im.convert('RGB')

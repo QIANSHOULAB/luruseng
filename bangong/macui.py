@@ -452,6 +452,12 @@ def glyph(kind: str, size: int, color: str):
         d.line([(S * 0.04 + 2 * r, cy), (S * 0.96, cy)], fill=color, width=lw)
         for x, dy in ((0.8, 0.2), (0.93, 0.15)):
             d.line([(S * x, cy), (S * x, cy + S * dy)], fill=color, width=lw)
+    elif kind == 'table':                                   # 表格：圆角框 + 表头线 + 一横一竖
+        l, t, r, b = S * 0.06, S * 0.12, S * 0.94, S * 0.88
+        d.rounded_rectangle((l, t, r, b), int(S * 0.1), outline=color, width=lw)
+        d.line([(l, S * 0.38), (r, S * 0.38)], fill=color, width=lw)
+        d.line([(l, S * 0.63), (r, S * 0.63)], fill=color, width=lw)
+        d.line([(S * 0.38, S * 0.38), (S * 0.38, b)], fill=color, width=lw)
     img = ImageTk.PhotoImage(big.resize((size, size), Image.LANCZOS))
     _cache[key] = img
     return img
@@ -527,6 +533,43 @@ class BigStatus(tk.Canvas):
             self.create_text(x, self.h // 2, text=p.strip() if num else p, font=f, anchor='w',
                              fill=BLUE if num else TEXT)
             x += f.measure(p) + 6
+
+
+class TextArea(tk.Canvas):
+    """多行的圆角输入框（名单这种一行一条的），样子跟 Field 一样：点进去一圈蓝色光环。"""
+
+    def __init__(self, master, font=None, bg=CARD, height=220):
+        super().__init__(master, bg=bg, highlightthickness=0, bd=0, height=height, width=200)
+        self.outer, self.focused = bg, False
+        self.text = tk.Text(self, relief='flat', bd=0, highlightthickness=0, bg=FIELD, fg=TEXT, insertbackground=TEXT,
+                            font=font, wrap='none', undo=True, selectbackground='#B3D7FF', selectforeground=TEXT,
+                            padx=2, pady=2)
+        self._img = self.create_image(0, 0, anchor='nw')
+        self._win = self.create_window(10, 8, window=self.text, anchor='nw')
+        self.bind('<Configure>', self._draw)
+        self.bind('<Button-1>', lambda e: self.text.focus_set())
+        self.text.bind('<FocusIn>', lambda e: self._focus(True), add='+')
+        self.text.bind('<FocusOut>', lambda e: self._focus(False), add='+')
+
+    def _focus(self, on):
+        self.focused = on
+        self._draw()
+
+    def _draw(self, _e=None):
+        w, h = self.winfo_width(), self.winfo_height()
+        if w < 24 or h < 20:
+            return
+        self.itemconfigure(self._win, width=w - 20, height=h - 16)
+        img = rounded(w, h, 8, FIELD, self.outer, '#7DB8FF' if self.focused else FIELD_LINE, 2 if self.focused else 1)
+        self.itemconfigure(self._img, image=img)
+
+    def get(self) -> str:
+        return self.text.get('1.0', 'end-1c')
+
+    def set(self, value: str):
+        self.text.delete('1.0', 'end')
+        self.text.insert('1.0', value)
+        self.text.edit_reset()
 
 
 class Para(tk.Text):

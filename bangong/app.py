@@ -360,15 +360,16 @@ class App:
 
         bar = tk.Frame(g, bg=ui.CARD)
         bar.grid(row=7, column=0, columnspan=3, sticky='w')
-        btn = dict(font=bf, bg=ui.CARD, height=44, radius=8, padx=20)
+        btn = dict(font=bf, bg=ui.CARD, height=44, radius=8, padx=14)
         self.start_btn = ui.Pill(bar, '开始工作', command=self.start, primary=True, icon='play', **btn)
         self.start_btn.pack(side='left')
         self.stop_btn = ui.Pill(bar, '停止', command=self.halt, state='disabled', icon='stop', **btn)
-        self.stop_btn.pack(side='left', padx=(10, 0))
-        ui.Pill(bar, '打开结果文件夹', command=self.open_out, icon='folder', **btn).pack(side='left', padx=(10, 0))
-        ui.Pill(bar, '核对', command=self.check, icon='doc', **btn).pack(side='left', padx=(10, 0))
+        self.stop_btn.pack(side='left', padx=(8, 0))
+        ui.Pill(bar, '最新结果', command=self.open_latest, icon='table', **btn).pack(side='left', padx=(8, 0))
+        ui.Pill(bar, '所有结果', command=self.open_all, icon='folder', **btn).pack(side='left', padx=(8, 0))
+        ui.Pill(bar, '核对', command=self.check, icon='doc', **btn).pack(side='left', padx=(8, 0))
         self.feed_btn = ui.Pill(bar, '放入样板资料', command=self.feed, icon='db', **btn)
-        self.feed_btn.pack(side='left', padx=(10, 0))
+        self.feed_btn.pack(side='left', padx=(8, 0))
 
         # ---- 右边小卡片：任务状态
         side = ui.Card(f, pad=18, radius=14, stretch=True)
@@ -394,6 +395,9 @@ class App:
                  justify='left', wraplength=260).pack(anchor='w')
         tk.Label(s_, textvariable=self.names_path, bg=ui.CARD, fg=ui.GREY, font=(fam, size - 1), anchor='w',
                  justify='left', wraplength=260).pack(anchor='w', pady=(4, 0))
+        self.names_btn = ui.Pill(s_, '编辑名单', command=self.edit_names, font=(fam, size - 1), bg=ui.CARD, height=32,
+                                 radius=8, padx=12)
+        self.names_btn.pack(anchor='w', pady=(10, 0))           # 名单在窗口里改，不用去找 名单.txt
 
         # ---- 下面：日志
         logcard = ui.Card(f, pad=14, radius=14, stretch=True)
@@ -540,6 +544,22 @@ class App:
         d = os.path.join(self.folder.get(), engine.OUT_DIR)
         open_path(d if os.path.isdir(d) else self.folder.get())
 
+    def open_latest(self):
+        """最新结果：直接打开最新那一批的表，不用去文件夹里挑。"""
+        from .viewer import list_results
+        runs = list_results(self.folder.get())
+        if not runs:
+            self.write('还没有结果：先点「选照片…」，再点「开始工作」干一批')
+            return
+        open_path(runs[0]['xlsx'])
+
+    def open_all(self):
+        """所有结果：每一批列出来，点哪批开哪批的表、核对哪批。"""
+        self._dialog(ResultsCard)
+
+    def edit_names(self):
+        self._dialog(NamesCard)
+
     def feed(self):
         """放入样板资料：先选放进哪个类别（刀单 / 自建的 / ＋新建），再选表。"""
         self._dialog(FeedCard)
@@ -600,12 +620,10 @@ class App:
                 from .kb import KnowledgeBase
                 n = len(engine.load_names(names_path()))
                 self.cat_hint.set('内置 · 专属优化')
-                if n:
-                    self.names_head.set(f'名单：{n} 人')
-                    self.names_path.set(f'（{names_path()}）')
-                else:
-                    self.names_head.set('没找到名单')
-                    self.names_path.set(f'{names_path()}（没有也能用，SETTER 就照单子抄）')
+                self.names_head.set(f'名单：{n} 人' if n else '没有名单')
+                self.names_path.set('' if n else '没有也能用，SETTER 就照单子抄')
+                if not self.names_btn.winfo_manager():
+                    self.names_btn.pack(anchor='w', pady=(10, 0))
                 line = KnowledgeBase(kb_path()).summary() + f'（也可以把表丢进：{feed_dir()}）'
             else:
                 db = tables.TableDB(tables.db_path(app_dir(), cat))
@@ -614,6 +632,7 @@ class App:
                 self.names_head.set(f'「{cat}」数据库：{n} 条' if cols else f'「{cat}」还没放过表')
                 self.names_path.set(('列：' + '、'.join(cols)) if cols else
                                     '先认全部内容，改对了点「放入样板资料」，表头就定成它的列')
+                self.names_btn.pack_forget()                    # 名单只给刀单用
                 line = db.summary(cat) + f'（也可以把表丢进：{tables.feed_path(app_dir(), cat)}）'
         except Exception as e:
             line = f'「{cat}」的数据库打不开：{type(e).__name__}：{e}'
@@ -1070,6 +1089,81 @@ class NewCategoryCard(CardDialog):
             return
         self.destroy()
         self.on_done(name)
+
+
+class NamesCard(CardDialog):
+    """编辑名单：在窗口里直接写，存成 录入僧.exe 旁边的 名单.txt（记事本照样能改）。"""
+
+    def __init__(self, app: App):
+        super().__init__(app, '名单', 520)
+        b = self.body
+        self.box = ui.TextArea(b, font=(self.fam, 11), height=240)
+        self.box.pack(fill='x')
+        try:
+            with open(names_path(), 'rb') as fh:
+                self.box.set(sheets._decode(fh.read()).replace('\r\n', '\n').rstrip('\n'))
+        except OSError:
+            self.box.set('')
+        ui.Para(b, tk.StringVar(value='一行一个「工号/名字」，比如 639/Lee Ah Kow。只帮它认潦草的工号，SETTER 还是照单子抄。没有也能用。'),
+                font=(self.fam, 9), width_px=470).pack(fill='x', pady=(8, 0))
+        self.err = tk.StringVar()
+        tk.Label(b, textvariable=self.err, font=(self.fam, 10), bg=ui.CARD, fg='#C0392B', anchor='w').pack(anchor='w')
+        f = self.footer()
+        self.button(f, '存好', self.ok, primary=True)
+        self.button(f, '取消', self.destroy)
+        self.after(80, self.box.text.focus_set)
+
+    def ok(self):
+        text = '\n'.join(ln.rstrip() for ln in self.box.get().splitlines()).strip()
+        try:
+            with open(names_path(), 'w', encoding='utf-8-sig', newline='\r\n') as fh:   # 带 BOM：老记事本也认
+                fh.write(text + ('\n' if text else ''))
+        except OSError as e:
+            self.err.set(f'存不了：{e}')
+            return
+        n = len(engine.load_names(names_path()))
+        self.destroy()
+        self.app.write(f'✓ 名单存好了：{n} 人' if n else '名单是空的：没有也能用，SETTER 就照单子抄')
+        self.app.refresh_category()
+
+
+class ResultsCard(CardDialog):
+    """所有结果：每一批一行（时间、类别、几张），点「打开表」开那批的表，点「核对」看那批的编号照片。"""
+
+    SHOW = 12
+
+    def __init__(self, app: App):
+        from .viewer import list_results
+        super().__init__(app, '所有结果', 600)
+        b = self.body
+        self.runs = list_results(app.folder.get())
+        if not self.runs:
+            ui.Para(b, tk.StringVar(value='还没有结果：先点「选照片…」，再点「开始工作」干一批。'),
+                    font=(self.fam, 10), width_px=540).pack(fill='x')
+        for i, r in enumerate(self.runs[:self.SHOW]):
+            if i:
+                ui.separator(b).pack(fill='x')
+            row = tk.Frame(b, bg=ui.CARD)
+            row.pack(fill='x', pady=6)
+            d = datetime.strptime(r['run'], '%Y%m%d_%H%M%S')
+            tk.Label(row, text=f'{d:%m-%d %H:%M}', font=(self.fam, 11), bg=ui.CARD, fg=ui.TEXT).pack(side='left')
+            tag = f"{r['cat']} · {r['photos']} 张" + ('　最新' if i == 0 else '')
+            tk.Label(row, text=tag, font=(self.fam, 10), bg=ui.CARD, fg=ui.BLUE if i == 0 else ui.GREY).pack(
+                side='left', padx=(12, 0))
+            pill = dict(font=(self.fam, 10), bg=ui.CARD, height=30, radius=8, padx=12)
+            ui.Pill(row, '核对', command=lambda r=r: self.check(r), state='normal' if r['photos'] else 'disabled',
+                    **pill).pack(side='right', padx=(8, 0))
+            ui.Pill(row, '打开表', command=lambda r=r: open_path(r['xlsx']), icon='table', **pill).pack(side='right')
+        if len(self.runs) > self.SHOW:
+            ui.Para(b, tk.StringVar(value=f'更早的 {len(self.runs) - self.SHOW} 批在结果文件夹里。'),
+                    font=(self.fam, 9), width_px=540).pack(fill='x', pady=(8, 0))
+        f = self.footer()
+        self.button(f, '完成', self.destroy, primary=True)
+        self.button(f, '打开结果文件夹', app.open_out)
+
+    def check(self, r):
+        self.destroy()
+        self.app.check(r['dir'])
 
 
 class FeedCard(CardDialog):
