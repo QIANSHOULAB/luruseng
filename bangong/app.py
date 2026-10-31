@@ -81,7 +81,7 @@ def names_path() -> str:
 PHOTO_TYPES = [('照片', ' '.join(f'*{e}' for e in sorted(engine.IMG_EXT))), ('所有文件', '*.*')]
 MAIL_COPIED = '{}　已复制，粘进邮箱找方丈算账'       # 点「方丈邮箱」：只亮出邮箱、复制好，不开浏览器
 CONTACT_LINE = '要什么新功能、有修改建议，或洽谈商业合作请直接找方丈飞鸽传书：{}'   # ⚙ 底下，Song 2026-11-01 给的原话
-HUB_LINE = '千手院总坛：'                                                          # 后面接总舵网址，点了就去
+HUB_LINE = '千手院总舵：'                                                          # 后面接总舵网址，点了就去
 
 
 def hub_text(url: str) -> str:
@@ -1029,7 +1029,7 @@ class App:
 
 
 class SettingsCard(tk.Toplevel):
-    """⚙ 设置：一排拨动开关，拨了马上生效、马上存。底下一句找方丈的话和千手院总坛网址，
+    """⚙ 设置：一排拨动开关，拨了马上生效、马上存。底下一句找方丈的话和千手院总舵网址，
     再往下落款「千手院方丈释手」，千手院总舵、方丈邮箱、查新版。"""
 
     def __init__(self, app: App):
@@ -1063,7 +1063,7 @@ class SettingsCard(tk.Toplevel):
             if i < len(settings.ROWS) - 1:
                 ui.separator(g).pack(fill='x')
         ui.separator(g).pack(fill='x', pady=(0, 12))
-        self.contact = say = tk.Frame(g, bg=ui.CARD)           # 找方丈的话、千手院总坛网址（点了就去）
+        self.contact = say = tk.Frame(g, bg=ui.CARD)           # 找方丈的话、千手院总舵网址（点了就去）
         say.pack(fill='x', pady=(0, 12))
         tk.Label(say, text=CONTACT_LINE.format(updater.CONTACT), font=(fam, 9), bg=ui.CARD, fg=ui.GREY,
                  anchor='w', justify='left', wraplength=ui.px(680)).pack(anchor='w')
@@ -1118,7 +1118,7 @@ class SettingsCard(tk.Toplevel):
             pass
 
     def open_hub(self):
-        """点「千手院总坛」后面的网址：开总舵首页。"""
+        """点「千手院总舵」后面的网址：开总舵首页。"""
         open_path(updater.HUB_URL)
 
     def mail(self):

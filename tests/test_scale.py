@@ -90,12 +90,12 @@ def test_at_100_percent_nothing_moves_and_settings_foot(tmp_path, monkeypatch):
         assert body.pack_slaves().index(say) == body.pack_slaves().index(foot) - 1
         line, hub = say.winfo_children()
         assert line.cget('text') == '要什么新功能、有修改建议，或洽谈商业合作请直接找方丈飞鸽传书：oilsongchengmin@gmail.com'
-        assert [w.cget('text') for w in hub.winfo_children()] == ['千手院总坛：', 'qianshoulab.github.io']
+        assert [w.cget('text') for w in hub.winfo_children()] == ['千手院总舵：', 'qianshoulab.github.io']
         assert line.winfo_reqwidth() <= body.winfo_width()    # 一行放得下，不被切
         link = a.settings_win.hub_link
         assert link.cget('fg') == ui.LINK and link.cget('cursor') == 'hand2'
         assert link.bind('<Button-1>')                         # 网址能点
         a.settings_win.open_hub()
-        assert opened == [updater.HUB_URL] * 2                 # 点网址也去总坛
+        assert opened == [updater.HUB_URL] * 2                 # 点网址也去总舵
     finally:
         close(root)

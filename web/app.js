@@ -782,9 +782,9 @@ function setupSettings() {
   }
   $('#setver').innerHTML = '';
   $('#setver').append(`录入僧网页版 v${C.VERSION}`, document.createElement('br'), '千手院方丈释手');
-  const hub = $('#hub').href;                   // 找方丈的话、千手院总坛网址（Song 2026-11-01 给的原话）
+  const hub = $('#hub').href;                   // 找方丈的话、千手院总舵网址（Song 2026-11-01 给的原话）
   $('#setcontact').replaceChildren(`要什么新功能、有修改建议，或洽谈商业合作请直接找方丈飞鸽传书：${CONTACT}`,
-    document.createElement('br'), '千手院总坛：',
+    document.createElement('br'), '千手院总舵：',
     Object.assign(document.createElement('a'), { href: hub, target: '_blank', rel: 'noopener', textContent: hub.replace(/^https?:\/\//, '').replace(/\/$/, '') }));
   const mail = $('#mail');
   mail.title = CONTACT;
