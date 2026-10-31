@@ -765,6 +765,27 @@ def main():
                 p.click('#vclose')
                 p.screenshot(path=os.path.join(SHOTS, '9-诈尸干完.png'))
 
+                # 点了开始、照片还没存完页面就被杀（在 iPhone 上：切走马上被冻住，后来被杀）：存住的自己干完，没存住的点名
+                p.set_input_files('#files', make_images(os.path.join(WORK, 'half'), 1, start=160))
+                kept = wait_pending(p, 1)
+                ids = p.evaluate("""() => new Promise((ok) => { const r = indexedDB.open('luruseng-web');
+                    r.onsuccess = () => { const q = r.result.transaction('photos').objectStore('photos').getAllKeys(IDBKeyRange.bound('pending/', 'pending/\\uffff'));
+                      q.onsuccess = () => { r.result.close(); ok(q.result.map(k => k.slice(8))); }; }; })""")
+                p.evaluate("""want => new Promise((ok) => { const r = indexedDB.open('luruseng-web');
+                    r.onsuccess = () => { const t = r.result.transaction('kv', 'readwrite');
+                      t.objectStore('kv').put({ at: Date.now(), auto: false, stuck: 0, want }, 'work'); t.oncomplete = () => { r.result.close(); ok(); }; }; })""",
+                           ids + ['ghost.jpg|12345|1700000000000'])
+                p.close()
+                p = open_app()
+                p.wait_for_function('() => document.querySelector("#status").textContent.startsWith("干完")', timeout=60000)
+                text = '\n'.join(logs_of(p))
+                assert '▶ 上回刚开工页面就被关了，老衲诈尸重新开工' in text and '⚠ 这 1 张还没存进浏览器页面就被关了，得重选：ghost.jpg' in text, text
+                assert kept == ['img_160.jpg'] and p.inner_text('#status').replace('\n', '') == '干完：成功 1 · 失败 0', p.inner_text('#status')
+                assert idb_get(p, 'kv', 'work') is None
+                wait_pending(p, 0)
+                if p.is_visible('#dlg-view'):
+                    p.click('#vclose')
+
                 p.set_input_files('#files', make_images(os.path.join(WORK, 'keep'), 2, start=150))   # 选了没开工就被关
                 assert sorted(wait_pending(p, 2)) == ['img_150.jpg', 'img_151.jpg']
                 p.close()

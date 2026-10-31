@@ -156,7 +156,7 @@ async function refreshCategory(announce = false) {
 // ---------------------------------------------------------------- 照片先存一份（Song 选的 A）
 // 选了照片就存进这个浏览器，认完一张存一张结果。手机把页面杀了，重新打开自己接着干：还进同一本表、编号不变，不用重选。
 // 原照片存在 photos 里：pending/照片id → {blob, name, type, lastModified, hash, added}，干完就删。
-// kv 里的 work：正在干的那一笔 {at, auto, run, items:[{no, qid, hash, name}], stuck}，干完、停了、出错了就删，页面被关了才留着。
+// kv 里的 work：正在干的那一笔 {at, auto, want(编号前：选了哪些), run, items:[{no, qid, hash, name}], stuck}，干完、停了、出错了就删，页面被关了才留着。
 const PEND = 'pending/';
 const P = { chain: Promise.resolve(), n: 0, d: 0, show: false, warned: false };
 const canStash = () => S.st.kind === 'idb' && typeof S.st.prefixed === 'function';
@@ -174,7 +174,6 @@ function stash(q) {
       if (!S.queue.includes(q)) return;                   // 还没轮到就被清掉了
       const f = q.file, buf = await f.arrayBuffer();
       if (!q.hash) q.hash = await I.sha256(buf);           // 顺手算好指纹，开工查重不用再读一遍
-      if (await S.st.get('ledger', q.hash)) return;       // 以前干过的：开工时就跳过，不用存
       await S.st.put('photos', PEND + q.id, { blob: new Blob([buf], { type: f.type }), name: f.name, type: f.type,
         lastModified: f.lastModified, hash: q.hash, added: Date.now() });
     } catch (e) {
@@ -194,6 +193,7 @@ async function stashed() {                    // 开工前等照片都存好：�
   try { await P.chain; } finally { P.show = false; }
 }
 
+const gone = new Set();                        // 拿回来时发现其实已经干完的（清掉了，不算「没存住」）
 async function restore() {                     // 上回选了还没干完的照片：从浏览器里拿回来，不用重选
   if (!canStash()) return 0;
   const all = await S.st.prefixed('photos', PEND).catch(() => []);
@@ -202,7 +202,9 @@ async function restore() {                     // 上回选了还没干完的照
   for (const [key, v] of all) {
     const id = key.slice(PEND.length);
     if (S.seen.has(id)) continue;
-    if (!v || !(v.blob instanceof Blob) || (v.hash && await S.st.get('ledger', v.hash).catch(() => null))) {
+    const done = v && v.hash && await S.st.get('ledger', v.hash).catch(() => null);
+    if (!v || !(v.blob instanceof Blob) || done) {
+      if (done) gone.add(id);
       S.st.del('photos', key).catch(() => {});             // 坏了的，或者其实已经干完了：清掉
       continue;
     }
@@ -444,6 +446,11 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
     if (!release) { log('⚠ 另一个窗口正在干活：这边先不干，等那边干完'); return; }
     const was = await S.st.get('kv', 'work').catch(() => null);
     const prev = was && was.run ? await S.st.get('runs', was.run).catch(() => null) : null;
+    if (was && !prev && was.want) {              // 点了开始、照片还没存完页面就被关了：存住的接着干，没存住的点名
+      const have = new Set(S.queue.map((q) => q.id));
+      const miss = was.want.filter((qid) => !have.has(qid) && !gone.has(qid)).map((qid) => qid.split('|')[0]);
+      if (miss.length) log(`⚠ 这 ${miss.length} 张还没存进浏览器页面就被关了，得重选：${miss.slice(0, 6).join('、')}${miss.length > 6 ? ' 等' : ''}`);
+    }
     if (!S.queue.length && !prev) {
       if (was) await S.st.del('kv', 'work').catch(() => {});
       if (!woke) log('还没选照片：点「选照片…」，或者把照片拖进来');
@@ -452,11 +459,12 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
     if (woke && !prev) log('▶ 上回刚开工页面就被关了，老衲诈尸重新开工');
     else if (auto && !woke) log('▶ 来图就干：照片来了，自己开工');
     await saveCfg(true);
-    await stashed();
-    // 记一笔「在干活」：查重、干活的时候页面被关了，重新打开自己接着干
-    const work = prev ? { ...was, at: Date.now(), stuck: woke ? was.stuck || 0 : 0 } : { at: Date.now(), auto, stuck: woke ? (was && was.stuck) || 0 : 0 };
+    // 先记一笔「在干活」再等照片存完：存照片、查重、干活的时候页面被关了，重新打开都自己接着干
+    const work = prev ? { ...was, at: Date.now(), stuck: woke ? was.stuck || 0 : 0 }
+      : { at: Date.now(), auto, stuck: woke ? (was && was.stuck) || 0 : 0, want: S.queue.map((q) => q.id) };
     await S.st.put('kv', 'work', work).catch(() => {});
     mine = true;
+    await stashed();
 
     const model = C.modelName($('#model').value);
     let run, items, todoQ = null, lost = 0;
@@ -479,6 +487,7 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
       run = await newRun(cat, todoQ.length, spec);
       items = todoQ.map((q, i) => ({ no: i + 1, file: q.file, q }));
       Object.assign(work, { run: run.id, items: items.map((it) => ({ no: it.no, qid: it.q.id, hash: it.q.hash, name: it.file.name })) });
+      delete work.want;                          // 编好号了：往后靠 items 认照片
       await S.st.put('kv', 'work', work).catch(() => {});
       log(`▶ 开工（录入僧网页版 v${C.VERSION}）：${run.total} 张，按拍摄顺序编号 1–${run.total}，每批 ${C.BATCH} 张，模型 ${model}` +
         (C.READS >= 2 ? '，每张认两遍对答案' : '') + what);
