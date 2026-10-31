@@ -215,10 +215,12 @@ def test_update_card_and_contact(tmp_path, monkeypatch):
         root = tk.Tk()
     except Exception:
         pytest.skip('没有显示器，跳过窗口测试')
-    from bangong import app, updater
+    from bangong import app, macui as ui, updater
     monkeypatch.setattr(app, 'app_dir', lambda: str(tmp_path / 'app'))
     monkeypatch.setattr(app, 'CONFIG', str(tmp_path / 'config.json'))
     monkeypatch.setattr(updater, 'notes', lambda since=None, timeout=15: '- 后来拿到的说明')
+    opened = []
+    monkeypatch.setattr(app, 'open_path', opened.append)
     try:
         a = app.App(root)
         assert a.cfg['auto_update'] is False                         # 新装：不自动更新
@@ -226,6 +228,8 @@ def test_update_card_and_contact(tmp_path, monkeypatch):
         root.update()
         card = a.dialog
         assert isinstance(card, app.UpdateCard) and card.notes.get() == '• 大更新'
+        card.mail()                                                # 卡片上的邮箱：点了只复制，不开浏览器
+        assert root.clipboard_get() == updater.CONTACT and card.status.get().startswith(updater.CONTACT) and not opened
         assert card.title() == '录入僧 v99.0.0 搞出来了'
         assert a.update_pill.winfo_ismapped() and a.update_pill.cget('text') == '新版本 v99.0.0'
         card.later()
@@ -243,8 +247,10 @@ def test_update_card_and_contact(tmp_path, monkeypatch):
         assert a.cfg['auto_update'] is True and app.load_config()['auto_update'] is True
         a.open_settings()
         root.update()
-        a.settings_win.copy_mail()
+        a.settings_win.mail()                                      # 方丈邮箱：只亮出邮箱、复制好，不开浏览器
         assert root.clipboard_get() == updater.CONTACT == 'oilsongchengmin@gmail.com'
+        assert not opened and a.settings_win.note.get().startswith(updater.CONTACT)
+        assert a.settings_win.note_label.cget('fg') == ui.TEXT
     finally:
         root.destroy()
 

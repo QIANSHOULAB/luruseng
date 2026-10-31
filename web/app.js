@@ -519,15 +519,17 @@ function setupSettings() {
   $('#setver').innerHTML = '';
   $('#setver').append(`录入僧网页版 v${C.VERSION}`, document.createElement('br'), '千手院方丈释手');
   const mail = $('#mail');
-  mail.href = `mailto:${CONTACT}?subject=${encodeURIComponent(`录入僧网页版 v${C.VERSION} 建议`)}`;
   mail.title = CONTACT;
-  mail.onclick = async () => {                  // 方丈邮箱：邮箱先复制好，再打开写邮件；没设邮件程序的电脑，底下这行照着发
+  mail.onclick = async (e) => {                 // 方丈邮箱：点一下，邮箱亮在底下、顺手复制好；不去开邮件程序（Song 定的）
+    e.preventDefault();
     const ok = await copyText(CONTACT, dlg);
-    $('#setnote').textContent = ok ? `邮箱已复制：${CONTACT}。没弹出写邮件的窗口，就粘贴到你常用的邮箱里发`
-      : `方丈邮箱：${CONTACT}`;
+    const note = $('#setnote');
+    note.textContent = ok ? `${CONTACT}　已复制，粘进邮箱找方丈算账` : `方丈邮箱：${CONTACT}`;
+    note.classList.add('strong');
   };
   $('#gear').onclick = async () => {
     $('#setnote').textContent = '';
+    $('#setnote').classList.remove('strong');
     for (const box of rows.querySelectorAll('input')) box.checked = !!S.cfg[box.dataset.key];
     $('#seterr').textContent = S.st.kind === 'memory' ? '这个浏览器不让存东西（无痕窗口？）：关掉页面数据就没了，记得备份' : '';
     const u = await ST.usage();

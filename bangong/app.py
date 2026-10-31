@@ -79,6 +79,7 @@ def names_path() -> str:
 
 
 PHOTO_TYPES = [('照片', ' '.join(f'*{e}' for e in sorted(engine.IMG_EXT))), ('所有文件', '*.*')]
+MAIL_COPIED = '{}　已复制，粘进邮箱找方丈算账'       # 点「方丈邮箱」：只亮出邮箱、复制好，不开浏览器
 
 
 def copy_lines(r, folder: str = '待识别') -> list[str]:
@@ -936,7 +937,7 @@ class App:
         msg = '✓ 方丈网盘连上了' if not why else f'现在连不上方丈网盘（{why}）。东西先攒在本机，连上了自己发'
         self.write(msg)
         if self.settings_win is not None and self.settings_win.winfo_exists():
-            self.settings_win.note.set(msg if why else f'{msg} · {self.report_status()}')
+            self.settings_win.say(msg if why else f'{msg} · {self.report_status()}')
 
     def write(self, msg: str):
         self.text.config(state='normal')
@@ -1043,15 +1044,20 @@ class SettingsCard(tk.Toplevel):
         ui.Pill(foot, '方丈邮箱', command=self.mail, **btn).pack(side='right')
         ui.Pill(foot, '千手院总舵', command=lambda: open_path(updater.HUB_URL), **btn).pack(side='right', padx=(0, 8))
         self.note = tk.StringVar(value=app.report_status() if app.cfg.get('report') else '')
-        tk.Label(g, textvariable=self.note, font=(fam, 9), bg=ui.CARD, fg=ui.GREY, anchor='e').pack(
-            fill='x', pady=(6, 0))
+        self.note_label = tk.Label(g, textvariable=self.note, font=(fam, 9), bg=ui.CARD, fg=ui.GREY, anchor='e')
+        self.note_label.pack(fill='x', pady=(6, 0))
         self.bind('<Escape>', lambda e: self.destroy())
         self.after(30, self._center)
+
+    def say(self, text: str, strong: bool = False):
+        """底下那行小字；strong = 要人看清的（比如邮箱），用正文的黑。"""
+        self.note.set(text)
+        self.note_label.config(fg=ui.TEXT if strong else ui.GREY)
 
     def changed(self, key: str, value: bool):
         self.app.setting_changed(key, value)
         if key == 'report':                     # 发数据给方丈：底下那行说一声发了多少、还欠多少
-            self.note.set(self.app.report_status() if value else '')
+            self.say(self.app.report_status() if value else '')
 
     def _center(self):
         try:
@@ -1067,24 +1073,21 @@ class SettingsCard(tk.Toplevel):
             pass
 
     def mail(self):
-        """方丈邮箱：邮箱先复制好，再打开写邮件（电脑没设邮件程序的话，粘贴到常用的邮箱里发就行）。"""
-        import urllib.parse
+        """方丈邮箱：点一下，邮箱亮在底下、顺手复制好。不去开浏览器、邮件程序（Song 定的：点就显示邮箱并且复制）。"""
         self.copy_mail()
-        subject = urllib.parse.quote(f'录入僧 v{engine.VERSION} 建议')
-        open_path(f'mailto:{updater.CONTACT}?subject={subject}')
-        self.note.set(f'邮箱已复制：{updater.CONTACT}。没弹出写邮件的窗口，就粘贴到你常用的邮箱里发')
+        self.say(MAIL_COPIED.format(updater.CONTACT), strong=True)
 
     def copy_mail(self):
         self.clipboard_clear()
         self.clipboard_append(updater.CONTACT)
 
     def check(self):
-        self.note.set('正在查…')
+        self.say('正在查…')
         self.check_btn.config(state='disabled')
 
         def done(msg):
             if self.winfo_exists():
-                self.note.set(msg)
+                self.say(msg)
                 self.check_btn.config(state='normal')
         self.app.check_update(report=done, manual=True)
 
@@ -1361,11 +1364,9 @@ class UpdateCard(CardDialog):
             threading.Thread(target=go, daemon=True).start()
 
     def mail(self):
-        import urllib.parse
-        self.clipboard_clear()
+        self.clipboard_clear()                  # 只复制，不开浏览器、邮件程序
         self.clipboard_append(updater.CONTACT)
-        open_path(f'mailto:{updater.CONTACT}?subject=' + urllib.parse.quote(f'录入僧 v{engine.VERSION} 建议'))
-        self.status.set(f'邮箱已复制：{updater.CONTACT}')
+        self.status.set(MAIL_COPIED.format(updater.CONTACT))
 
     def enable(self, on: bool = True):
         for btn in self.btns:

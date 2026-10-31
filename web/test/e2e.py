@@ -478,7 +478,9 @@ def main():
             assert page.get_attribute('#hub', 'href') == 'https://qianshoulab.github.io/'
             page.eval_on_selector('#mail', 'a => a.addEventListener("click", e => e.preventDefault())')   # 测试里不真去开邮件程序
             page.click('#mail')                                                   # 方丈邮箱：先复制邮箱，底下一行写出来
-            page.wait_for_function('() => document.querySelector("#setnote").textContent.includes("邮箱已复制")')
+            page.wait_for_function('() => document.querySelector("#setnote").textContent.includes("已复制")')
+            assert page.get_attribute('#mail', 'href') is None                    # 只复制、亮出邮箱，不开邮件程序
+            assert page.text_content('#setnote').startswith(page.get_attribute('#mail', 'title'))
             assert page.evaluate('navigator.clipboard.readText()') == page.get_attribute('#mail', 'title')
             assert page.get_attribute('#mail', 'title').startswith('oilsongchengmin@')
             path = download('#backup')
