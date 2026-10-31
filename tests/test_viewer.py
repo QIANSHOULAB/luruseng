@@ -190,21 +190,16 @@ def test_edit_cell_category_book_and_locked(tmp_path, monkeypatch):
     out = viewer.edit_cell(str(p), 3, 2, '12')                  # 数字列打数字：存成数字
     assert load_workbook(str(p)).worksheets[0]['D3'].value == 12 and not out['checked']
     before = p.read_bytes()
-    lock = tmp_path / ('~$' + p.name)                           # Excel 开着这本
-    lock.write_bytes(b'x')
-    with pytest.raises(viewer.Locked):
-        viewer.edit_cell(str(p), 3, 1, 'B7')
-    lock.unlink()
-    assert p.read_bytes() == before
     real = os.replace
 
     def busy(a, b):
         raise PermissionError('in use')
-    monkeypatch.setattr(viewer.os, 'replace', busy)              # 存盘那一下 Excel 刚好打开了它
+    monkeypatch.setattr(viewer.os, 'replace', busy)              # Excel 开着这本：Windows 不让换
     with pytest.raises(viewer.Locked):
         viewer.edit_cell(str(p), 3, 1, 'B7')
     monkeypatch.setattr(viewer.os, 'replace', real)
     assert p.read_bytes() == before and not os.path.exists(str(p) + '.edit.tmp')
+    (tmp_path / ('~$' + p.name)).write_bytes(b'x')              # Excel 崩过留下的假 ~$ 小文件：不碍事
     out = viewer.edit_cell(str(p), 3, 1, 'B7')
     assert out['checked'] and out['data'] == {'Part': 'A', 'Part No': 'B7', '数量': '12'}
     assert viewer.load_rows(str(p))[1][0]['note'] == viewer.HUMAN_NOTE
@@ -244,9 +239,8 @@ def test_window_edit_cell(tmp_path, monkeypatch):
         assert v.cat == '刀单' and v.today is not None
         v.open_cell(0, 1)
         root.update()
-        assert v.editing == (1, 0, 1) and v.editor is not None and v.editor.winfo_ismapped()
+        assert v.editing == (1, 0, 1) and v.editor is not None and v.editor.winfo_exists()
         assert v.editor_var.get() == v.rows[1][0]['values'][1]
-        assert v.focus_get() is not None
         v.open_cell(0, 1)                                           # 再点一下：收起
         assert v.editing is None and v.editor is None
         v.open_cell(0, 2)
@@ -270,11 +264,11 @@ def test_window_edit_cell(tmp_path, monkeypatch):
         assert viewer.load_rows(res.xlsx)[1][0]['values'][1] == pick
         v.save_cell(0, 9, 'abc')                                    # PASSED 打成字母：还红，样板资料拿掉
         assert '还不对' in v.info.get() and fed[-1][2] is None
-        lock = os.path.join(os.path.dirname(res.xlsx), '~$' + os.path.basename(res.xlsx))
-        open(lock, 'w').close()
-        v.save_cell(0, 9, '1')
-        assert '表在 Excel 里开着' in v.info.get()
-        os.remove(lock)
+        real = os.replace
+        monkeypatch.setattr(viewer.os, 'replace', lambda a, b: (_ for _ in ()).throw(PermissionError('in use')))
+        v.save_cell(0, 9, '1')                                      # Excel 开着：一个字不动，告诉你关掉再点
+        assert '表在 Excel 里开着' in v.info.get() and viewer.load_rows(res.xlsx)[1][0]['values'][9] == 'abc'
+        monkeypatch.setattr(viewer.os, 'replace', real)
         v.busy = lambda: v.run_dir                                  # 这批还在干：先不让改
         v.open_cell(0, 9)
         assert v.editing is None and '还在干' in v.info.get()

@@ -233,9 +233,7 @@ def edit_cell(xlsx: str, row: int, i: int, text: str | None = None, today: date 
     红格子全处理完，核对提示换成「✓ 人核过」。表在 Excel 里开着就抛 Locked，一个字都不动。
     返回 {'value': 这格现在显示的字, 'still': 还红着没有, 'why': 为什么还红, 'checked': 这条核完没有,
     'data': 核完的话放进数据库的那份}。"""
-    folder, name = os.path.split(xlsx)
-    if os.path.exists(os.path.join(folder, '~$' + name)):        # Excel 开着这本，旁边就有这个小文件
-        raise Locked(xlsx)
+    # 不看旁边有没有 ~$ 小文件：Excel 崩过会留下一个假的，那样就永远改不了了。真开着的话最后换文件那一下会被拒
     try:
         wb = load_workbook(xlsx)
     except PermissionError:
@@ -290,7 +288,7 @@ def edit_cell(xlsx: str, row: int, i: int, text: str | None = None, today: date 
     wb.save(tmp)
     try:
         os.replace(tmp, xlsx)
-    except PermissionError:                          # Excel 刚好打开了它
+    except PermissionError:                          # Excel 开着这本：Windows 不让换
         try:
             os.remove(tmp)
         except OSError:
