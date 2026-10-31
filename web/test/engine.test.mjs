@@ -72,7 +72,7 @@ class FakeClock {
 }
 
 async function go(items, srv, opts = {}) {
-  const logs = [], photosOut = [], unfinished = [];
+  const logs = [], photosOut = [], unfinished = [], ticks = [];
   let batches = 0;
   const eng = new Engine({ keys: [K1], model: C.DEFAULT_MODEL, reads: 1, log: (m) => logs.push(m), fetchImpl: srv.fetch,
     prepare, sleep: async () => {}, ...opts });
@@ -81,8 +81,9 @@ async function go(items, srv, opts = {}) {
     onPhoto: async (it, recs, err, side) => photosOut.push({ no: it.no, recs, err, side }),
     onUnfinished: async (it, why) => unfinished.push({ no: it.no, why }),
     onBatch: async () => { batches++; },
+    progress: (d, t) => ticks.push([d, t]),
   });
-  return { res, logs, photosOut, unfinished, batches, eng };
+  return { res, logs, photosOut, unfinished, batches, eng, ticks };
 }
 
 test('twelve photos come back numbered in order, five at a time', async () => {
@@ -225,4 +226,13 @@ test('own category, first time: columns come from the form, title side comes bac
   assert.deepEqual(Object.keys(photosOut[0].recs[0]).filter((k) => !C.META.has(k)), ['Date', 'M/C No.', 'Qty', 'Remark']);
   assert.equal(photosOut[0].recs[0].Qty, '800');
   assert.equal(photosOut[0].side, 'right');
+});
+
+test('progress ticks per photo, not per batch: 3 photos count 1, 2, 3 as each one finishes', async () => {
+  const srv = server();
+  const { ticks } = await go(photos(3), srv);
+  assert.deepEqual(ticks.map(([d]) => d), [0, 1, 2, 3, 3]);          // 开头 0、每张一跳、整批存完再报一次
+  assert.ok(ticks.every(([, t]) => t === 3));
+  const { ticks: t7 } = await go(photos(7), server());
+  assert.deepEqual(t7.map(([d]) => d), [0, 1, 2, 3, 4, 5, 5, 6, 7, 7]);
 });

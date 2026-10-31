@@ -165,22 +165,27 @@ export class Engine {
   // items: [{no, file}]（按拍摄顺序编好号）。每批干完按编号顺序交给 onPhoto / onUnfinished，再 onBatch（存一次）
   async run(items, { onPhoto, onUnfinished, onBatch, progress = () => {} }) {
     const res = this.res;
-    let done = 0;
+    let done = 0, live = 0;
     progress(0, items.length);
+    const one = async (it) => {
+      let recs, side, err = '', stamped = null;
+      try {
+        [recs, side] = await this.recognize(it.file);
+      } catch (e) {
+        if (e instanceof C.Stopped || e instanceof C.Fatal) throw e;
+        return { recs: null, err: e instanceof C.ApiError ? e.raw() : `${e.name || 'Error'}：${e.message}` };
+      }
+      if (this.stampIt) {                      // 认完了才印编号：送去认的永远是原图
+        try { stamped = await this.stampIt(it.file, it.no, side); } catch (e) { this.log(`${two(it.no)} 编号照片没印成：${e.message}`); }
+      }
+      return { recs, side, err, stamped };
+    };
     for (let b = 0; b < items.length; b += C.BATCH) {
       const batch = items.slice(b, b + C.BATCH);
       const settled = await Promise.allSettled(batch.map(async (it) => {
-        let recs, side, err = '', stamped = null;
-        try {
-          [recs, side] = await this.recognize(it.file);
-        } catch (e) {
-          if (e instanceof C.Stopped || e instanceof C.Fatal) throw e;
-          return { recs: null, err: e instanceof C.ApiError ? e.raw() : `${e.name || 'Error'}：${e.message}` };
-        }
-        if (this.stampIt) {                    // 认完了才印编号：送去认的永远是原图
-          try { stamped = await this.stampIt(it.file, it.no, side); } catch (e) { this.log(`${two(it.no)} 编号照片没印成：${e.message}`); }
-        }
-        return { recs, side, err, stamped };
+        const out = await one(it);
+        progress(++live, items.length);        // 认完一张就报一声，别等一整批（3 张照片也能看见 1、2、3 往上跳）
+        return out;
       }));
       let halt = null;
       for (let k = 0; k < batch.length; k++) {     // 按编号顺序写进表

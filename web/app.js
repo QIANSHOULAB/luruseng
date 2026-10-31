@@ -50,6 +50,39 @@ function status(text) {                       // 数字（含 4/10 这种）蓝�
 }
 function bar(done, total) { $('#bar').style.width = total ? `${Math.round((100 * done) / total)}%` : '0'; }
 
+// 干活时的进度：认完一张跳一格；两张之间按估的时间慢慢往前爬（最多爬到下一格的九成），让人看着它在干活
+const FISH = '你可以去摸鱼了，剩下的交给老衲。';
+const DONE = '干完了，你核对就好。';
+const M = { total: 0, done: 0, tLast: 0, gaps: [], timer: null };
+function slogan(text) { $('#slogan').textContent = text || ''; }
+function meterDraw() { $('#bar').style.width = `${(100 * C.meterFrac(M, Date.now())).toFixed(1)}%`; }
+function meterStart(total) {
+  Object.assign(M, { total, done: 0, tLast: Date.now(), gaps: [] });
+  clearInterval(M.timer);
+  M.timer = setInterval(meterDraw, 250);
+  status(`0/${total} 张`);
+  slogan(FISH);
+  meterDraw();
+  if (matchMedia('(max-width: 860px)').matches) {      // 窄屏（手机）：任务状态在下面，自己滚过去给人看
+    $('.side').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+function meterTick(d, t) {
+  const now = Date.now();
+  if (d > M.done) { M.gaps.push((now - M.tLast) / (d - M.done)); M.tLast = now; M.done = d; }
+  M.total = t;
+  status(`${d}/${t} 张`);
+  slogan(FISH);
+  meterDraw();
+}
+function meterStop() { clearInterval(M.timer); M.timer = null; }
+function waitLine(msg) {                      // 撞了谷歌的额度在等：告诉人它没死
+  let m = msg.match(/等到 (\S+ \S+) 额度刷新/);
+  if (m) return `今天的免费额度用完了，老衲蹲点等到 ${m[1]} 接着干，这个页面别关。`;
+  m = msg.match(/等 (\d+) 秒/);
+  return m ? `谷歌喘口气，老衲蹲点等 ${m[1]} 秒，你接着摸。` : FISH;
+}
+
 function refreshQueue(keepStatus = false) {     // keepStatus：刚干完，右边大字留着「干完：…」
   const n = S.queue.length;
   const drop = $('#drop');
@@ -57,7 +90,7 @@ function refreshQueue(keepStatus = false) {     // keepStatus：刚干完，右�
   $('#clear').hidden = !n || S.busy;
   const names = S.queue.slice(0, 6).map((q) => q.file.name).join('、');
   $('#droptxt').textContent = n ? `${n} 张：${names}${n > 6 ? '…' : ''}` : EMPTY;
-  if (!S.busy && !keepStatus) { status(`待识别 ${n} 张`); bar(0, 0); }
+  if (!S.busy && !keepStatus) { status(`待识别 ${n} 张`); bar(0, 0); slogan(''); }
 }
 
 // ---------------------------------------------------------------- 设置
@@ -283,8 +316,10 @@ async function start(auto = false) {
     log(`▶ 开工（录入僧网页版 v${C.VERSION}）：${total} 张，按拍摄顺序编号 1–${total}，每批 ${C.BATCH} 张，模型 ${model}` +
       (C.READS >= 2 ? '，每张认两遍对答案' : '') + what);
 
+    meterStart(total);
+    const elog = (m) => { log(m); if (m.startsWith('⏸')) slogan(waitLine(m)); };
     eng = S.eng = new Engine({
-      keys: [k1, k2], model, spec, names, hints, log,
+      keys: [k1, k2], model, spec, names, hints, log: elog,
       prepare: (file, enhance) => exclusive(async () => I.prepare(await openFor(file, !enhance), enhance)),
       stampIt: (file, no, side) => exclusive(async () => I.stamp(await openFor(file, false), no, side)),
     });
@@ -295,7 +330,7 @@ async function start(auto = false) {
       return { kind: 'rec', ...C.assessTableRecord(rec, run.columns, spec.snapshot) };
     };
     const res = await eng.run(items, {
-      progress: (d, t) => { status(`${d}/${t} 张`); bar(d, t); },
+      progress: meterTick,
       onUnfinished: async (it, why) => {
         run.rows.push({ no: it.no, kind: 'blank', fill: 'grey', note: `未完成：${why}（照片还在列表里，再点开始接着干）` });
       },
@@ -327,12 +362,16 @@ async function start(auto = false) {
     const used = eng.usedLine();
     log(`${!res.failed && !res.stopped ? '✓' : '⚠'} 成功 ${res.ok} 张（${res.records} 条记录）· 失败 ${res.failed} 张 · ` +
       `${res.requests} 次请求${used ? ' · ' + used : ''}` + (kept ? `\n结果：${run.xlsx}（点「下载结果」，或者「核对」里下载）` : ''));
+    meterStop();
+    bar(res.ok + res.failed, total);
     if (kept) status(`干完：成功 ${res.ok} · 失败 ${res.failed}`);
+    slogan(res.ok && !res.stopped ? DONE : '');
     if (kept && res.ok && !res.stopped && !auto && S.cfg.auto_open) openViewer(id);
   } catch (e) {
     log(`✗ 程序出错：${e.name || 'Error'}：${e.message}`);
     console.error(e);
   } finally {
+    meterStop();
     cache.clear();
     S.eng = null;
     setBusy(false);
@@ -350,6 +389,7 @@ function halt() {
   if (!S.eng) return;
   S.eng.stop();
   status('正在停…（等手上这几张回来）');
+  slogan('');
 }
 
 // ---------------------------------------------------------------- 下载

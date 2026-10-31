@@ -1223,3 +1223,13 @@ export function exifTime(buf) {
   } catch (e) { /* 坏的 EXIF：不管 */ }
   return null;
 }
+
+// 进度条别干等：认完一张跳一格；两张之间按估的时间慢慢往前爬，最多爬到下一格的九成（真认完才跳满）
+// m = {total, done, tLast(上一张认完的时刻), gaps(之前每张之间隔了多久)}；guess：还没认完一张时先按 6 秒估
+export function meterFrac(m, now, guess = 6000) {
+  if (!m.total) return 0;
+  if (m.done >= m.total) return 1;
+  const g = m.gaps.slice(-5);
+  const gap = g.length ? g.reduce((x, y) => x + y, 0) / g.length : guess;
+  return (m.done + 0.9 * (1 - Math.exp(-(now - m.tLast) / gap))) / m.total;
+}

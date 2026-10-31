@@ -606,6 +606,43 @@ def main():
             close_viewer()
 
         @step
+        def progress_counts_up_and_says_go_slack():
+            m = browser.new_context(viewport={'width': 390, 'height': 844}, device_scale_factor=2, is_mobile=True, has_touch=True)
+            p = m.new_page()
+            p.on('pageerror', lambda e: errors.append(f'progress pageerror: {e}'))
+            offline(p)
+            # 谷歌慢一点、快慢不一（在浏览器里等，别堵住这边转发请求的线程）：看得见 0、1、2、3 往上跳
+            p.add_init_script('''(() => { const of = window.fetch; let k = 0;
+              window.fetch = async (u, o) => { if (String(u).includes('googleapis.com')) await new Promise(r => setTimeout(r, 900 + 500 * (k++ % 3))); return of(u, o); };
+            })()''')
+            p.goto(base)
+            p.wait_for_function('() => document.querySelectorAll("#log p").length >= 1')
+            p.evaluate('''() => { window.__seq = []; new MutationObserver(() => {
+                const t = document.querySelector("#status").textContent; if (window.__seq.at(-1) !== t) window.__seq.push(t);
+              }).observe(document.querySelector("#status"), {childList: true, subtree: true, characterData: true}); }''')
+            try:
+                p.set_input_files('#files', make_images(os.path.join(WORK, 'prog'), 3, start=70))
+                p.fill('#key1', K1)
+                p.click('#start')
+                p.wait_for_function('() => /^0\\/3/.test(document.querySelector("#status").textContent)', timeout=5000)
+                assert p.inner_text('#slogan') == '你可以去摸鱼了，剩下的交给老衲。', p.inner_text('#slogan')
+                p.wait_for_function('() => parseFloat(document.querySelector("#bar").style.width) > 3', timeout=4000)   # 还没认完一张，条已经在爬
+                p.wait_for_timeout(700)
+                top = p.evaluate('() => document.querySelector(".side").getBoundingClientRect().top')
+                assert 0 <= top < 844, top                                         # 手机上自己滚到任务状态
+                p.screenshot(path=os.path.join(SHOTS, '7-手机干活中.png'))
+                p.wait_for_function('() => document.querySelector("#status").textContent.startsWith("干完")', timeout=60000)
+                seq = p.evaluate('() => window.__seq')
+                ticks = [t for t in seq if t.endswith('/3 张')]
+                assert ticks == ['0/3 张', '1/3 张', '2/3 张', '3/3 张'], seq
+                assert p.inner_text('#slogan') == '干完了，你核对就好。', p.inner_text('#slogan')
+                if p.is_visible('#dlg-view'):
+                    p.click('#vclose')
+                p.screenshot(path=os.path.join(SHOTS, '7-手机干完.png'))
+            finally:
+                m.close()
+
+        @step
         def phone_layout():
             m = browser.new_context(viewport={'width': 390, 'height': 844}, device_scale_factor=2, is_mobile=True, has_touch=True)
             p = m.new_page()
@@ -645,7 +682,7 @@ def main():
                    same_photos_again_are_skipped, result_button_downloads_latest, feed_database_xlsx_xls_csv_html,
                    database_fixes_confusable_letters, edit_cells_in_viewer, names_dialog, own_category_matches_desktop_book,
                    bad_key_stops_and_keeps_photos, stop_button_marks_unfinished, photos_of_all_kinds,
-                   title_on_the_right_turns_upright_number_in_top_right, settings_backup_restore_and_forget_keys, delete_a_batch, phone_layout):
+                   title_on_the_right_turns_upright_number_in_top_right, settings_backup_restore_and_forget_keys, delete_a_batch, progress_counts_up_and_says_go_slack, phone_layout):
             try:
                 fn()
             except Exception:
@@ -653,7 +690,7 @@ def main():
                 print(last_logs(12))
                 page.screenshot(path=os.path.join(SHOTS, f'失败-{fn.__name__}.png'))
                 raise
-        page.screenshot(path=os.path.join(SHOTS, '7-最后.png'))
+        page.screenshot(path=os.path.join(SHOTS, '8-最后.png'))
         browser.close()
     bad = [e for e in errors if 'favicon' not in e]
     assert not bad, '\n'.join(bad)

@@ -308,3 +308,16 @@ test('核完的那条放进样板资料：同一条再改换掉上次那份，�
   assert.deepEqual(db.columns, ['Date', 'M/C No.', 'Qty']);
   assert.deepEqual(db.records[0].data, { Date: '28/10', 'M/C No.': 'VM-07', Qty: '5' });
 });
+
+test('进度条：认完一张跳一格，中间慢慢爬，最多爬到下一格的九成', () => {
+  const m = { total: 3, done: 0, tLast: 0, gaps: [] };
+  assert.equal(C.meterFrac(m, 0), 0);
+  const a = C.meterFrac(m, 3000), b = C.meterFrac(m, 9000), z = C.meterFrac(m, 1e9);
+  assert.ok(a > 0 && b > a && z <= 0.3 + 1e-9 && z > 0.29);      // 第一张还没好：只在第一格里爬
+  m.done = 1; m.tLast = 9000; m.gaps = [9000];
+  assert.ok(Math.abs(C.meterFrac(m, 9000) - 1 / 3) < 1e-9);       // 真认完一张：正好一格
+  assert.ok(C.meterFrac(m, 1e12) < 2 / 3);                         // 再久也不越过第二格
+  m.done = 3;
+  assert.equal(C.meterFrac(m, 9000), 1);
+  assert.equal(C.meterFrac({ total: 0, done: 0, tLast: 0, gaps: [] }, 5), 0);
+});
