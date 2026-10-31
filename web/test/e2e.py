@@ -622,6 +622,10 @@ def main():
             assert '数据库 24 条' in page.inner_text('#usage'), page.inner_text('#usage')   # 22 条放进去的 + 核对里核完的 2 条
             page.screenshot(path=os.path.join(SHOTS, '4-设置.png'))
             assert page.get_attribute('#hub', 'href') == 'https://qianshoulab.github.io/'
+            assert page.inner_text('#setcontact') == ('要什么新功能、有修改建议，或洽谈商业合作请直接找方丈飞鸽传书：oilsongchengmin@gmail.com\n'
+                                                      '千手院总坛：qianshoulab.github.io')    # Song 2026-11-01 给的原话
+            assert page.get_attribute('#setcontact a', 'href') == 'https://qianshoulab.github.io/'
+            assert page.get_attribute('#setcontact a', 'target') == '_blank'
             page.eval_on_selector('#mail', 'a => a.addEventListener("click", e => e.preventDefault())')   # 测试里不真去开邮件程序
             page.click('#mail')                                                   # 方丈邮箱：先复制邮箱，底下一行写出来
             page.wait_for_function('() => document.querySelector("#setnote").textContent.includes("已复制")')

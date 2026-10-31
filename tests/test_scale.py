@@ -85,5 +85,17 @@ def test_at_100_percent_nothing_moves_and_settings_foot(tmp_path, monkeypatch):
         monkeypatch.setattr(app, 'open_path', opened.append)
         [p for p in pills(foot) if p.cget('text') == '千手院总舵'][0].command()
         assert opened == [updater.HUB_URL] == ['https://qianshoulab.github.io/']
+        body = a.settings_win.card.body                        # 找方丈的话：开关底下、落款上面（Song 2026-11-01 给的原话）
+        say = a.settings_win.contact
+        assert body.pack_slaves().index(say) == body.pack_slaves().index(foot) - 1
+        line, hub = say.winfo_children()
+        assert line.cget('text') == '要什么新功能、有修改建议，或洽谈商业合作请直接找方丈飞鸽传书：oilsongchengmin@gmail.com'
+        assert [w.cget('text') for w in hub.winfo_children()] == ['千手院总坛：', 'qianshoulab.github.io']
+        assert line.winfo_reqwidth() <= body.winfo_width()    # 一行放得下，不被切
+        link = a.settings_win.hub_link
+        assert link.cget('fg') == ui.LINK and link.cget('cursor') == 'hand2'
+        assert link.bind('<Button-1>')                         # 网址能点
+        a.settings_win.open_hub()
+        assert opened == [updater.HUB_URL] * 2                 # 点网址也去总坛
     finally:
         close(root)

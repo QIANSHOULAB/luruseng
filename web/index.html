@@ -140,6 +140,7 @@
   .dcard .sep1 { border-top: 1px solid var(--line); margin: 10px 0 14px; }
   .dcard .foot2 { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 12px; display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; align-items: center; }
   .dcard .foot2 .left { margin-right: auto; color: var(--grey); font-size: 12.5px; line-height: 1.45; }
+  .dcard .contact { color: var(--grey); font-size: 12.5px; line-height: 1.6; margin-top: 14px; overflow-wrap: anywhere; }
   .dcard .snote { color: var(--grey); font-size: 12.5px; text-align: right; margin-top: 8px; }
   .dcard .snote:empty { display: none; }
   .dcard .snote.strong { color: var(--text); }
@@ -367,6 +368,7 @@
     <input type="file" id="restorefile" accept=".json,application/json" hidden>
   </div>
   <div class="err" id="seterr" style="min-height:0"></div>
+  <div class="contact" id="setcontact"></div>
   <div class="foot2"><div class="left" id="setver"></div>
     <a class="pill" id="hub" href="https://qianshoulab.github.io/" target="_blank" rel="noopener">千手院总舵</a><button type="button" class="pill" id="mail">方丈邮箱</button><button type="button" class="pill primary" data-close>完成</button></div>
   <div class="snote" id="setnote"></div>
