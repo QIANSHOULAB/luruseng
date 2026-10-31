@@ -215,7 +215,11 @@ def test_checked_rows_go_into_databases(tmp_path):
     assert kb.put_checked('核对 20261031_080000 #1.0', rec)
     assert kb.put_checked('核对 20261031_080000 #1.0', dict(rec, machine='VM-18'))   # 同一条再改：换掉上次那份
     import sqlite3
-    q = lambda sql: sqlite3.connect(str(tmp_path / 'kb.sqlite')).execute(sql).fetchall()   # noqa: E731
+    from contextlib import closing
+
+    def q(sql):
+        with closing(sqlite3.connect(str(tmp_path / 'kb.sqlite'))) as c:
+            return c.execute(sql).fetchall()
     assert q('SELECT machine, sheet FROM records') == [('VM-18', '核对')]
     assert ('639', 'Lee Ah Kow') in kb.load().roster()
     assert not kb.put_checked('核对 20261031_080000 #1.0', None)                    # 又改红了：拿掉
@@ -245,9 +249,9 @@ def test_window_edit_cell(tmp_path, monkeypatch):
         assert v.editing is None and v.editor is None
         v.open_cell(0, 2)
         root.update()
-        v.editor.winfo_children()[0].entry.event_generate('<Escape>')   # Esc 只收起小框
-        root.update()
-        assert v.editing is None and v.winfo_exists()
+        assert v.editor.winfo_children()[0].entry.bind('<Escape>')       # Esc 只收起小框（Windows 上没焦点按不了键，直接调）
+        v.close_cell()
+        assert v.editing is None and v.editor is None and v.winfo_exists()
         v.step(1)
         v.step(-1)
         assert v.cur == 1                                           # ←→ 照样翻页
@@ -301,9 +305,11 @@ def test_app_opens_only_checker_then_feeds_checked_rows(tmp_path, monkeypatch):
         assert a.busy_dir() == ''
         a.start()
         end = time.time() + 10
-        while not a.busy_dir() and time.time() < end:              # 正在干：这批的编号照片文件夹
+        busy = ''
+        while not busy and time.time() < end:                       # 正在干：这批的编号照片文件夹
+            busy = a.busy_dir()
             time.sleep(0.02)
-        assert a.busy_dir() == a.eng.res.photos_dir and engine.DONE_DIR in a.busy_dir()
+        assert busy and busy == a.eng.res.photos_dir and engine.DONE_DIR in busy
         end = time.time() + 30
         while (a.worker.is_alive() or a.viewer is None) and time.time() < end:
             root.update()
@@ -316,7 +322,10 @@ def test_app_opens_only_checker_then_feeds_checked_rows(tmp_path, monkeypatch):
         v.save_cell(0, 1, pick)
         assert '进了样板资料' in v.info.get(), v.info.get()
         db = sqlite3.connect(app.kb_path())
-        assert db.execute("SELECT machine, sheet FROM records WHERE source LIKE '核对 %'").fetchall() == [(pick, '核对')]
+        try:
+            assert db.execute("SELECT machine, sheet FROM records WHERE source LIKE '核对 %'").fetchall() == [(pick, '核对')]
+        finally:
+            db.close()
         v.open_table()
         assert opened == [v.xlsx]                                                     # 要看表：点「打开表」
         v.destroy()

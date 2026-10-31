@@ -31,7 +31,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install
-        run: pip install -r requirements.txt pytest pyinstaller xlwt   # xlwt 只给测试造老 .xls 用，不进 exe
+        run: pip install -r requirements.txt pytest pytest-github-actions-annotate-failures pyinstaller xlwt   # xlwt 只给测试造老 .xls 用，不进 exe；annotate：没登录也能在运行页上看到哪个测试挂了
       - name: Tests (Windows)
         run: python -m pytest -q tests
       - name: Build exe
