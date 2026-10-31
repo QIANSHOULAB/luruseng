@@ -14,7 +14,7 @@ from datetime import datetime
 from tkinter import filedialog
 from tkinter import font as tkfont
 
-from . import autopilot, engine, settings, sheets, tables, updater
+from . import autopilot, engine, report, settings, sheets, tables, updater
 from . import macui as ui
 
 
@@ -442,6 +442,12 @@ class App:
         self.update_dismissed = ''                   # 点了「以后再说」的版本：这次开着不再弹卡片
         self.offered = ''                            # 网站上有、还没换的新版本号（右上角蓝色小按钮）
         self.update_skip = ''                        # 换失败的版本：这次开着就别再下它了
+        self.sending = False                         # 发数据给方丈：后台正在发
+        self.send_fails = 0
+        self.next_send = time.time() + 90            # 打开一分半先把上次没发完的发了；之后闲着每 10 分钟看一眼
+        self.next_scan = time.time() + 90            # 看看表有没有被人改过、存过盘
+        self.reported = 0                            # 这次开着送出去几份
+        self.told_refused = False
         self.last_input = time.time()
         root.bind_all('<KeyPress>', self._touched, add='+')
         root.bind_all('<ButtonPress>', self._touched, add='+')
@@ -521,7 +527,7 @@ class App:
         self.pb.config(value=0)
         cat = self.category.get()
         common = dict(log=self.log, progress=lambda d, t: self.q.put(('prog', (d, t))), stop=self.stop,
-                      keep_originals=self.cfg.get('keep_originals', True))
+                      keep_originals=self.cfg.get('keep_originals', True), collect=bool(self.cfg.get('report')))
         if cat == tables.BUILTIN:                    # 刀单：专门的那一套
             eng = engine.Engine(self.folder.get(), [k1, k2], self.model.get(), names_path=names_path(),
                                 kb_path=kb_path(), feed_dir=feed_dir(), **common)
@@ -576,11 +582,15 @@ class App:
 
         def work():
             try:
+                send = bool(self.cfg.get('report'))      # 发数据给方丈开着：吃进去的表（人改对的答案）也给方丈一份
                 if cat == tables.BUILTIN:
                     from .kb import KnowledgeBase
                     kb = KnowledgeBase(kb_path())
                     for p in paths:
-                        self.log(kb.feed(p).line())
+                        fr = kb.feed(p)
+                        self.log(fr.line())
+                        if send and not fr.error:
+                            report.queue_sample(self.folder.get(), p, cat)
                     self.log(kb.summary())
                 else:
                     db = tables.TableDB(tables.db_path(app_dir(), cat))
@@ -589,6 +599,8 @@ class App:
                         self.log(fr.line())
                         if getattr(fr, 'new_columns', None):
                             self.log(f'「{cat}」多了这些列：' + '、'.join(fr.new_columns))
+                        if send and not fr.error:
+                            report.queue_sample(self.folder.get(), p, cat)
                     self.log(db.summary(cat))
             except Exception as e:
                 self.log(f'✗ 放入样板资料出错：{type(e).__name__}：{e}')
@@ -696,11 +708,58 @@ class App:
         if getattr(sys, 'frozen', False) and not self.checking and time.time() >= self.next_update:
             self.next_update = time.time() + updater.CHECK_EVERY
             self.check_update()                     # 自动更新开着：自己下、空闲时换；关着：只提醒
+        if self.cfg.get('report') and not self.sending and time.time() >= self.next_send:
+            self.send_reports()                     # 发数据给方丈：闲着的时候才发，不跟认照片抢网
         if self.auto.get() and (self.key1.get().strip() or self.key2.get().strip()):
             snap = autopilot.image_snapshot(self.folder.get())
             if self.watcher.poll(snap):
                 self.watcher.started(snap)
                 self.start(auto=True)
+
+    def send_reports(self):
+        """后台把攒着的给方丈的东西发出去；顺便（每 10 分钟）看看表有没有被人改过、存过盘。"""
+        self.sending = True
+        folder = self.folder.get()
+        had = bool(self.cfg.get('report_id'))
+        who = report.machine(self.cfg)              # 第一次发：给这台电脑起个短号，存进设置
+        if not had:
+            self.save()
+        scan = time.time() >= self.next_scan
+        if scan:
+            self.next_scan = time.time() + 600
+
+        def go():
+            try:
+                if scan:
+                    report.scan_corrections(folder)
+                r = report.send(folder, who)
+            except Exception as e:
+                r = report.Sent(error=f'{type(e).__name__}：{e}')
+            self.q.put(('call', lambda: self._sent(r)))
+
+        threading.Thread(target=go, daemon=True).start()
+
+    def _sent(self, r):
+        self.sending = False
+        self.reported += r.sent
+        now = time.time()
+        if r.error:                                 # 断网、接口不收：越等越久再试（2 分钟起，最多 2 小时）
+            self.send_fails += 1
+            self.next_send = now + min(7200, 120 * 2 ** min(self.send_fails - 1, 6))
+            if r.error in ('token', 'full') and not self.told_refused:
+                self.told_refused = True
+                self.write('方丈网盘暂时不收（' + ('今天收满了' if r.error == 'full' else '接口换了，等新版') + '），'
+                           '东西先攒在本机，过一阵自己再发')
+        else:
+            self.send_fails = 0
+            self.next_send = now + (15 if r.left > 0 else 600)
+
+    def report_status(self) -> str:
+        try:
+            left = len(report.pending(self.folder.get()))
+        except Exception:
+            left = 0
+        return f'发给方丈：这次开着送出去 {self.reported} 份，' + (f'还有 {left} 份在路上' if left else '没有欠账')
 
     def _canonicalize(self, d: str) -> bool:
         """正名：从「录入僧测试版.exe」之类的别名跑起来时，等 录入僧.exe 没人占着了，就把自己抄过去、从正名重开。
@@ -851,11 +910,20 @@ class App:
 
     def setting_changed(self, key: str, value: bool):
         self.cfg[key] = value
+        if key == 'report' and value:
+            report.machine(self.cfg)
         self.save()
         if key in ('startup', 'shortcuts'):
             threading.Thread(target=sync_shortcuts, args=(self.cfg,), daemon=True).start()
         if key == 'auto_update' and value:
             self.next_update = min(self.next_update, time.time() + 5)
+        if key == 'report':
+            if value:
+                self.write('✓ 发数据给方丈：开了。每批认完，照片和认的过程自己送去方丈网盘；'
+                           '在表里改完存个盘，改过的格子也一起送去')
+                self.next_send = min(self.next_send, time.time() + 3)
+            else:
+                self.write('发数据给方丈：关了，一个字都不往外送了')
 
     def write(self, msg: str):
         self.text.config(state='normal')
@@ -899,6 +967,9 @@ class App:
                         self.last_run = {'xlsx': val.xlsx, 'ok': val.ok, 'failed': val.failed, 'requests': val.requests,
                                          'stopped': val.stopped_reason, 'auto': self.auto_run,
                                          'at': datetime.now().isoformat(timespec='seconds')}
+                        if self.cfg.get('report'):
+                            self.write('↗ 这批的照片和认的过程排好队了，闲下来就送去方丈网盘（⚙ 里能关）')
+                            self.next_send = min(self.next_send, time.time() + 5)
                         if val.ok and not self.stop.is_set() and not self.auto_run and self.cfg.get('auto_open', True):
                             open_path(val.xlsx)                 # 表和核对窗口一起打开，对着核（自动开工的不弹，没人看）
                             if val.photos_dir and os.path.isdir(val.photos_dir):
@@ -933,7 +1004,7 @@ class SettingsCard(tk.Toplevel):
             row = tk.Frame(g, bg=ui.CARD)
             row.pack(fill='x', pady=4)
             v = tk.BooleanVar(value=bool(app.cfg.get(key)))
-            ui.Switch(row, v, command=lambda k=key, var=v: app.setting_changed(k, bool(var.get()))).pack(
+            ui.Switch(row, v, command=lambda k=key, var=v: self.changed(k, bool(var.get()))).pack(
                 side='right', padx=(18, 0))
             left = tk.Frame(row, bg=ui.CARD)
             left.pack(side='left', fill='x', expand=True)
@@ -958,11 +1029,16 @@ class SettingsCard(tk.Toplevel):
         self.check_btn.pack(side='right', padx=8)
         ui.Pill(foot, '方丈邮箱', command=self.mail, **btn).pack(side='right')
         ui.Pill(foot, '千手院总舵', command=lambda: open_path(updater.HUB_URL), **btn).pack(side='right', padx=(0, 8))
-        self.note = tk.StringVar(value='')
+        self.note = tk.StringVar(value=app.report_status() if app.cfg.get('report') else '')
         tk.Label(g, textvariable=self.note, font=(fam, 9), bg=ui.CARD, fg=ui.GREY, anchor='e').pack(
             fill='x', pady=(6, 0))
         self.bind('<Escape>', lambda e: self.destroy())
         self.after(30, self._center)
+
+    def changed(self, key: str, value: bool):
+        self.app.setting_changed(key, value)
+        if key == 'report':                     # 发数据给方丈：底下那行说一声发了多少、还欠多少
+            self.note.set(self.app.report_status() if value else '')
 
     def _center(self):
         try:

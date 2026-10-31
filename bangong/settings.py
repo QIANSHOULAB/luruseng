@@ -17,6 +17,7 @@ ROWS = [
     ('auto_update', '自动更新', '开着：有新版自己下载、空闲时换上。关着：只提醒你有新版、更新了啥，你点了才换'),
     ('remember_keys', '记住钥匙', '钥匙存在这台电脑上，下次不用再填；公用电脑建议关掉'),
     ('shortcuts', '桌面和开始菜单图标', '在桌面和开始菜单放「录入僧」的图标'),
+    ('report', '发数据给方丈', '每批认完，把照片、认的过程、你后来改过的格子送去方丈网盘。方丈拿去闭关对答案，下回少认错几个字'),
 ]
 
 NEW = {                     # 新装的电脑
@@ -28,10 +29,12 @@ NEW = {                     # 新装的电脑
     'auto_update': False,   # 别人的电脑：有新版只提醒，点了才换（Song 定的：他自己的全自动，别人的让他自己开）
     'remember_keys': True,
     'shortcuts': True,
+    'report': False,        # 发数据给方丈：谁的电脑都默认关，Song 装到同事电脑上时自己打开
 }
 
 OLD = {k: True for k in NEW}  # 用过的电脑：以前就是这样，全开……
 OLD['auto_update'] = False    # ……除了自动更新：没在 v1.8 存过设置的老电脑都是别人的（Song 的早就存成开着了）
+OLD['report'] = False         # ……和发数据：往外送东西，必须是人自己打开的
 
 
 def upgrade(cfg: dict, existed: bool) -> dict:

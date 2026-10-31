@@ -20,14 +20,16 @@ def test_new_computer_gets_polite_defaults():
     assert cfg['settings_ver'] == settings.SETTINGS_VER
     assert cfg['auto'] is False and cfg['startup'] is False and cfg['hide_on_close'] is False
     assert cfg['auto_update'] is False                       # 别人的电脑：有新版只提醒，点了才换
+    assert cfg['report'] is False                            # 发数据给方丈：默认关
     assert cfg['auto_open'] and cfg['keep_originals'] and cfg['remember_keys'] and cfg['shortcuts']
 
 
 def test_old_computer_keeps_everything_on():
     old = {'folder': r'F:\songchengmin\录入僧\待识别', 'key1': 'AIzaX', 'auto': True, 'model': 'm'}
     cfg = settings.upgrade(dict(old), existed=True)
-    assert all(cfg[k] is True for k in settings.NEW if k != 'auto_update'), cfg
+    assert all(cfg[k] is True for k in settings.NEW if k not in ('auto_update', 'report')), cfg
     assert cfg['auto_update'] is False                       # 没存过新设置的老电脑都是别人的
+    assert cfg['report'] is False                            # 往外送东西：必须是人自己打开的
     assert {k: cfg[k] for k in old} == old                      # 原来的值一个不动
     again = settings.upgrade(dict(cfg), existed=True)
     assert again == cfg

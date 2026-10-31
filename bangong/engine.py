@@ -31,7 +31,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-VERSION = '1.9.7'
+VERSION = '1.9.8'
 APP_NAME = '录入僧'
 SUBTITLE = '施主去玩，贫僧填表'
 TITLE = '入我千手院，凡事尽释手；千僧替牛马，施主自风流。'      # 窗口标题栏只写这一句（Song 定的）
@@ -964,8 +964,13 @@ class Engine:
                  log=print, progress=None, stop: threading.Event | None = None,
                  clock=time.time, sleep=None, names_path: str | None = None,
                  kb_path: str | None = None, feed_dir: str | None = None, reads: int | None = None,
-                 keep_originals: bool = True, discard=recycle, spec=None):
+                 keep_originals: bool = True, discard=recycle, spec=None, collect: bool = False):
         self.folder = folder
+        self.collect = collect      # ⚙「发数据给方丈」开着：每张怎么认的都记下来，干完写进 识别结果\.回传（见 report.py）
+        self.collect_photos = False
+        self.trace: dict[str, dict] = {}
+        self.run_name = ''
+        self.kb_line = ''
         self.spec = spec          # None = 刀单（下面这套专门的）；自建类别交给 tables.TableSpec
         self.keep_originals, self.discard = keep_originals, discard   # 不留原图：认完扔进回收站（扔不进去就照旧留着）
         self.reads = max(1, reads if reads is not None else READS)
@@ -1023,14 +1028,14 @@ class Engine:
         agree = self.spec.agree if self.spec else records_agree
         vote_ = self.spec.vote if self.spec else vote
         if self.reads == 1:
-            recs, side = self._read(jpeg, path)
+            recs, side = self._traced_read(jpeg, path, '原图')
             return vote_([[clean(r) for r in recs]]), side
-        plan = [jpeg, prepare_image(path, enhance=True)]
+        plan = [(jpeg, '原图'), (prepare_image(path, enhance=True), '加强')]
         reads, errs, sides = [], [], []
         while plan:
-            img = plan.pop(0)
+            img, what = plan.pop(0)
             try:
-                recs, side = self._read(img, path)
+                recs, side = self._traced_read(img, path, what)
                 reads.append([clean(r) for r in recs])
                 sides.append(side)
             except (Stopped, Fatal):
@@ -1038,10 +1043,10 @@ class Engine:
             except Exception as e:              # 某一遍没认成：再补一遍，凑够两遍对答案
                 errs.append(e)
                 if len(errs) == 1 and len(reads) + len(plan) < 2:
-                    plan.append(jpeg)
+                    plan.append((jpeg, '原图'))
                 continue
             if not plan and len(reads) == 2 and not agree(reads[0], reads[1]):
-                plan.append(jpeg)                   # 两遍对不上：第三遍当裁判
+                plan.append((jpeg, '原图'))           # 两遍对不上：第三遍当裁判
         if not reads:
             raise errs[0]
         out = vote_(reads)
@@ -1055,6 +1060,40 @@ class Engine:
             top = c.most_common(1)[0][1]
             side = known[0] if c[known[0]] == top else c.most_common(1)[0][0]
         return out, side
+
+    def _traced_read(self, img: bytes, path: str, what: str) -> tuple[list[dict], str]:
+        """认一遍；开着「发数据给方丈」就把这一遍认成什么（模型原话，整理之前）、花了多久记下来。"""
+        t0 = time.time()
+        try:
+            recs, side = self._read(img, path)
+        except (Stopped, Fatal):
+            raise
+        except Exception as e:
+            if self.collect:
+                why = e.raw() if isinstance(e, ApiError) else f'{type(e).__name__}：{e}'
+                self.trace.setdefault(path, {}).setdefault('reads', []).append(
+                    {'img': what, 'ms': int((time.time() - t0) * 1000), 'error': why})
+            raise
+        if self.collect:
+            self.trace.setdefault(path, {}).setdefault('reads', []).append(
+                {'img': what, 'ms': int((time.time() - t0) * 1000), 'side': side, 'records': recs})
+        return recs, side
+
+    def _collect(self, no: int, path: str, width: int, side: str, err: str, t0: float):
+        """一张认完（不管成没成）：记下照片本身的样子，再存一份缩小的给方丈。出什么错都不耽误干活。"""
+        try:
+            t = self.trace.setdefault(path, {})
+            t.update(side=side, error=err, ms=int((time.time() - t0) * 1000))
+            from . import report
+            info, small = report.snapshot(path)
+            t['look'] = info
+            if self.collect_photos:
+                pics = os.path.join(report.run_dir(self.folder, self.run_name), report.PICS)
+                os.makedirs(pics, exist_ok=True)
+                with open(os.path.join(pics, f'{no:0{width}d}.jpg'), 'wb') as fh:
+                    fh.write(small)
+        except Exception:
+            pass
 
     def _body(self, jpeg: bytes, schema: bool) -> dict:
         if self.spec:
@@ -1147,11 +1186,18 @@ class Engine:
                 kb = KnowledgeBase(self.kb_path)
                 for fr in kb.feed_folder(self.feed_dir):
                     self.log(fr.line())
+                    if self.collect and not fr.error:   # 投喂文件夹里吃进去的表：人改对的答案，也给方丈一份
+                        try:
+                            from . import report
+                            report.queue_sample(self.folder, fr.path, '刀单')
+                        except Exception:
+                            pass
                 self.snapshot = kb.load()
                 self.hints = self.snapshot.hints()
                 have = {n for n, _ in self.names}
                 self.names = self.names + [(n, nm) for n, nm in self.snapshot.roster() if n not in have]
-                self.log(kb.summary())
+                self.kb_line = kb.summary()
+                self.log(self.kb_line)
             except Exception as e:
                 self.log(f'数据库打不开，这次不用它：{type(e).__name__}：{e}')
                 self.snapshot, self.hints = None, ''
@@ -1190,6 +1236,14 @@ class Engine:
         tail = f'_{self.spec.name}' if self.spec else ''
         res.xlsx = os.path.join(out_dir, f'识别结果_{run_id}{tail}.xlsx')
         res.photos_dir = done_dir
+        self.run_name = f'{run_id}{tail}'
+        started = time.time()
+        if self.collect:
+            try:
+                from . import report
+                self.collect_photos = report.room(self.folder)
+            except Exception:
+                self.collect = False
         book = self.spec.book(res.xlsx) if self.spec else RecordBook(res.xlsx, names=self.names, kb=self.snapshot)
         items = [(i + 1, p, h) for i, (p, h) in enumerate(todo)]      # 按拍摄顺序编号：第 1 张对应表里 No. 1
         if self.spec:
@@ -1204,14 +1258,20 @@ class Engine:
 
         def one(item):
             no, p, h = item
+            t0 = time.time()
+            err = ''
             try:
                 recs, side = self.recognize(p)
             except (Stopped, Fatal):
                 raise
             except ApiError as e:
-                return no, p, h, None, e.raw()
+                recs, side, err = None, '', e.raw()
             except Exception as e:
-                return no, p, h, None, f'{type(e).__name__}：{e}'
+                recs, side, err = None, '', f'{type(e).__name__}：{e}'
+            if self.collect:
+                self._collect(no, p, width, side, err, t0)
+            if recs is None:
+                return no, p, h, None, err
             try:                                    # 认完了才印编号：送去识别的永远是原图
                 os.makedirs(done_dir, exist_ok=True)
                 stamp_number(p, no, os.path.join(done_dir, f'{no:0{width}d}.jpg'), side)
@@ -1232,6 +1292,8 @@ class Engine:
                             halt = halt or e
                             why = '已停止' if isinstance(e, Stopped) and not self.fatal else (self.fatal or str(e))
                             book.unfinished(no, why)
+                            if self.collect:
+                                self.trace.setdefault(p, {})['error'] = f'未完成：{why}'
                             continue
                         name = os.path.basename(p)
                         tag = f'{no:0{width}d}'
@@ -1275,7 +1337,13 @@ class Engine:
             except OSError:
                 pass
             res.xlsx = ''
-        used = ' · '.join(f'钥匙{i + 1}×{n}' for i, n in enumerate(self.keys.used) if n)
+        if self.collect and res.xlsx:
+            try:                                    # 发数据给方丈：这批怎么认的、刚认完时的表，落在本机等着发
+                from . import report
+                report.finish_run(self, items, getattr(book, 'path', res.xlsx), started, self.kb_line)
+            except Exception as e:
+                self.log(f'给方丈的记录没写成（不耽误干活）：{type(e).__name__}：{e}')
+        used =' · '.join(f'钥匙{i + 1}×{n}' for i, n in enumerate(self.keys.used) if n)
         self.log(f'{"✓" if not res.failed and not res.stopped_reason else "⚠"} 成功 {res.ok} 张（{res.records} 条记录）· 失败 {res.failed} 张 · '
                  f'{res.requests} 次请求{" · " + used if used else ""}' + (f'\n结果：{res.xlsx}' if res.xlsx else ''))
         return res
