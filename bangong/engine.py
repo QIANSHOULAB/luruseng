@@ -31,7 +31,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-VERSION = '1.10.1'
+VERSION = '1.10.2'
 APP_NAME = '录入僧'
 SUBTITLE = '施主去玩，贫僧填表'
 TITLE = '入我千手院，凡事尽释手；千僧替牛马，施主自风流。'      # 窗口标题栏只写这一句（Song 定的）
@@ -784,6 +784,8 @@ class RecordBook:
                 red.add(f)
                 notes.append(f'{f.upper()} 有看不清的字')
             values[f] = v
+        if values['btmp'] in ('', None) and isinstance(values['total_screened'], int):
+            values['btmp'] = values['total_screened']   # 换刀调试单上没有 BTMP：照公司那本的规矩抄 TOTAL SCREENED（Song 定的）
         if rec.get('single'):
             notes.append('只认成了一遍，没能对答案')
         if rec.get('counts'):

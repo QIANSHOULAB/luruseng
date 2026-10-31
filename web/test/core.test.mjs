@@ -353,3 +353,23 @@ test('resume plan: done ones are not redone, failed ones wait for next time, los
   assert.deepEqual(again.lost, []);                                     // 记过一回「没存住」，再被关一回也不记第二遍
   assert.deepEqual(again.todo.map((x) => x.no), [3, 4, 6]);
 });
+
+test('BTMP：单子上没有就抄 TOTAL SCREENED；核对里改 TOTAL，抄的那份跟着变，真写了别的数不动', () => {
+  const base = { date: '28/10', machine: 'VM-12', part_number: 'AB-1', mo: '82667003', opr_no: '130', t_no: 'T10',
+    description: 'FACEMILL Φ40 R0.8', btmp: '', total_screened: '4', passed: '4', failed: '0', shift: 'N', setter: '232' };
+  const a = C.assessRecord(base, { today: T });
+  assert.equal(a.values.btmp, 4);
+  assert.ok(!a.red.includes('btmp'));
+  assert.equal(C.assessRecord({ ...base, btmp: '7' }, { today: T }).values.btmp, 7);       // 登记表上真写了：照写
+  assert.equal(C.assessRecord({ ...base, total_screened: '' }, { today: T }).values.btmp, '');  // TOTAL 也没有：空着
+  const row = { no: 1, kind: 'rec', ...a };
+  C.checkCell(row, 'total_screened', { text: '6', today: T });
+  assert.equal(row.values.btmp, 6);
+  C.checkCell(row, 'total_screened', { text: '6o', today: T });                             // 打错了：抄过去的也清掉，别留个错数
+  assert.equal(row.values.btmp, '');
+  C.checkCell(row, 'total_screened', { text: '5', today: T });
+  assert.equal(row.values.btmp, 5);
+  const own = { no: 1, kind: 'rec', ...C.assessRecord({ ...base, btmp: '7' }, { today: T }) };
+  C.checkCell(own, 'total_screened', { text: '9', today: T });
+  assert.equal(own.values.btmp, 7);
+});

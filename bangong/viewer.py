@@ -21,6 +21,7 @@ LABELS = ['DATE', 'MACHINE', 'PART NUMBER', 'MO', 'OPR NO.', 'T NO.', 'DESCRIPTI
           'TOTAL SCREENED', 'PASSED', 'FAILED', 'SHIFT', 'SETTER']
 RUN_RE = re.compile(r'\d{8}_\d{6}')
 BTMP = LABELS.index('BTMP')
+TOTAL = LABELS.index('TOTAL SCREENED')
 
 
 # ---------------------------------------------------------------- 数据（不碰 Tk，方便测试）
@@ -250,8 +251,12 @@ def edit_cell(xlsx: str, row: int, i: int, text: str | None = None, today: date 
     human = {j for j, lk in enumerate(before) if lk == 'human'}
     cell, key, bad = cells[i], keys[i], None
     if text is not None:
+        old_t = cells[TOTAL].value if builtin else None
+        old_b = cells[BTMP].value if builtin else None
         v = typed_value(key, text, builtin, cell.value, today)
         cell.value = None if v == '' else v
+        if builtin and key == 'total_screened' and (old_b in (None, '') or old_b == old_t):
+            cells[BTMP].value = v if _isint(v) else None   # BTMP 是照 TOTAL 抄的：TOTAL 改了它跟着改；单子上真写了别的数就不动
         if builtin and key == 'date':
             cell.number_format = 'd-mmm' if isinstance(v, datetime) else 'General'
         if builtin:
@@ -535,9 +540,9 @@ class Viewer(tk.Toplevel):
                 p.insert('end', rec['note'] + '\n\n', 'note')
                 continue
             for i, (lab, val) in enumerate(zip(rec.get('labels', LABELS), rec['values'])):
-                if (rec.get('builtin') and i == BTMP and not val and i not in rec['red']
-                        and i not in rec.get('fixed', ())):
-                    continue                            # 换刀调试单上本来就没有 BTMP：空着就不列（表里那一列照留）
+                if (rec.get('builtin') and i == BTMP and (not val or val == rec['values'][TOTAL])
+                        and i not in rec['red'] and i not in rec.get('fixed', ())):
+                    continue                            # 换刀调试单上没有 BTMP，表里照抄 TOTAL：空着、或者就是那份抄的，不列
                 p.insert('end', lab + '\t', 'k')
                 look = ('red' if i in rec['red'] else 'fixed' if i in rec.get('fixed', ()) else
                         'human' if i in rec.get('human', ()) else '')

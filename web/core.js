@@ -1,7 +1,7 @@
 // 录入僧网页版 · 认单子的核心（跟电脑版 bangong/engine.py、kb.py、tables.py 同一套规矩，改一边要改另一边）
 // 纯逻辑：不碰页面、不碰存储，浏览器和 node 测试都能跑。
 
-export const VERSION = '1.10.1';
+export const VERSION = '1.10.2';
 export const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 export const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
 export const MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro'];
@@ -682,6 +682,8 @@ export function assessRecord(rec, { snapshot = null, names = [], today = new Dat
     if (typeof v === 'string' && v.includes('□') && !NEVER_RED.has(f)) { red.add(f); notes.push(`${f.toUpperCase()} 有看不清的字`); }
     values[f] = v;
   }
+  // 换刀调试单上没有 BTMP：照公司那本的规矩抄 TOTAL SCREENED（那本里这两格每行都一样，Song 定的）
+  if (values.btmp === '' && Number.isInteger(values.total_screened)) values.btmp = values.total_screened;
   if (rec.single) notes.push('只认成了一遍，没能对答案');
   if (rec.counts) notes.push('几遍认出的条数不一样（' + rec.counts.join(' / ') + ' 条），按多数定');
   const alts = {};                            // 几遍认出来的不同写法：核对时点一下就填上
@@ -1121,8 +1123,13 @@ export function checkCell(row, key, { text = undefined, cat = BUILTIN, today = n
   const names = keys.map(name);
   let bad = null;
   if (text !== undefined) {
+    const oldT = row.values.total_screened, oldB = row.values.btmp;
     const v = row.values[key] = editValue(key, text, { cat, orig: row.values[key], today });
     if (builtin) bad = typedProblem(key, v);
+    // BTMP 是照 TOTAL SCREENED 抄的（空着或者跟它一样）：TOTAL 改了它跟着改；单子上真写了别的数就不动
+    if (builtin && key === 'total_screened' && (oldB === '' || oldB == null || oldB === oldT)) {
+      row.values.btmp = Number.isInteger(v) ? v : '';
+    }
   }
   row.red = (row.red || []).filter((f) => f !== key);
   row.orange = (row.orange || []).filter((f) => f !== key);

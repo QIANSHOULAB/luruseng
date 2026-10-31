@@ -904,8 +904,9 @@ function fillPanel(no) {
     const red = new Set(rec.red), orange = new Set(rec.orange), human = new Set(rec.human || []);
     keys.forEach((f, i) => {
       const v = C.showValue(rec.values[f]);
-      // 换刀调试单上本来就没有 BTMP：空着就不列（表里那一列照留，整块贴进公司表不错位）
-      if (V.run.cat === C.BUILTIN && f === 'btmp' && !v && !red.has(f) && !orange.has(f)) return;
+      // 换刀调试单上本来就没有 BTMP，表里照抄 TOTAL SCREENED：空着、或者就是那份抄的，核对里不列（不用核两遍）
+      if (V.run.cat === C.BUILTIN && f === 'btmp' && (!v || v === C.showValue(rec.values.total_screened))
+        && !red.has(f) && !orange.has(f)) return;
       dl.appendChild(add('dt', '', labels[i]));
       const look = red.has(f) ? 'red' : orange.has(f) ? 'fixed' : human.has(f) ? 'human' : '';
       const dd = add('dd', ('edit ' + look).trim(), v || '—');

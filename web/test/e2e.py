@@ -425,7 +425,7 @@ def main():
             close_viewer()
 
         @step
-        def empty_btmp_not_listed():
+        def btmp_copies_total():
             mock_server.STATE['modes'] = {K1: 'nobtmp'}                    # 换刀调试单：单子上没有 BTMP
             try:
                 run_and_wait(make_images(os.path.join(WORK, 'b'), 1, start=112), '成功 1 张')
@@ -439,8 +439,15 @@ def main():
                 .map(d => [d.textContent, Math.round(d.getBoundingClientRect().height)]))""")
             assert hs['TOTAL SCREENED'] == hs['MACHINE'], hs                  # 一行，不折成两行
             ws = load_workbook(download('#vxlsx')).worksheets[0]
-            assert ws['I2'].value == 'BTMP' and ws['I4'].value is None             # 表里 BTMP 那一列照留，贴进公司表不错位
+            assert ws['I2'].value == 'BTMP' and ws['I4'].value == 1 == ws['J4'].value   # 表里 BTMP 抄 TOTAL SCREENED，贴进公司表就齐了
             assert (ws['I4'].fill.fgColor.rgb or '').endswith('FFE699')
+            page.click('#vpanel dd[data-f="total_screened"]')              # 核对里改 TOTAL：BTMP 跟着变
+            page.fill('#vpanel .cell-ed input', '3')
+            page.press('#vpanel .cell-ed input', 'Enter')
+            vinfo_has('TOTAL_SCREENED 改成 3'.replace('_', ' '))
+            assert page.query_selector('#vpanel dd[data-f="btmp"]') is None
+            ws = load_workbook(download('#vxlsx')).worksheets[0]
+            assert ws['I4'].value == 3 == ws['J4'].value, (ws['I4'].value, ws['J4'].value)
             close_viewer()
 
         @step
@@ -842,7 +849,7 @@ def main():
 
         for fn in (opens_clean, no_key_no_start, twelve_photos_match_desktop_book, viewer_pages_rotates_copies_zips,
                    same_photos_again_are_skipped, result_button_downloads_latest, feed_database_xlsx_xls_csv_html,
-                   database_fixes_confusable_letters, edit_cells_in_viewer, empty_btmp_not_listed, names_dialog, own_category_matches_desktop_book,
+                   database_fixes_confusable_letters, edit_cells_in_viewer, btmp_copies_total, names_dialog, own_category_matches_desktop_book,
                    bad_key_stops_and_keeps_photos, stop_button_marks_unfinished, photos_of_all_kinds,
                    title_on_the_right_turns_upright_number_in_top_right, settings_backup_restore_and_forget_keys, delete_a_batch, progress_counts_up_and_says_go_slack,
                    killed_midway_comes_back_and_finishes, phone_layout):

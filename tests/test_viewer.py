@@ -336,11 +336,14 @@ def test_app_opens_only_checker_then_feeds_checked_rows(tmp_path, monkeypatch):
         root.destroy()
 
 
-def test_window_hides_empty_btmp(tmp_path):
-    """换刀调试单上本来就没有 BTMP：核对里空着就不列；表里那一列照留（贴进公司表不错位）。"""
+def test_window_btmp_copies_total(tmp_path):
+    """换刀调试单上没有 BTMP：表里照抄 TOTAL SCREENED（公司那本的规矩），核对里不列这份抄的；改 TOTAL 它跟着变。"""
+    from openpyxl import load_workbook
     res = make_run(tmp_path, 1, modes={K1: 'nobtmp'})
     r = viewer.load_rows(res.xlsx)[1][0]
-    assert r['values'][viewer.BTMP] == '' and r['labels'][viewer.BTMP] == 'BTMP'
+    assert r['values'][viewer.BTMP] == '1' == r['values'][viewer.TOTAL] and r['labels'][viewer.BTMP] == 'BTMP'
+    ws = load_workbook(res.xlsx).worksheets[0]
+    assert ws['I4'].value == 1 and _fill(ws, 'I4') == 'FFE699'                 # 数字，还是黄的
     root = _tk_root()
     try:
         v = viewer.Viewer(root, str(tmp_path))
@@ -349,18 +352,22 @@ def test_window_hides_empty_btmp(tmp_path):
         assert 'BTMP' not in text and 'TOTAL SCREENED' in text and 'SETTER' in text
         v.open_cell(0, 8)                                           # 后面的格子照样点得开、改得对
         assert v.editor_var.get() == '1'
-        v.save_cell(0, 8, '1')
-        assert viewer.load_rows(res.xlsx)[1][0]['human'] == {8}
+        v.save_cell(0, 8, '3')                                      # 改 TOTAL：抄过去的 BTMP 跟着变
+        r = viewer.load_rows(res.xlsx)[1][0]
+        assert r['human'] == {8} and r['values'][viewer.BTMP] == '3' and 'BTMP' not in v.panel.get('1.0', 'end')
+        out = viewer.edit_cell(res.xlsx, 4, 8, '3o')                # 打错了：抄过去的也清掉，别留个错数
+        assert out['still'] and viewer.load_rows(res.xlsx)[1][0]['values'][viewer.BTMP] == ''
         v.destroy()
     finally:
         root.destroy()
-    res2 = make_run(tmp_path / 'b', 1, modes={K1: 'ok'})            # 有 BTMP 的照样列出来
+    res2 = make_run(tmp_path / 'b', 1, modes={K1: 'mismatch'})      # 单子上真写了 BTMP、跟 TOTAL 不一样：照样列
     root = _tk_root()
     try:
         v = viewer.Viewer(root, str(tmp_path / 'b'))
         root.update()
         assert 'BTMP' in v.panel.get('1.0', 'end')
+        v.save_cell(0, 8, '11')                                     # 真写的 BTMP 不跟着 TOTAL 变
+        assert viewer.load_rows(res2.xlsx)[1][0]['values'][viewer.BTMP] == '1'
         v.destroy()
     finally:
         root.destroy()
-    assert res2.xlsx
