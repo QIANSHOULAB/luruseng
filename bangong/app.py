@@ -263,6 +263,7 @@ class App:
         self.q: queue.Queue = queue.Queue()
         self.stop = threading.Event()
         self.worker: threading.Thread | None = None
+        self.eng = None                         # 正在干（或刚干完）的那批
         self.last_xlsx = ''
         self.last_photos = ''
         self.viewer = None
@@ -536,6 +537,8 @@ class App:
             spec = tables.TableSpec(cat, tables.db_path(app_dir(), cat), tables.feed_path(app_dir(), cat))
             eng = engine.Engine(self.folder.get(), [k1, k2], self.model.get(), spec=spec, **common)
 
+        self.eng = eng
+
         def work():
             try:
                 res = eng.run()
@@ -657,11 +660,33 @@ class App:
             self.write(line)
 
     def check(self, run_dir: str | None = None):
-        """核对窗口：编号照片一张一张看，第一张就是 1，←→ 翻页，输入编号直接跳。"""
+        """核对窗口：编号照片一张一张看，第一张就是 1，←→ 翻页，输入编号直接跳；点格子就改，表跟着改。"""
         from .viewer import Viewer
         if self.viewer is not None and self.viewer.winfo_exists():
             self.viewer.destroy()
-        self.viewer = Viewer(self.root, self.folder.get(), run_dir or self.last_photos or None)
+        self.viewer = Viewer(self.root, self.folder.get(), run_dir or self.last_photos or None,
+                             on_checked=self.feed_checked, busy=self.busy_dir)
+
+    def busy_dir(self) -> str:
+        """正在干的那批的编号照片文件夹（没在干就是空）：那批的表干完会整本重写，核对里先别改它。"""
+        eng = self.eng
+        if eng is not None and self.worker and self.worker.is_alive():
+            return eng.res.photos_dir or ''
+        return ''
+
+    def feed_checked(self, cat: str, source: str, data: dict | None) -> bool:
+        """核对里核完的那条（红格子全处理完）当样板放进这个类别的数据库；同一条再改换掉上次那份，又改红了拿掉。"""
+        try:
+            if cat == tables.BUILTIN:
+                from .kb import KnowledgeBase
+                added = KnowledgeBase(kb_path()).put_checked(source, data)
+            else:
+                added = tables.TableDB(tables.db_path(app_dir(), cat)).put_checked(source, data)
+        except Exception as e:
+            self.write(f'✗ 核完的那条放不进样板资料：{type(e).__name__}：{e}')
+            return False
+        self.refresh_category()
+        return added
 
     def on_close(self):
         self.save()
@@ -985,9 +1010,10 @@ class App:
                             self.write('↗ 这批的照片和认的过程排好队了，闲下来就送去方丈网盘（⚙ 里能关）')
                             self.next_send = min(self.next_send, time.time() + 5)
                         if val.ok and not self.stop.is_set() and not self.auto_run and self.cfg.get('auto_open', True):
-                            open_path(val.xlsx)                 # 表和核对窗口一起打开，对着核（自动开工的不弹，没人看）
                             if val.photos_dir and os.path.isdir(val.photos_dir):
-                                self.check(val.photos_dir)
+                                self.check(val.photos_dir)      # 只开核对窗口：对着照片点格子改；要看表点里面的「打开表」
+                            else:
+                                open_path(val.xlsx)             # （自动开工的不弹，没人看）
                     else:
                         self.refresh_count()
         except queue.Empty:

@@ -198,6 +198,10 @@ def main():
             d.value.save_as(path)
             return path
 
+        def wait_viewer():                    # 核对窗口开了、这批也读出来了
+            page.wait_for_selector('#dlg-view[open]')
+            page.wait_for_function('() => !!document.querySelector("#vpanel h3") || !document.querySelector("#vempty").hidden')
+
         def close_viewer():
             if page.is_visible('#dlg-view'):
                 page.click('#vclose')
@@ -231,7 +235,7 @@ def main():
             text = '\n'.join(out)
             assert '按拍摄顺序编号 1–12' in text and '每张认两遍对答案' in text, text
             assert sum(1 for m in out if m.startswith('✓ ')) >= 12, text
-            page.wait_for_selector('#dlg-view[open]')            # 干完自动打开核对
+            wait_viewer()                                        # 干完自动打开核对
             assert '第 1 张 / 共 12 张' in page.inner_text('#vinfo')
             panel = page.inner_text('#vpanel')
             assert 'No. 1' in panel and '800' in panel and 'VM-07' in panel, panel
@@ -326,11 +330,94 @@ def main():
                 run_and_wait(make_images(os.path.join(WORK, 'c'), 1, start=20), '成功 1 张')
             finally:
                 mock_server.STATE['modes'] = {}
-            page.wait_for_selector('#dlg-view[open]')
+            wait_viewer()
             fixed = page.eval_on_selector_all('#vpanel dd.fixed', 'ds => ds.map(d => d.textContent)')
             assert 'VM-07' in fixed and 'TD-524613-5' in fixed, fixed
             assert 'MACHINE VM-O7→VM-07（按数据库改）' in page.inner_text('#vpanel')
             page.screenshot(path=os.path.join(SHOTS, '3-按数据库改.png'))
+            close_viewer()
+
+        def idb(store, key):
+            return page.evaluate("""([s, k]) => new Promise((ok, bad) => {
+                const r = indexedDB.open('luruseng-web');
+                r.onsuccess = () => { const q = r.result.transaction(s).objectStore(s).get(k); q.onsuccess = () => ok(q.result); q.onerror = () => bad(q.error); };
+                r.onerror = () => bad(r.error);
+            })""", [store, key])
+
+        def cell_of(f):
+            return tuple(page.eval_on_selector(f'#vpanel dd[data-f="{f}"]', 'd => [d.className, d.textContent]'))
+
+        def vinfo_has(text):
+            page.wait_for_function('t => document.querySelector("#vinfo").textContent.includes(t)', arg=text)
+
+        @step
+        def edit_cells_in_viewer():
+            mock_server.STATE['modes'] = {K1: 'chaos'}                     # 几遍认出的机台都不一样：红，底下给候选
+            try:
+                run_and_wait(make_images(os.path.join(WORK, 'e'), 1, start=110), '成功 1 张')
+            finally:
+                mock_server.STATE['modes'] = {}
+            wait_viewer()
+            cls, text = cell_of('machine')
+            assert 'red' in cls, (cls, text)
+            page.click('#vpanel dd[data-f="machine"]')
+            page.wait_for_selector('#vpanel .cell-ed .alt')
+            alts = page.eval_on_selector_all('#vpanel .cell-ed .alt', 'bs => bs.map(b => b.textContent)')
+            assert 'VM-02' in alts and len(alts) >= 2, alts
+            assert page.input_value('#vpanel .cell-ed input') == text
+            page.screenshot(path=os.path.join(SHOTS, '4-核对改格子.png'))
+            page.click('#vpanel dd[data-f="machine"]')                     # 再点一下：收起
+            assert page.query_selector('#vpanel .cell-ed') is None
+            page.click('#vpanel dd[data-f="part_number"]')
+            page.press('#vpanel .cell-ed input', 'Escape')                  # Esc 只收起格子，核对窗口不关
+            assert page.query_selector('#vpanel .cell-ed') is None and page.is_visible('#dlg-view')
+            page.click('#vpanel dd[data-f="machine"]')
+            page.click('#vpanel .cell-ed .alt >> text=VM-02')
+            vinfo_has('MACHINE 改成 VM-02')
+            assert cell_of('machine') == ('edit human', 'VM-02'), cell_of('machine')
+            assert '✓ 人核过' in page.inner_text('#vpanel')
+            assert '进了样板资料' in page.inner_text('#vinfo'), page.inner_text('#vinfo')
+            kb = idb('kv', 'kb')
+            mine = [r for r in kb['records'] if r['source'].startswith('核对 ')]
+            assert len(mine) == 1 and mine[0]['machine'] == 'VM-02' and mine[0]['sheet'] == '核对', mine
+            js = download('#vxlsx')
+            ws = load_workbook(js).worksheets[0]
+            assert ws['C4'].value == 'VM-02' and ws['C4'].fill.fgColor.rgb.endswith('E2EFDA'), (ws['C4'].value, ws['C4'].fill.fgColor.rgb)
+            assert ws['C4'].font.color.rgb.endswith('375623') and ws['O4'].value == '✓ 人核过', ws['O4'].value
+            assert not ws['D4'].fill.fgColor.rgb.endswith('E2EFDA')                # 没动的格子不染
+            close_viewer()
+
+            mock_server.STATE['modes'] = {K1: 'mismatch'}                  # 10 张里 9 合格 0 不合格：三格都红
+            try:
+                run_and_wait(make_images(os.path.join(WORK, 'e2'), 1, start=111), '成功 1 张')
+            finally:
+                mock_server.STATE['modes'] = {}
+            wait_viewer()
+            assert all('red' in cell_of(f)[0] for f in ('total_screened', 'passed', 'failed'))
+            page.click('#vpanel dd[data-f="total_screened"]')
+            page.click('#vpanel .cell-ed >> text=对的')
+            vinfo_has('TOTAL_SCREENED 核过了'.replace('_', ' '))
+            assert cell_of('total_screened') == ('edit human', '10') and 'red' in cell_of('failed')[0]
+            assert 'PASSED 9 + FAILED 0 ≠ TOTAL 10' in page.inner_text('#vpanel')
+            page.click('#vpanel dd[data-f="failed"]')
+            page.fill('#vpanel .cell-ed input', '1o')
+            page.press('#vpanel .cell-ed input', 'Enter')
+            vinfo_has('还不对')
+            assert 'red' in cell_of('failed')[0] and 'FAILED 不是数字：1o' in page.inner_text('#vpanel')
+            page.click('#vpanel dd[data-f="failed"]')
+            page.fill('#vpanel .cell-ed input', '1')
+            page.press('#vpanel .cell-ed input', 'Enter')
+            vinfo_has('FAILED 改成 1')
+            assert [cell_of(f)[0] for f in ('total_screened', 'passed', 'failed')] == ['edit human', 'edit', 'edit human']
+            assert '✓ 人核过' in page.inner_text('#vpanel') and '进了样板资料' in page.inner_text('#vinfo')
+            run_id = page.input_value('#vruns')
+            close_viewer()
+            page.click('#check')                                           # 关了再开：改过的还在
+            wait_viewer()
+            assert page.input_value('#vruns') == run_id
+            assert cell_of('failed') == ('edit human', '1'), cell_of('failed')
+            kb = idb('kv', 'kb')
+            assert len([r for r in kb['records'] if r['source'].startswith('核对 ')]) == 2
             close_viewer()
 
         @step
@@ -356,7 +443,7 @@ def main():
             assert page.is_hidden('#names')
             out = run_and_wait(cat_imgs, '成功 2 张')
             assert any('类别「质检单」（还没定列：认全部内容）' in m for m in out), out
-            page.wait_for_selector('#dlg-view[open]')
+            wait_viewer()
             assert 'M/C No.' in page.inner_text('#vpanel')
             js = download('#vxlsx')
             assert js.endswith('_质检单.xlsx'), js
@@ -404,7 +491,7 @@ def main():
             left = page.inner_text('#droptxt')
             assert left.startswith('7 张：img_65.jpg'), left                     # 没干完的还在列表里
             page.click('#check')
-            page.wait_for_selector('#dlg-view[open]')
+            wait_viewer()
             page.fill('#vnum', '6')
             page.press('#vnum', 'Enter')
             page.wait_for_function('() => document.querySelector("#vpanel").textContent.includes("No. 6")')
@@ -433,7 +520,7 @@ def main():
             except ImportError:
                 print('    （没装 pillow-heif，HEIC 不测）')
             out = run_and_wait(paths, f'成功 {len(paths)} 张', timeout=120000)
-            page.wait_for_selector('#dlg-view[open]')
+            wait_viewer()
             js = download('#vxlsx')
             ws = load_workbook(js).worksheets[0]
             widths = sorted(ws.cell(row=r, column=6).value for r in range(4, 4 + len(paths)))
@@ -452,7 +539,7 @@ def main():
                 run_and_wait([p], '成功 1 张')
             finally:
                 mock_server.STATE['modes'] = {}
-            page.wait_for_selector('#dlg-view[open]')
+            wait_viewer()
             page.wait_for_function('() => { const i = document.querySelector("#vphoto img"); return i && i.complete && i.naturalWidth > 0; }')
             fits = page.evaluate('''() => { const b = document.querySelector("#vphoto").getBoundingClientRect();
                 const i = document.querySelector("#vphoto img"), r = i.getBoundingClientRect();
@@ -473,7 +560,7 @@ def main():
             page.click('#gear')
             page.wait_for_selector('#dlg-set[open]')
             assert '录入僧网页版 v' in page.inner_text('#setver') and '千手院方丈释手' in page.inner_text('#setver')
-            assert '数据库 22 条' in page.inner_text('#usage'), page.inner_text('#usage')
+            assert '数据库 24 条' in page.inner_text('#usage'), page.inner_text('#usage')   # 22 条放进去的 + 核对里核完的 2 条
             page.screenshot(path=os.path.join(SHOTS, '4-设置.png'))
             assert page.get_attribute('#hub', 'href') == 'https://qianshoulab.github.io/'
             page.eval_on_selector('#mail', 'a => a.addEventListener("click", e => e.preventDefault())')   # 测试里不真去开邮件程序
@@ -485,7 +572,7 @@ def main():
             assert page.get_attribute('#mail', 'title').startswith('oilsongchengmin@')
             path = download('#backup')
             data = json.load(open(path, encoding='utf-8'))
-            assert data['app'] == 'luruseng-web' and len(data['kb']['records']) == 22 and '质检单' in data['cats']
+            assert data['app'] == 'luruseng-web' and len(data['kb']['records']) == 24 and '质检单' in data['cats']
             assert K1 not in json.dumps(data)                                     # 钥匙不进备份
             page.set_input_files('#restorefile', path)
             wait_log('✓ 恢复好了（合并进来，原来的一条没删）：数据库新增 0 条')
@@ -508,7 +595,7 @@ def main():
         @step
         def delete_a_batch():
             page.click('#check')
-            page.wait_for_selector('#dlg-view[open]')
+            wait_viewer()
             n0 = page.eval_on_selector('#vruns', 's => s.options.length')
             page.click('#vdel')
             page.click('#dlg-ask [data-close]')
@@ -546,11 +633,17 @@ def main():
             sw = p.evaluate('() => [document.documentElement.scrollWidth, window.innerWidth]')
             assert sw[0] <= sw[1], sw
             p.screenshot(path=os.path.join(SHOTS, '6-手机核对.png'))
+            p.click('#vpanel dd[data-f="machine"]')                            # 手机上点格子改
+            p.wait_for_selector('#vpanel .cell-ed input')
+            sw = p.evaluate('() => [document.documentElement.scrollWidth, window.innerWidth]')
+            assert sw[0] <= sw[1], sw
+            p.eval_on_selector('#vpanel .cell-ed', 'e => e.scrollIntoView({block: "center"})')
+            p.screenshot(path=os.path.join(SHOTS, '6-手机改格子.png'))
             m.close()
 
         for fn in (opens_clean, no_key_no_start, twelve_photos_match_desktop_book, viewer_pages_rotates_copies_zips,
                    same_photos_again_are_skipped, result_button_downloads_latest, feed_database_xlsx_xls_csv_html,
-                   database_fixes_confusable_letters, names_dialog, own_category_matches_desktop_book,
+                   database_fixes_confusable_letters, edit_cells_in_viewer, names_dialog, own_category_matches_desktop_book,
                    bad_key_stops_and_keeps_photos, stop_button_marks_unfinished, photos_of_all_kinds,
                    title_on_the_right_turns_upright_number_in_top_right, settings_backup_restore_and_forget_keys, delete_a_batch, phone_layout):
             try:

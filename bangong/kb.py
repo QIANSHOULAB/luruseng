@@ -224,6 +224,24 @@ class KnowledgeBase:
         res.rows, res.sheets = len(recs), used
         return res
 
+    def put_checked(self, source: str, rec: dict | None) -> bool:
+        """核对里核完的那条（红格子全处理完）当样板放进来：同一条（source 认人）先拿掉上次放的，
+        rec 是 None（又改红了）就只拿掉。调试员的工号名字顺手记进名单。返回这回新放进去没有。"""
+        now = datetime.now().isoformat(timespec='seconds')
+        with self._conn() as c:
+            c.execute('DELETE FROM records WHERE source = ?', (source,))
+            if rec is None:
+                return False
+            r = {f: str(rec.get(f) or '') for f in FIELDS}
+            cur = c.execute(f'INSERT OR IGNORE INTO records (hash, source, sheet, fed_at, {", ".join(FIELDS)}) '
+                            f'VALUES ({", ".join("?" * (4 + len(FIELDS)))})',
+                            (record_hash(r), source, '核对', now, *[r[f] for f in FIELDS]))
+            m = SETTER_RE.match(r['setter'])
+            if m:
+                c.execute('INSERT OR IGNORE INTO people (no, name, source) VALUES (?, ?, ?)',
+                          (m.group(1), m.group(2).strip(), source))
+            return cur.rowcount > 0
+
     def feed_folder(self, folder: str) -> list[FeedResult]:
         """投喂文件夹：新放进来的、或者改过的表才吃。"""
         if not folder or not os.path.isdir(folder):

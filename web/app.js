@@ -11,7 +11,7 @@ const XLSX_LIB = new URL('./vendor/xlsx.full.min.js', import.meta.url).href;
 const JSZIP_LIB = new URL('./vendor/jszip.min.js', import.meta.url).href;
 const CONTACT = ['oilsongchengmin', 'gmail.com'].join('@');
 const SETTINGS = [
-  ['auto_open', '干完自动打开核对', '手动点「开始工作」干完后，自动打开核对'],
+  ['auto_open', '干完自动打开核对', '手动点「开始工作」干完后，自动打开核对，点格子就能改'],
   ['remember_keys', '记住钥匙', '钥匙存在这个浏览器里，下次不用再填；公用电脑建议关掉'],
 ];
 const DEFAULTS = { category: C.BUILTIN, model: C.DEFAULT_MODEL, auto: false, auto_open: true, remember_keys: true };
@@ -272,7 +272,9 @@ async function start(auto = false) {
     }
 
     const total = todo.length, width = Math.max(2, String(total).length);
-    const id = runId();
+    const base = runId();                          // 同一秒干两批（照片少、网快）：别把上一批盖掉
+    let id = base;
+    for (let i = 2; await S.st.get('runs', id); i++) id = `${base}_${i}`;
     const run = {
       id, cat, at: new Date().toISOString().slice(0, 19), total, width, photos: [], rows: [],
       xlsx: `识别结果_${id}${cat === C.BUILTIN ? '' : '_' + cat}.xlsx`, columns: spec ? [...spec.columns] : null,
@@ -621,6 +623,11 @@ async function show(no) {
   fillPanel(no);
 }
 
+function runDay(run) {                             // 这批是哪天认的：改日期时按这批的年份
+  const m = String(run.id).match(/^(\d{4})(\d{2})(\d{2})/);
+  return m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date();
+}
+
 function fillPanel(no) {
   const p = $('#vpanel');
   p.textContent = '';
@@ -634,16 +641,98 @@ function fillPanel(no) {
     wrap.appendChild(add('h3', '', `No. ${no}` + (recs.length > 1 ? `　第 ${k + 1} 条` : '')));
     if (rec.kind === 'blank') { wrap.appendChild(add('div', 'note', rec.note)); p.appendChild(wrap); return; }
     const dl = document.createElement('dl');
-    const red = new Set(rec.red), orange = new Set(rec.orange);
+    const red = new Set(rec.red), orange = new Set(rec.orange), human = new Set(rec.human || []);
     keys.forEach((f, i) => {
       dl.appendChild(add('dt', '', labels[i]));
       const v = C.showValue(rec.values[f]);
-      dl.appendChild(add('dd', red.has(f) ? 'red' : orange.has(f) ? 'fixed' : '', v || '—'));
+      const look = red.has(f) ? 'red' : orange.has(f) ? 'fixed' : human.has(f) ? 'human' : '';
+      const dd = add('dd', ('edit ' + look).trim(), v || '—');
+      dd.tabIndex = 0;                               // 核对时直接改：点哪格改哪格，表跟着改
+      dd.setAttribute('role', 'button');
+      dd.dataset.k = String(k);
+      dd.dataset.f = f;
+      dd.title = '点一下改';
+      dd.onclick = () => openCell(dl, dd, rec, k, f, labels[i]);
+      dd.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); dd.click(); } };
+      dl.appendChild(dd);
     });
     wrap.appendChild(dl);
-    if (rec.notes) wrap.appendChild(add('div', 'note', rec.notes));
+    if (rec.notes) wrap.appendChild(add('div', rec.notes === C.HUMAN_NOTE ? 'note ok' : 'note', rec.notes));
     p.appendChild(wrap);
   });
+}
+
+// 点开一格：红格子底下列出几遍认出来的不同写法，点一个就填上；也能自己打；认对了点「对的」
+function openCell(dl, dd, rec, k, f, label) {
+  const open = $('#vpanel').querySelector('.cell-ed');
+  if (open) {
+    const same = open.dataset.for === `${k}/${f}`;
+    open.remove();
+    if (same) return;                                // 再点一次：收起
+  }
+  const builtin = V.run.cat === C.BUILTIN;
+  const red = (rec.red || []).includes(f), orange = (rec.orange || []).includes(f);
+  const ed = document.createElement('div');
+  ed.className = 'cell-ed';
+  ed.dataset.for = `${k}/${f}`;
+  const input = Object.assign(document.createElement('input'), { className: 'field', value: C.showValue(rec.values[f]) });
+  for (const [a, v] of [['autocomplete', 'off'], ['autocorrect', 'off'], ['spellcheck', 'false'], ['autocapitalize', 'characters'],
+    ['enterkeyhint', 'done'], ['aria-label', `改 ${label}`]]) input.setAttribute(a, v);
+  if (builtin && (C.NUM_FIELDS.has(f) || f === 'mo' || f === 'opr_no')) input.inputMode = 'numeric';
+  ed.appendChild(input);
+  const alts = red ? C.altsOf(rec, f, V.run.cat) : [];
+  if (alts.length) {
+    const box = Object.assign(document.createElement('div'), { className: 'alts' });
+    for (const a of alts) {
+      const b = Object.assign(document.createElement('button'), { type: 'button', className: 'pill alt', textContent: a });
+      b.onclick = () => saveCell(rec, k, f, label, a);
+      box.appendChild(b);
+    }
+    ed.appendChild(box);
+  }
+  const btns = Object.assign(document.createElement('div'), { className: 'btns' });
+  if (red || orange) {
+    const ok = Object.assign(document.createElement('button'), { type: 'button', className: 'pill', textContent: '对的' });
+    ok.onclick = () => saveCell(rec, k, f, label, undefined);
+    btns.appendChild(ok);
+  }
+  const save = Object.assign(document.createElement('button'), { type: 'button', className: 'pill primary', textContent: '改好了' });
+  save.onclick = () => saveCell(rec, k, f, label, input.value);
+  btns.appendChild(save);
+  ed.appendChild(btns);
+  input.onkeydown = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); saveCell(rec, k, f, label, input.value); }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); ed.remove(); dd.focus(); }
+  };
+  dd.after(ed);
+  input.focus();
+  input.select();
+}
+
+async function saveCell(rec, k, f, label, text) {
+  const before = C.showValue(rec.values[f]);
+  C.checkCell(rec, f, { text, cat: V.run.cat, today: runDay(V.run) });
+  const after = C.showValue(rec.values[f]);
+  try { await S.st.put('runs', V.run.id, V.run); } catch (e) { $('#vinfo').textContent = `✗ 存不下：${e.message}`; return; }
+  const still = (rec.red || []).includes(f);
+  let msg = still ? `${label} ${after || '空'} 还不对：${rec.notes.split('；').pop()}`
+    : text === undefined || after === before ? `${label} 核过了` : `${label} 改成 ${after || '空'}`;
+  try { if (await feedRow(rec, k)) msg += '，这条核完进了样板资料'; } catch (e) { /* 样板资料存不下，不耽误改表 */ }
+  fillPanel(rec.no);
+  $('#vinfo').textContent = msg + (still ? '' : '，表跟着改了');
+}
+
+// 核完的那条（没有红格子、人动过）当样板放进这个类别的数据库；同一条再改，换掉上次那份；又改红了就拿掉
+async function feedRow(rec, k) {
+  const source = `核对 ${V.run.id} #${rec.no}.${k}`;
+  const builtin = V.run.cat === C.BUILTIN;
+  const db = builtin ? await kbDb() : await catDb(V.run.cat);
+  const had = db.records.some((r) => r.source === source);
+  if (!had && !C.isChecked(rec)) return false;
+  const added = C.feedChecked(db, rec, { cat: V.run.cat, columns: V.run.columns || [], source });
+  if (builtin) await S.st.put('kv', 'kb', db); else await S.st.put('cats', V.run.cat, db);
+  await refreshCategory();                           // 左边类别的列数、条数跟着变
+  return added;
 }
 
 function step(d) {
@@ -670,7 +759,10 @@ function setupViewer() {
   const dlg = $('#dlg-view');
   $('#check').onclick = () => openViewer();
   $('#vclose').onclick = () => dlg.close();
-  dlg.addEventListener('close', () => { if (V.url) { URL.revokeObjectURL(V.url); V.url = ''; } $('#vphoto').textContent = ''; });
+  dlg.addEventListener('close', () => {             // 关了就清空：下回打开不先闪一下上回那张
+    if (V.url) { URL.revokeObjectURL(V.url); V.url = ''; }
+    for (const id of ['#vphoto', '#vpanel', '#vinfo']) $(id).textContent = '';
+  });
   $('#vruns').onchange = () => loadRun($('#vruns').value);
   $('#vprev').onclick = () => step(-1);
   $('#vnext').onclick = () => step(1);
@@ -686,7 +778,7 @@ function setupViewer() {
   $('#vgo').onclick = jump;
   $('#vnum').onkeydown = (e) => { if (e.key === 'Enter') jump(); };
   dlg.addEventListener('keydown', (e) => {
-    if (e.target === $('#vnum') || e.target.tagName === 'SELECT') return;
+    if (e.target === $('#vnum') || e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
     if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); step(-1); }
     if (e.key === 'ArrowRight' || e.key === 'PageDown') { e.preventDefault(); step(1); }
   });

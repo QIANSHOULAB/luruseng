@@ -216,6 +216,28 @@ class TableDB:
         res.new_columns = new
         return res
 
+    def put_checked(self, source: str, data: dict | None) -> bool:
+        """核对里核完的那条当样板放进来：同一条（source 认人）先拿掉上次放的，data 是 None（又改红了）就只拿掉。
+        跟放表进来一样：列名按写法对，多出来的列接在后面。返回这回新放进去没有。"""
+        now = datetime.now().isoformat(timespec='seconds')
+        with self._conn() as c:
+            c.execute('DELETE FROM records WHERE source = ?', (source,))
+            if data is None:
+                return False
+            have = {k: nm for nm, k in c.execute('SELECT name, key FROM columns')}
+            pos = c.execute('SELECT COALESCE(MAX(pos), -1) FROM columns').fetchone()[0]
+            for nm in data:
+                if colkey(nm) not in have:
+                    pos += 1
+                    c.execute('INSERT INTO columns (pos, name, key) VALUES (?, ?, ?)', (pos, nm, colkey(nm)))
+                    have[colkey(nm)] = nm
+            order = [r[0] for r in c.execute('SELECT name FROM columns ORDER BY pos')]
+            d = {have[colkey(k)]: v for k, v in data.items() if v}
+            h = hashlib.sha1('|'.join(nkey(d.get(k, '')) for k in order).encode('utf-8')).hexdigest()
+            cur = c.execute('INSERT OR IGNORE INTO records (hash, source, sheet, fed_at, data) VALUES (?, ?, ?, ?, ?)',
+                            (h, source, '核对', now, json.dumps(d, ensure_ascii=False)))
+            return cur.rowcount > 0
+
     def feed_folder(self, folder: str) -> list[FeedResult]:
         if not folder or not os.path.isdir(folder):
             return []

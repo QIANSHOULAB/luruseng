@@ -126,13 +126,15 @@ def room(folder: str, limit: int | None = None) -> bool:
 
 
 def table_rows(xlsx: str) -> dict[int, list[dict]]:
-    """表里每个编号写了什么：{编号: [{'values': {列名: 值}, 'red': [标红的列], 'fixed': [按数据库改过的列], 'note': 核对提示}]}"""
+    """表里每个编号写了什么：{编号: [{'values': {列名: 值}, 'red': [标红的列], 'fixed': [按数据库改过的列],
+    'human': [核对里人核过的列], 'note': 核对提示}]}"""
     from .viewer import load_rows
     out: dict[int, list[dict]] = {}
     for no, rows in load_rows(xlsx).items():
         out[no] = [{'values': dict(zip(r['labels'], r['values'])),
                     'red': [r['labels'][i] for i in sorted(r['red'])],
                     'fixed': [r['labels'][i] for i in sorted(r['fixed'])],
+                    'human': [r['labels'][i] for i in sorted(r.get('human', ()))],   # 核对里人改过、点过「对的」的
                     'note': r['note']} for r in rows]
     return out
 

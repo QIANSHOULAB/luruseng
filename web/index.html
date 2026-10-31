@@ -180,13 +180,25 @@
   .panel .note { color: var(--red); font-size: 13.5px; margin: 6px 0 14px; white-space: pre-wrap; }
   .panel .dim { color: #8E8E93; }
   .panel .rec + .rec { border-top: 1px solid var(--line); padding-top: 10px; }
+  .panel dd.edit { cursor: pointer; border-radius: 4px; padding: 0 5px; margin-left: -5px; justify-self: start; min-width: 2em; }
+  @media (hover: hover) { .panel dd.edit:hover { box-shadow: inset 0 0 0 1px var(--field-line); } }
+  .panel dd.edit:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
+  .panel dd.human { background: #E2EFDA; color: #375623; }
+  .panel .note.ok { color: #375623; }
+  .panel .cell-ed { grid-column: 1 / -1; display: grid; gap: 8px; padding: 8px; margin: 2px 0 8px; background: var(--fill); border-radius: 10px; }
+  .panel .cell-ed .field { height: 40px; font-size: 16px; background: #fff; }
+  .panel .cell-ed .alts { display: flex; flex-wrap: wrap; gap: 6px; }
+  .panel .cell-ed .alt { height: 36px; padding: 0 12px; background: #fff; border-color: var(--field-line); font-weight: 600; }
+  .panel .cell-ed .btns { display: flex; gap: 8px; justify-content: flex-end; }
+  .panel .cell-ed .btns .pill { height: 36px; padding: 0 16px; }
+  .panel .cell-ed .btns .pill:not(.primary) { background: #fff; border-color: var(--field-line); }
   .empty { padding: 30px; text-align: center; }
 
   @media (max-width: 860px) {
     .app { grid-template-columns: minmax(0, 1fr); padding: 10px; gap: 10px; }
     .logcard { min-height: 160px; }
     .vbody { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(240px, 52vh) auto; overflow-y: auto; }
-    .panel { overflow: visible; }
+    .panel { overflow: visible; min-height: auto; }          /* 手机上白卡片跟着内容长，别让下面几行掉到卡片外面 */
   }
   @media (max-width: 560px) {
     body { font-size: 15px; }

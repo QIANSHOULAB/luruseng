@@ -204,3 +204,107 @@ test('名单文本、EXIF 读不到不报错', () => {
   assert.deepEqual(C.parseNames('# 注释\n232/ZHANG WEI\n648 MURUGAN\n\nxx'), [['232', 'ZHANG WEI'], ['648', 'MURUGAN']]);
   assert.equal(C.exifTime(new ArrayBuffer(4)), null);
 });
+
+// ---------------------------------------------------------------- 核对里直接改格子（跟电脑版 tests/test_viewer.py 的 edit_cell 对着写）
+const checkRow = (over = {}) => ({
+  no: 1, kind: 'rec', orange: [], notes: '',
+  values: { date: { y: 2026, m: 10, d: 28 }, machine: 'VM-07', part_number: 'TD-524613-5', mo: 82664580, opr_no: 800, t_no: 'T4',
+    description: 'EM2.5', btmp: 1, total_screened: 10, passed: 9, failed: 0, shift: 'D', setter: '639/Lee Ah Kow' },
+  red: [], ...over,
+});
+
+test('核对改格子：人打的字按认字的规矩整理，日期按这批的年份', () => {
+  const d = C.editValue('date', '1/11', { today: T });
+  assert.deepEqual(d, { y: 2026, m: 11, d: 1 });
+  assert.equal(C.editValue('machine', ' vm 07 '), 'VM07');
+  assert.equal(C.editValue('part_number', 'td–524613－5'), 'TD-524613-5');
+  assert.equal(C.editValue('t_no', 't4, t5'), 'T4, T5');
+  assert.equal(C.editValue('description', 'em ø6'), 'EM Φ6');
+  assert.equal(C.editValue('total_screened', '1,200'), 1200);
+  assert.equal(C.editValue('mo', '82664580'), 82664580);
+  assert.equal(C.editValue('shift', '夜班'), 'N');
+  assert.equal(C.editValue('setter', '639 / Lee Ah Kow'), '639/Lee Ah Kow');
+  assert.equal(C.editValue('btmp', '   '), '');
+  assert.equal(C.editValue('Qty', '12', { cat: '质检单', orig: 3 }), 12);
+  assert.equal(C.editValue('Qty', '1.5', { cat: '质检单', orig: 3 }), 1.5);
+  assert.equal(C.editValue('Remark', '  ok  ', { cat: '质检单', orig: '' }), 'ok');
+});
+
+test('核对改格子：候选、「对的」、数量对上三格一起不红、打错了还红着', () => {
+  const r = checkRow({ red: ['machine', 'total_screened', 'passed', 'failed'],
+    notes: 'MACHINE 几遍认得不一样：VM-07 / VM-01 / 空；PASSED 9 + FAILED 0 ≠ TOTAL 10' });
+  assert.deepEqual(C.altsOf(r, 'machine'), ['VM-07', 'VM-01']);              // 老批次：从提示里抠
+  r.alts = { machine: ['VM-01', 'VM-07'] };
+  assert.deepEqual(C.altsOf(r, 'machine'), ['VM-01', 'VM-07']);              // 新批次：存着的
+  C.checkCell(r, 'machine', { today: T });                                    // 「对的」：值不动
+  assert.equal(r.values.machine, 'VM-07');
+  assert.deepEqual(r.red, ['total_screened', 'passed', 'failed']);
+  assert.equal(r.notes, 'PASSED 9 + FAILED 0 ≠ TOTAL 10');                   // 这格的提示跟着删
+  C.checkCell(r, 'total_screened', { today: T });
+  assert.deepEqual(r.red, ['passed', 'failed']);
+  assert.equal(C.isChecked(r), false);
+  C.checkCell(r, 'failed', { text: '1o', today: T });                         // 打错了：还红，告诉你为什么
+  assert.deepEqual(r.red, ['passed', 'failed']);
+  assert.match(r.notes, /FAILED 不是数字：1o$/);
+  C.checkCell(r, 'failed', { text: '1', today: T });                          // 9 + 1 = 10：三格一起不红
+  assert.deepEqual(r.red, []);
+  assert.equal(r.notes, C.HUMAN_NOTE);
+  assert.deepEqual(r.human, ['machine', 'total_screened', 'failed']);
+  assert.equal(C.isChecked(r), true);
+  const ok = checkRow({ values: { ...checkRow().values, passed: 10 } });     // 本来对得上，人改成对不上：没核过的那格红
+  C.checkCell(ok, 'passed', { text: '8', today: T });
+  assert.deepEqual(ok.red, ['total_screened', 'failed']);
+  assert.equal(ok.notes, 'PASSED 8 + FAILED 0 ≠ TOTAL 10');
+  assert.equal(C.isChecked(ok), false);
+  const sh = checkRow({ values: { ...checkRow().values, passed: 10 }, red: ['shift'], notes: 'SHIFT 不是 D/N：X' });
+  C.checkCell(sh, 'shift', { text: 'x', today: T });
+  assert.deepEqual(sh.red, ['shift']);
+  C.checkCell(sh, 'shift', { text: '白', today: T });
+  assert.equal(sh.values.shift, 'D');
+  assert.equal(sh.notes, C.HUMAN_NOTE);
+  assert.equal(C.isChecked({ ...sh, kind: 'blank' }), false);
+  assert.equal(C.isChecked(checkRow()), false);                               // 人没动过：不算核过
+});
+
+test('核对改格子：自建类别的提示按列名认，长名字不被短名字误删', () => {
+  const r = { no: 1, kind: 'rec', orange: [], values: { Part: 'A', 'Part No': 'B1', Qty: 3 }, red: ['Part', 'Part No'],
+    notes: 'Part No 几遍认得不一样：B1 / B7；Part 模型拿不准' };
+  assert.deepEqual(C.altsOf(r, 'Part No', '质检单'), ['B1', 'B7']);
+  C.checkCell(r, 'Part', { cat: '质检单' });
+  assert.deepEqual(r.red, ['Part No']);
+  assert.equal(r.notes, 'Part No 几遍认得不一样：B1 / B7');
+  C.checkCell(r, 'Part No', { text: 'B7', cat: '质检单' });
+  assert.equal(r.values['Part No'], 'B7');
+  assert.equal(r.notes, C.HUMAN_NOTE);
+});
+
+test('核完的那条放进样板资料：同一条再改换掉上次那份，又改红了拿掉', () => {
+  const kb = { records: [], people: [] };
+  const r = checkRow({ values: { ...checkRow().values, passed: 10 }, red: ['machine'], notes: 'MACHINE 模型拿不准' });
+  assert.equal(C.feedChecked(kb, r, { source: '核对 20261031_080000 #1.0' }), false);   // 还红着：不收
+  C.checkCell(r, 'machine', { text: 'VM-17', today: T });
+  assert.equal(C.feedChecked(kb, r, { source: '核对 20261031_080000 #1.0' }), true);
+  assert.equal(kb.records.length, 1);
+  assert.equal(kb.records[0].machine, 'VM-17');
+  assert.equal(kb.records[0].date, '2026-10-28');
+  assert.equal(kb.records[0].mo, '82664580');
+  assert.equal(kb.records[0].sheet, '核对');
+  assert.equal(kb.records[0].key, C.recordKey(kb.records[0]));
+  assert.deepEqual(kb.people, [['639', 'Lee Ah Kow']]);
+  C.checkCell(r, 'machine', { text: 'VM-18', today: T });
+  assert.equal(C.feedChecked(kb, r, { source: '核对 20261031_080000 #1.0' }), true);
+  assert.deepEqual(kb.records.map((x) => x.machine), ['VM-18']);
+  C.checkCell(r, 'btmp', { text: 'abc', today: T });                         // 又红了：上次那份拿掉
+  assert.equal(C.feedChecked(kb, r, { source: '核对 20261031_080000 #1.0' }), false);
+  assert.equal(kb.records.length, 0);
+  const other = { key: 'x', source: 'TOOL BROKEN RECORD.xlsx', machine: 'VM-07' };
+  kb.records.push(other);
+  C.checkCell(r, 'btmp', { text: '1', today: T });
+  C.feedChecked(kb, r, { source: '核对 20261031_080000 #1.0' });
+  assert.equal(kb.records.length, 2);                                         // 别人放进去的不动
+  const db = { columns: ['Date', 'M/C No.'], records: [] };
+  const t = { no: 1, kind: 'rec', orange: [], red: [], human: ['Qty'], notes: C.HUMAN_NOTE, values: { Date: '28/10', 'M/C No': 'VM-07', Qty: 5 } };
+  assert.equal(C.feedChecked(db, t, { cat: '质检单', columns: ['Date', 'M/C No', 'Qty'], source: 's' }), true);
+  assert.deepEqual(db.columns, ['Date', 'M/C No.', 'Qty']);
+  assert.deepEqual(db.records[0].data, { Date: '28/10', 'M/C No.': 'VM-07', Qty: '5' });
+});

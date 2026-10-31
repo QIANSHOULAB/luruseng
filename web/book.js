@@ -1,5 +1,5 @@
 // 出表：跟电脑版 RecordBook（刀单，长得跟公司那本 TOOL BROKEN RECORD 一样）和 TableBook（自建类别）一格不差
-import { FIELDS, NOTE_HEAD, copyValue } from './core.js';
+import { FIELDS, HUMAN_NOTE, NOTE_HEAD, copyValue } from './core.js';
 import { loadScript } from './image.js';
 
 const EXCELJS = new URL('./vendor/exceljs.min.js', import.meta.url).href;
@@ -12,9 +12,11 @@ const thin = { style: 'thin', color: { argb: '00808080' } };
 const BOX = { top: thin, left: thin, bottom: thin, right: thin };
 const HEAD_FILL = solid('00DDEBF7'), YELLOW = solid('00FFE699'), RED_FILL = solid('00FFC7CE');
 const GREY_FILL = solid('00EDEDED'), ORANGE_FILL = solid('00FCE4D6');
+const HUMAN_FILL = solid('00E2EFDA');                // 核对里人改过、点过「对的」的格子：淡绿
 const BASE_FONT = { name: 'Calibri', size: 11 }, BOLD = { name: 'Calibri', size: 11, bold: true };
 const RED_FONT = { name: 'Calibri', size: 11, color: { argb: '009C0006' } };
 const ORANGE_FONT = { name: 'Calibri', size: 11, color: { argb: '00833C0B' } };
+const HUMAN_FONT = { name: 'Calibri', size: 11, color: { argb: '00375623' } };
 const GREY_SMALL = { name: 'Calibri', size: 10, color: { argb: '00808080' } };
 const CENTER = { horizontal: 'center', vertical: 'middle', wrapText: true };
 const LEFT = { horizontal: 'left', vertical: 'middle' };
@@ -95,7 +97,7 @@ function recordBook(ExcelJS, run) {
       n.alignment = LEFT;
       continue;
     }
-    const red = new Set(row.red), orange = new Set(row.orange);
+    const red = new Set(row.red), orange = new Set(row.orange), human = new Set(row.human || []);
     FIELDS.forEach((f, i) => {
       const cell = put(ws, r, 2 + i, row.values[f]);
       cell.border = BOX;
@@ -105,10 +107,11 @@ function recordBook(ExcelJS, run) {
       if (f === 'btmp') cell.fill = YELLOW;
       if (orange.has(f)) { cell.fill = ORANGE_FILL; cell.font = ORANGE_FONT; }
       if (red.has(f)) { cell.fill = RED_FILL; cell.font = RED_FONT; }
+      if (human.has(f) && !red.has(f)) { cell.fill = HUMAN_FILL; cell.font = HUMAN_FONT; }
     });
     if (row.notes) {
       const n = put(ws, r, 15, row.notes);
-      n.font = red.size ? RED_FONT : ORANGE_FONT;
+      n.font = row.notes === HUMAN_NOTE ? HUMAN_FONT : red.size ? RED_FONT : ORANGE_FONT;
       n.alignment = LEFT;
     }
   }
@@ -141,7 +144,7 @@ function tableBook(ExcelJS, run) {
     no.alignment = CENTER; no.border = BOX; no.font = BOLD;
     const whole = row.kind === 'blank' ? row.fill : '';
     const fill = whole === 'red' ? RED_FILL : whole === 'grey' ? GREY_FILL : null;
-    const red = new Set(row.red || []), orange = new Set(row.orange || []);
+    const red = new Set(row.red || []), orange = new Set(row.orange || []), human = new Set(row.human || []);
     const values = row.values || {};
     cols.forEach((c, i) => {
       const cell = put(ws, r, 2 + i, values[c] ?? '');
@@ -149,11 +152,12 @@ function tableBook(ExcelJS, run) {
       if (fill) cell.fill = fill;
       if (orange.has(c)) { cell.fill = ORANGE_FILL; cell.font = ORANGE_FONT; }
       if (red.has(c)) { cell.fill = RED_FILL; cell.font = RED_FONT; }
+      if (human.has(c) && !red.has(c)) { cell.fill = HUMAN_FILL; cell.font = HUMAN_FONT; }
     });
     const note = row.kind === 'blank' ? row.note : row.notes;
     if (note) {
       const n = put(ws, r, noteCol, note);
-      n.font = red.size || whole === 'red' ? RED_FONT : orange.size ? ORANGE_FONT : BASE_FONT;
+      n.font = note === HUMAN_NOTE ? HUMAN_FONT : red.size || whole === 'red' ? RED_FONT : orange.size ? ORANGE_FONT : BASE_FONT;
       n.alignment = LEFT;
     }
   }

@@ -1,7 +1,7 @@
 // 录入僧网页版 · 认单子的核心（跟电脑版 bangong/engine.py、kb.py、tables.py 同一套规矩，改一边要改另一边）
 // 纯逻辑：不碰页面、不碰存储，浏览器和 node 测试都能跑。
 
-export const VERSION = '1.9.9';
+export const VERSION = '1.10.0';
 export const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 export const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
 export const MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro'];
@@ -684,8 +684,12 @@ export function assessRecord(rec, { snapshot = null, names = [], today = new Dat
   }
   if (rec.single) notes.push('只认成了一遍，没能对答案');
   if (rec.counts) notes.push('几遍认出的条数不一样（' + rec.counts.join(' / ') + ' 条），按多数定');
+  const alts = {};                            // 几遍认出来的不同写法：核对时点一下就填上
   for (const f of FIELDS) {
-    if (f in disputed && !orange.has(f) && !NEVER_RED.has(f)) { red.add(f); notes.push(`${f.toUpperCase()} 几遍认得不一样：` + disputed[f].join(' / ')); }
+    if (f in disputed && !orange.has(f) && !NEVER_RED.has(f)) {
+      red.add(f); notes.push(`${f.toUpperCase()} 几遍认得不一样：` + disputed[f].join(' / '));
+      alts[f] = disputed[f].filter((v) => v !== '空');
+    }
   }
   for (const f of FIELDS) {
     if (unsure.includes(f) && !red.has(f) && !orange.has(f) && !NEVER_RED.has(f)) { red.add(f); notes.push(`${f.toUpperCase()} 模型拿不准`); }
@@ -695,7 +699,7 @@ export function assessRecord(rec, { snapshot = null, names = [], today = new Dat
     ['total_screened', 'passed', 'failed'].forEach((f) => red.add(f));
     notes.push(`PASSED ${p} + FAILED ${fl} ≠ TOTAL ${t}`);
   }
-  return { values, red: [...red], orange: [...orange], notes: notes.join('；') };
+  return { values, red: [...red], orange: [...orange], notes: notes.join('；'), alts };
 }
 
 // 格子显示成字（核对、复制整行用）
@@ -1035,7 +1039,7 @@ export function assessTableRecord(rec, columns, snapshot = null) {
     for (const [c, [old, nw, why]] of Object.entries(fixed)) { orange.add(c); notes.push(`${c} ${old}→${nw}（${why}）`); }
   }
   const numeric = snapshot ? snapshot.numeric : new Set();
-  const values = {};
+  const values = {}, alts = {};
   for (const c of columns) {
     const raw = rec[c] || '';
     let v = raw;
@@ -1046,13 +1050,131 @@ export function assessTableRecord(rec, columns, snapshot = null) {
       else { red.add(c); notes.push(`${c} 不是数字：${raw}`); }
     }
     if (typeof v === 'string' && v.includes('□') && !never) { red.add(c); notes.push(`${c} 有看不清的字`); }
-    if (c in disputed && !orange.has(c) && !never) { red.add(c); notes.push(`${c} 几遍认得不一样：` + disputed[c].join(' / ')); }
+    if (c in disputed && !orange.has(c) && !never) {
+      red.add(c); notes.push(`${c} 几遍认得不一样：` + disputed[c].join(' / '));
+      alts[c] = disputed[c].filter((v) => v !== '空');
+    }
     else if (unsure.includes(c) && !red.has(c) && !orange.has(c) && !never) { red.add(c); notes.push(`${c} 模型拿不准`); }
     values[c] = v;
   }
   if (rec.single) notes.push('只认成了一遍，没能对答案');
   if (rec.counts) notes.push('几遍认出的条数不一样（' + rec.counts.join(' / ') + ' 条），按多数定');
-  return { values, red: [...red], orange: [...orange], notes: uniq(notes).join('；') };
+  return { values, red: [...red], orange: [...orange], notes: uniq(notes).join('；'), alts };
+}
+
+// ---------------------------------------------------------------- 核对里人改格子（跟电脑版 viewer.edit_cell 同一套）
+export const HUMAN_NOTE = '✓ 人核过';
+const SUM = ['total_screened', 'passed', 'failed'];
+
+// 红格子的候选：几遍认出来的不同写法。老批次没存候选，就从核对提示里抠出来。
+export function altsOf(row, key, cat = BUILTIN) {
+  const have = row.alts && row.alts[key];
+  if (have && have.length) return [...have];
+  const label = cat === BUILTIN ? key.toUpperCase() : key;
+  const esc = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const m = String(row.notes || '').match(new RegExp(`(?:^|；)${esc} 几遍认得不一样：([^；]+)`));
+  return m ? m[1].split(' / ').map((v) => v.trim()).filter((v) => v && v !== '空') : [];
+}
+
+// 人打的字变成表里该有的样子：规矩跟认出来时一样（日期按这批的年份、数字变数字、班次变 D/N、零件号去空格大写）
+export function editValue(key, text, { cat = BUILTIN, orig = undefined, today = new Date() } = {}) {
+  const t = String(text ?? '').replace(/\s+/g, ' ').trim();
+  if (!t) return '';
+  if (cat === BUILTIN) {
+    if (key === 'date') return parseDate(t, today) || t;
+    if (NUM_FIELDS.has(key) || key === 'mo' || key === 'opr_no') { const n = toInt(t); return n === null ? t : n; }
+    if (key === 'shift') return normShift(t);
+    if (key === 'machine' || key === 'part_number') return t.replace(/\s+/g, '').replace(DASHES, '-').toUpperCase();
+    if (key === 't_no' || key === 'description') return t.replace(DIAMETER, 'Φ').toUpperCase();
+    if (key === 'setter') return t.replace(/\s*\/\s*/g, '/');
+    return t;
+  }
+  if (typeof orig === 'number') {
+    const n = t.replace(/,/g, '');
+    if (NUM_RE.test(n)) return /^-?\d+$/.test(n) ? parseInt(n, 10) : parseFloat(n);
+  }
+  return t;
+}
+
+// 核对提示里的一句是哪一格的：开头写着格子名（刀单是 MACHINE 这样的大写，自建类别是列名）；名字有长有短，取最长对得上的
+function noteOwner(piece, names) {
+  let best = null;
+  for (const nm of names) if (piece.startsWith(nm + ' ') && (!best || nm.length > best.length)) best = nm;
+  return best;
+}
+
+// 人打进刀单格子里的字，跟认出来的一样查一遍：数字格要是数字、班次要是 D/N、不能有看不清的 □
+function typedProblem(key, v) {
+  if (v === '' || v === null || v === undefined) return null;
+  if (NUM_FIELDS.has(key) && !Number.isInteger(v)) return `${key.toUpperCase()} 不是数字：${v}`;
+  if (key === 'shift' && v !== 'D' && v !== 'N') return `SHIFT 不是 D/N：${v}`;
+  if (typeof v === 'string' && v.includes('□') && !NEVER_RED.has(key)) return `${key.toUpperCase()} 有看不清的字`;
+  return null;
+}
+
+// 核对一格：给了 text 就改成它，没给就是「对的」（照原样，只把红去掉）。改过的格子记进 human，表里染成淡绿。
+// 这一格的核对提示跟着删；红格子全处理完，提示换成「✓ 人核过」。
+export function checkCell(row, key, { text = undefined, cat = BUILTIN, today = new Date() } = {}) {
+  const builtin = cat === BUILTIN;
+  const keys = builtin ? FIELDS : uniq([...Object.keys(row.values || {}), key]);
+  const name = (k) => (builtin ? k.toUpperCase() : k);
+  const names = keys.map(name);
+  let bad = null;
+  if (text !== undefined) {
+    const v = row.values[key] = editValue(key, text, { cat, orig: row.values[key], today });
+    if (builtin) bad = typedProblem(key, v);
+  }
+  row.red = (row.red || []).filter((f) => f !== key);
+  row.orange = (row.orange || []).filter((f) => f !== key);
+  row.human = uniq([...(row.human || []), key]);
+  let notes = String(row.notes || '').split('；').filter((n) => n && n !== HUMAN_NOTE && noteOwner(n, names) !== name(key));
+  if (bad) { row.red.push(key); notes.push(bad); }      // 打错了（数字格打了字母之类）：还红着，等再改或者点「对的」
+  if (builtin && SUM.includes(key)) {                 // 数量：PASSED + FAILED 要等于 TOTAL
+    const [t, p, f] = SUM.map((k) => row.values[k]);
+    if ([t, p, f].every(Number.isInteger)) {
+      notes = notes.filter((n) => !n.startsWith('PASSED '));
+      if (p + f === t) row.red = row.red.filter((k) => !SUM.includes(k));          // 对上了：三格一起不红
+      else {                                                                        // 还对不上：没核过的那几格红着
+        row.red = uniq([...row.red, ...SUM.filter((k) => !row.human.includes(k))]);
+        notes.push(`PASSED ${p} + FAILED ${f} ≠ TOTAL ${t}`);
+      }
+    }
+  }
+  row.notes = row.red.length ? notes.join('；') : HUMAN_NOTE;
+  return row;
+}
+
+// 这条核完了：没有红格子，人也动过它
+export function isChecked(row) {
+  return !!row && row.kind !== 'blank' && !(row.red || []).length && (row.human || []).length > 0;
+}
+
+// 核完的那条当样板放进数据库；同一条再改，换掉上次放进去的那份（source 认人）。返回放没放进去
+export function feedChecked(db, row, { cat = BUILTIN, columns = [], source }) {
+  db.records = db.records.filter((r) => r.source !== source);   // 又改红了：上次放进去的那份也拿掉
+  if (!isChecked(row)) return false;
+  const now = new Date().toISOString().slice(0, 19);
+  if (cat === BUILTIN) {
+    const rec = Object.fromEntries(FIELDS.map((f) => [f, copyValue(row.values[f])]));
+    const key = recordKey(rec);
+    const m = rec.setter.match(SETTER_RE);                 // 跟放表进去一样：调试员的工号名字记进名单
+    if (m && !db.people.some(([n]) => n === m[1])) db.people.push([m[1], m[2].trim()]);
+    if (db.records.some((r) => r.key === key)) return false;
+    db.records.push({ key, source, sheet: '核对', fed_at: now, ...rec });
+    return true;
+  }
+  const have = new Map(db.columns.map((nm) => [colkey(nm), nm]));   // 跟「放入样板资料」一样：列名按写法对，多出来的列接在后面
+  for (const nm of columns) if (!have.has(colkey(nm))) { db.columns.push(nm); have.set(colkey(nm), nm); }
+  const data = {};
+  for (const [c, raw] of Object.entries(row.values || {})) {
+    const v = copyValue(raw);
+    const col = have.get(colkey(c));
+    if (v && col) data[col] = v;
+  }
+  const key = db.columns.map((c) => nkey(data[c] || '')).join('|');
+  if (db.records.some((r) => r.key === key)) return false;
+  db.records.push({ key, source, sheet: '核对', fed_at: now, data });
+  return true;
 }
 
 // ---------------------------------------------------------------- 新类别的名字
