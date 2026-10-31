@@ -318,6 +318,17 @@ def post(obj: dict, url: str | None = None, timeout: float = TIMEOUT) -> dict:
         raise IOError('接口回的不是 JSON：' + raw[:120]) from None
 
 
+def ping(url: str | None = None, timeout: float = 20) -> str:
+    """接口通不通（打开开关时问一声，当场知道这台电脑的网够不够得着方丈网盘）。通了返回 ''，不通返回原因。"""
+    try:
+        req = urllib.request.Request(url or URL, headers={'User-Agent': f'luruseng/{engine.VERSION}'})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            got = json.loads(r.read().decode('utf-8', 'replace'))
+        return '' if got.get('ok') else str(got.get('error') or '接口没说为什么')
+    except Exception as e:
+        return str(getattr(e, 'reason', '') or e) or type(e).__name__
+
+
 @dataclass
 class Sent:
     sent: int = 0

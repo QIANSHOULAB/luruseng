@@ -922,8 +922,21 @@ class App:
                 self.write('✓ 发数据给方丈：开了。每批认完，照片和认的过程自己送去方丈网盘；'
                            '在表里改完存个盘，改过的格子也一起送去')
                 self.next_send = min(self.next_send, time.time() + 3)
+
+                def ask():                          # 当场问一声：这台电脑的网够不够得着方丈网盘
+                    why = report.ping()
+                    self.q.put(('call', lambda: self._pinged(why)))
+                threading.Thread(target=ask, daemon=True).start()
             else:
                 self.write('发数据给方丈：关了，一个字都不往外送了')
+
+    def _pinged(self, why: str):
+        if not self.cfg.get('report'):
+            return
+        msg = '✓ 方丈网盘连上了' if not why else f'现在连不上方丈网盘（{why}）。东西先攒在本机，连上了自己发'
+        self.write(msg)
+        if self.settings_win is not None and self.settings_win.winfo_exists():
+            self.settings_win.note.set(msg if why else f'{msg} · {self.report_status()}')
 
     def write(self, msg: str):
         self.text.config(state='normal')

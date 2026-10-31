@@ -262,6 +262,17 @@ def test_post_follows_googles_redirect():
         srv.shutdown()
 
 
+def test_ping_says_why_not():
+    srv = ThreadingHTTPServer(('127.0.0.1', 0), AppsScriptLike)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        assert report.ping(f'http://127.0.0.1:{srv.server_address[1]}/exec') == ''
+    finally:
+        srv.shutdown()
+    port = srv.server_address[1]
+    assert report.ping(f'http://127.0.0.1:{port}/exec', timeout=2) != ''              # 连不上：说出原因
+
+
 def test_samples_queue_once_and_go_last(tmp_path):
     src = tmp_path / '改对的刀单.xlsx'
     src.write_bytes(b'PK\x03\x04 pretend workbook')
@@ -326,11 +337,19 @@ def test_settings_switch_and_background_sending(tmp_path, monkeypatch):
         root.update()
         card = a.settings_win
         assert card.vars['report'].get() is False and card.note.get() == ''
+        monkeypatch.setattr(app.report, 'ping', lambda: '')
         card.vars['report'].set(True)
         card.changed('report', True)
         cfg = json.load(open(tmp_path / 'config.json', encoding='utf-8'))
         assert cfg['report'] is True and len(cfg['report_id']) == 6
         assert card.note.get().startswith('发给方丈：') and '发数据给方丈：开了' in a.text.get('1.0', 'end')
+        for _ in range(40):                                             # 当场问一声网盘通不通
+            root.update()
+            a.pump()
+            if '方丈网盘连上了' in a.text.get('1.0', 'end'):
+                break
+            time.sleep(0.05)
+        assert '方丈网盘连上了' in a.text.get('1.0', 'end') and card.note.get().startswith('✓ 方丈网盘连上了 · 发给方丈')
 
         seen = {}
         monkeypatch.setattr(app.engine, 'Engine', lambda *x, **kw: seen.update(kw) or types.SimpleNamespace(run=lambda: None))
