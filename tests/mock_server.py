@@ -61,6 +61,8 @@ def answer(mode, body):
             recs = [dict(rec, machine='VM-99', description='QQ7', btmp='7', setter='777/NEW GUY', unsure=['MACHINE', 'btmp', 'Setter', 'date'])]
         elif mode == 'newsure':
             recs = [dict(rec, machine='VM-99', description='QQ7', setter='777/NEW GUY', unsure=[])]
+        elif mode == 'nobtmp':                                # 换刀调试单：单子上没有 BTMP
+            recs = [dict(rec, btmp='')]
         elif mode == 'confusable':
             recs = [dict(rec, machine='VM-O7', part_number='TD-S24613-5', description='EM2.S')]
         elif mode == 'flip':                                  # 第 1、3 遍认成 D，第 2 遍认成 N

@@ -173,7 +173,7 @@
   .photo .none { color: #8E8E93; padding: 20px; text-align: center; }
   .panel { padding: 12px 14px; overflow-y: auto; min-height: 0; }
   .panel h3 { margin: 4px 0 8px; font-size: 16px; }
-  .panel dl { display: grid; grid-template-columns: 128px minmax(0, 1fr); margin: 0 0 6px; gap: 3px 6px; font-size: 14px; }
+  .panel dl { display: grid; grid-template-columns: fit-content(46%) minmax(0, 1fr); margin: 0 0 6px; gap: 3px 12px; font-size: 14px; }   /* 标签多长列多宽：TOTAL SCREENED 不折成两行 */
   .panel dt { color: var(--grey); }
   .panel dd { margin: 0; word-break: break-word; }
   .panel dd.red { background: var(--red-bg); color: var(--red); border-radius: 4px; padding: 0 5px; justify-self: start; }
@@ -226,7 +226,6 @@
     .vbar .w { display: none; }
     .vbar .n { display: inline; }
     .vbar .info { width: 100%; margin: 0; white-space: normal; }
-    .panel dl { grid-template-columns: 112px minmax(0, 1fr); }
     .dcard { padding: 16px; }
     .dcard .foot2 .left { flex-basis: 100%; }
     .dcard .snote { text-align: left; }

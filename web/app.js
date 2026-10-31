@@ -894,8 +894,10 @@ function fillPanel(no) {
     const dl = document.createElement('dl');
     const red = new Set(rec.red), orange = new Set(rec.orange), human = new Set(rec.human || []);
     keys.forEach((f, i) => {
-      dl.appendChild(add('dt', '', labels[i]));
       const v = C.showValue(rec.values[f]);
+      // 换刀调试单上本来就没有 BTMP：空着就不列（表里那一列照留，整块贴进公司表不错位）
+      if (V.run.cat === C.BUILTIN && f === 'btmp' && !v && !red.has(f) && !orange.has(f)) return;
+      dl.appendChild(add('dt', '', labels[i]));
       const look = red.has(f) ? 'red' : orange.has(f) ? 'fixed' : human.has(f) ? 'human' : '';
       const dd = add('dd', ('edit ' + look).trim(), v || '—');
       dd.tabIndex = 0;                               // 核对时直接改：点哪格改哪格，表跟着改

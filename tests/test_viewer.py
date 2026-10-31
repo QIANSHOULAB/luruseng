@@ -334,3 +334,33 @@ def test_app_opens_only_checker_then_feeds_checked_rows(tmp_path, monkeypatch):
             a.stop.set()
             a.worker.join(30)
         root.destroy()
+
+
+def test_window_hides_empty_btmp(tmp_path):
+    """换刀调试单上本来就没有 BTMP：核对里空着就不列；表里那一列照留（贴进公司表不错位）。"""
+    res = make_run(tmp_path, 1, modes={K1: 'nobtmp'})
+    r = viewer.load_rows(res.xlsx)[1][0]
+    assert r['values'][viewer.BTMP] == '' and r['labels'][viewer.BTMP] == 'BTMP'
+    root = _tk_root()
+    try:
+        v = viewer.Viewer(root, str(tmp_path))
+        root.update()
+        text = v.panel.get('1.0', 'end')
+        assert 'BTMP' not in text and 'TOTAL SCREENED' in text and 'SETTER' in text
+        v.open_cell(0, 8)                                           # 后面的格子照样点得开、改得对
+        assert v.editor_var.get() == '1'
+        v.save_cell(0, 8, '1')
+        assert viewer.load_rows(res.xlsx)[1][0]['human'] == {8}
+        v.destroy()
+    finally:
+        root.destroy()
+    res2 = make_run(tmp_path / 'b', 1, modes={K1: 'ok'})            # 有 BTMP 的照样列出来
+    root = _tk_root()
+    try:
+        v = viewer.Viewer(root, str(tmp_path / 'b'))
+        root.update()
+        assert 'BTMP' in v.panel.get('1.0', 'end')
+        v.destroy()
+    finally:
+        root.destroy()
+    assert res2.xlsx

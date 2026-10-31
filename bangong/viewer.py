@@ -20,6 +20,7 @@ from .kb import cell_text
 LABELS = ['DATE', 'MACHINE', 'PART NUMBER', 'MO', 'OPR NO.', 'T NO.', 'DESCRIPTION', 'BTMP',
           'TOTAL SCREENED', 'PASSED', 'FAILED', 'SHIFT', 'SETTER']
 RUN_RE = re.compile(r'\d{8}_\d{6}')
+BTMP = LABELS.index('BTMP')
 
 
 # ---------------------------------------------------------------- 数据（不碰 Tk，方便测试）
@@ -534,6 +535,9 @@ class Viewer(tk.Toplevel):
                 p.insert('end', rec['note'] + '\n\n', 'note')
                 continue
             for i, (lab, val) in enumerate(zip(rec.get('labels', LABELS), rec['values'])):
+                if (rec.get('builtin') and i == BTMP and not val and i not in rec['red']
+                        and i not in rec.get('fixed', ())):
+                    continue                            # 换刀调试单上本来就没有 BTMP：空着就不列（表里那一列照留）
                 p.insert('end', lab + '\t', 'k')
                 look = ('red' if i in rec['red'] else 'fixed' if i in rec.get('fixed', ()) else
                         'human' if i in rec.get('human', ()) else '')
