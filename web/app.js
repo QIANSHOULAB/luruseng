@@ -18,9 +18,10 @@ const DEFAULTS = { category: C.BUILTIN, model: C.DEFAULT_MODEL, auto: false, aut
 
 const S = {
   st: null, cfg: { ...DEFAULTS }, cats: [], queue: [], seen: new Set(), eng: null, busy: false,
-  fresh: 0, feeding: false, lock: null,
+  fresh: 0, feeding: false, run: null,                    // run：正在干的这批（核对里看它，改的格子才不会被盖掉）
 };
 const two = (n) => String(n).padStart(2, '0');
+const nowIso = () => new Date().toISOString().slice(0, 19);
 const TOUCH = matchMedia('(pointer: coarse)').matches;      // 手机、平板：没得拖，左右滑翻页
 const EMPTY = TOUCH ? '还没选照片' : '把照片拖进来，或点右边「选照片」';
 
@@ -52,16 +53,17 @@ function bar(done, total) { $('#bar').style.width = total ? `${Math.round((100 *
 
 // 干活时的进度：认完一张跳一格；两张之间按估的时间慢慢往前爬（最多爬到下一格的九成），让人看着它在干活
 const FISH = '你可以去摸鱼了，剩下的交给老衲。';
-const DONE = '干完了，你核对就好。';
+const DONE = '干完你核对就好了。';
+const WOKE = '页面被关了一回，老衲诈尸接着干，你接着摸鱼。';
 const M = { total: 0, done: 0, tLast: 0, gaps: [], timer: null };
 function slogan(text) { $('#slogan').textContent = text || ''; }
 function meterDraw() { $('#bar').style.width = `${(100 * C.meterFrac(M, Date.now())).toFixed(1)}%`; }
-function meterStart(total) {
-  Object.assign(M, { total, done: 0, tLast: Date.now(), gaps: [] });
+function meterStart(total, done = 0, line = FISH) {      // done：接着干的那批，之前已经干完几张
+  Object.assign(M, { total, done, tLast: Date.now(), gaps: [] });
   clearInterval(M.timer);
   M.timer = setInterval(meterDraw, 250);
-  status(`0/${total} 张`);
-  slogan(FISH);
+  status(`${done}/${total} 张`);
+  slogan(line);
   meterDraw();
   if (matchMedia('(max-width: 860px)').matches) {      // 窄屏（手机）：任务状态在下面，自己滚过去给人看
     $('.side').scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -69,10 +71,12 @@ function meterStart(total) {
 }
 function meterTick(d, t) {
   const now = Date.now();
-  if (d > M.done) { M.gaps.push((now - M.tLast) / (d - M.done)); M.tLast = now; M.done = d; }
+  if (d > M.done) {                              // 真认完一张：跳一格，等额度那句话也换回摸鱼
+    M.gaps.push((now - M.tLast) / (d - M.done)); M.tLast = now; M.done = d;
+    slogan(FISH);
+  }
   M.total = t;
   status(`${d}/${t} 张`);
-  slogan(FISH);
   meterDraw();
 }
 function meterStop() { clearInterval(M.timer); M.timer = null; }
@@ -149,6 +153,108 @@ async function refreshCategory(announce = false) {
   if (announce) log(line);
 }
 
+// ---------------------------------------------------------------- 照片先存一份（Song 选的 A）
+// 选了照片就存进这个浏览器，认完一张存一张结果。手机把页面杀了，重新打开自己接着干：还进同一本表、编号不变，不用重选。
+// 原照片存在 photos 里：pending/照片id → {blob, name, type, lastModified, hash, added}，干完就删。
+// kv 里的 work：正在干的那一笔 {at, auto, run, items:[{no, qid, hash, name}], stuck}，干完、停了、出错了就删，页面被关了才留着。
+const PEND = 'pending/';
+const P = { chain: Promise.resolve(), n: 0, d: 0, show: false, warned: false };
+const canStash = () => S.st.kind === 'idb' && typeof S.st.prefixed === 'function';
+
+function later(fn) {                          // 一件一件来：手机内存小，几张一起读会闪退
+  const p = P.chain.then(fn);
+  P.chain = p.catch(() => {});
+  return p;
+}
+function stash(q) {
+  if (!canStash()) return;
+  P.n++;
+  later(async () => {
+    try {
+      if (!S.queue.includes(q)) return;                   // 还没轮到就被清掉了
+      const f = q.file, buf = await f.arrayBuffer();
+      if (!q.hash) q.hash = await I.sha256(buf);           // 顺手算好指纹，开工查重不用再读一遍
+      if (await S.st.get('ledger', q.hash)) return;       // 以前干过的：开工时就跳过，不用存
+      await S.st.put('photos', PEND + q.id, { blob: new Blob([buf], { type: f.type }), name: f.name, type: f.type,
+        lastModified: f.lastModified, hash: q.hash, added: Date.now() });
+    } catch (e) {
+      if (!P.warned) { P.warned = true; log(`⚠ 照片没存进浏览器（${e.message}）：干完之前别关这页，被关了得重选`); }
+    } finally {
+      P.d++;
+      if (P.show) status(`存照片 ${P.d}/${P.n} 张`);
+      if (P.d >= P.n) P.n = P.d = 0;
+    }
+  });
+}
+function unstash(q) { if (canStash()) later(() => S.st.del('photos', PEND + q.id)).catch(() => {}); }
+async function stashed() {                    // 开工前等照片都存好：开工以后页面被关，照片也丢不了
+  if (!P.n) return;
+  P.show = true;
+  status(`存照片 ${P.d}/${P.n} 张`);
+  try { await P.chain; } finally { P.show = false; }
+}
+
+async function restore() {                     // 上回选了还没干完的照片：从浏览器里拿回来，不用重选
+  if (!canStash()) return 0;
+  const all = await S.st.prefixed('photos', PEND).catch(() => []);
+  all.sort((a, b) => ((a[1] && a[1].added) || 0) - ((b[1] && b[1].added) || 0));
+  let back = 0;
+  for (const [key, v] of all) {
+    const id = key.slice(PEND.length);
+    if (S.seen.has(id)) continue;
+    if (!v || !(v.blob instanceof Blob) || (v.hash && await S.st.get('ledger', v.hash).catch(() => null))) {
+      S.st.del('photos', key).catch(() => {});             // 坏了的，或者其实已经干完了：清掉
+      continue;
+    }
+    const file = new File([v.blob], v.name || 'photo.jpg', { type: v.type || v.blob.type || '', lastModified: v.lastModified || 0 });
+    S.seen.add(id);
+    S.queue.push({ file, id, hash: v.hash, old: true });
+    back++;
+  }
+  return back;
+}
+
+async function grab(tries = 1) {              // 一次只让一个窗口干活：两个窗口一起接着干同一批，表就乱了
+  if (!navigator.locks) return () => {};
+  for (let i = 0; i < tries; i++) {
+    const release = await new Promise((ok) => {
+      navigator.locks.request('luruseng-work', { ifAvailable: true }, (lock) => {
+        if (!lock) { ok(null); return undefined; }
+        return new Promise((done) => ok(done));          // 拿着锁，干完 release() 才放
+      }).catch(() => ok(() => {}));                        // 这个浏览器不让用锁：那就不管
+    });
+    if (release) return release;
+    if (i + 1 < tries) await new Promise((r) => setTimeout(r, 1500));   // 刚被关掉的那个窗口还没撒手：等等
+  }
+  return null;
+}
+
+async function wakeUp(back) {                  // 打开页面：上回干到一半被关了，自己接着干；留下的照片说一声
+  const w = canStash() ? await S.st.get('kv', 'work').catch(() => null) : null;
+  if (!w) { if (back) log(`上回留下的 ${back} 张照片还在列表里，点「开始工作」就干`); return; }
+  if (!$('#key1').value.trim() && !$('#key2').value.trim()) { log('⚠ 上回干到一半页面被关了：填好钥匙点「开始工作」，老衲接着干'); return; }
+  if ((w.stuck || 0) >= 3) { log('⚠ 诈尸 3 回都没干动（一开工页面就被关）：点「开始工作」再试，还不行就清空、少放几张'); return; }
+  w.stuck = (w.stuck || 0) + 1;                // 接着干一回记一回；干完一张就清零（一张都干不动才是被哪张照片撑爆了）
+  await S.st.put('kv', 'work', w).catch(() => {});
+  start(!!w.auto, true);
+}
+
+async function clearList() {                   // 清空：照片不要了，上回没干完的那批也不接着干了
+  for (const q of S.queue) unstash(q);
+  S.queue = [];
+  S.seen.clear();
+  refreshQueue();
+  const release = await grab();                // 别的窗口正在干就别动它那一笔
+  if (!release) return;
+  try {
+    const w = await S.st.get('kv', 'work').catch(() => null);
+    if (!w) return;
+    await S.st.del('kv', 'work').catch(() => {});
+    const r = w.run ? await S.st.get('runs', w.run).catch(() => null) : null;
+    if (r && !r.rows.length) await S.st.del('runs', r.id).catch(() => {});
+  } finally { release(); }
+}
+
 // ---------------------------------------------------------------- 加照片
 function addFiles(files) {
   let added = 0, sheets = 0, other = 0;
@@ -158,10 +264,13 @@ function addFiles(files) {
     const id = `${f.name}|${f.size}|${f.lastModified}`;
     if (S.seen.has(id)) continue;
     S.seen.add(id);
-    S.queue.push({ file: f, id });
+    const q = { file: f, id };
+    S.queue.push(q);
+    stash(q);                                  // 先存一份：开工后页面被手机杀了，重新打开不用重选
     added++;
     if (S.busy) S.fresh++;
   }
+  if (added && canStash()) ST.persist();       // 跟浏览器要「别清」
   if (sheets) log(`✗ ${sheets} 本表格没放进照片里：表格请点「放入样板资料」`);
   if (other) log(`✗ 跳过 ${other} 个不是照片的文件`);
   refreshQueue();
@@ -208,7 +317,7 @@ function setupDrop() {
   $('#drop').onclick = (e) => { if (!e.target.closest('#clear')) pick(); };
   $('#drop').onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } };
   $('#files').onchange = (e) => { addFiles([...e.target.files]); e.target.value = ''; };
-  $('#clear').onclick = (e) => { e.preventDefault(); if (S.busy) return; S.queue = []; S.seen.clear(); refreshQueue(); };
+  $('#clear').onclick = (e) => { e.preventDefault(); if (!S.busy) clearList(); };
 }
 
 // ---------------------------------------------------------------- 开工
@@ -248,78 +357,149 @@ function runId(d = new Date()) {
   return `${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}_${two(d.getHours())}${two(d.getMinutes())}${two(d.getSeconds())}`;
 }
 
-async function start(auto = false) {
+// 新开一批：干过的照片（改了名也认得出）跳过，剩下的按拍摄顺序排好
+async function freshTodo() {
+  const todo = [], hashes = new Map();
+  for (const q of [...S.queue]) {
+    if (!q.hash) {
+      try { q.hash = await I.sha256(q.file); } catch (e) { log(`✗ ${q.file.name} 读不了：${e.message}`); continue; }
+    }
+    const done = await S.st.get('ledger', q.hash);
+    if (done) {
+      log(`↷ ${q.file.name} 以前干过（${done.xlsx || ''} 第 ${done.no ?? '?'} 张），跳过`);
+      drop(q);
+    } else if (hashes.has(q.hash)) {
+      log(`↷ ${q.file.name} 跟 ${hashes.get(q.hash)} 是同一张，跳过`);
+      drop(q);
+    } else {
+      hashes.set(q.hash, q.file.name);
+      todo.push(q);
+    }
+  }
+  for (const q of todo) if (q.shot === undefined) q.shot = await I.shotTime(q.file);
+  todo.sort((a, b) => a.shot - b.shot || a.file.name.toLowerCase().localeCompare(b.file.name.toLowerCase()));
+  return todo;
+}
+
+async function rules(cat) {                    // 拿数据库当准绳
+  let spec = null, snapshot = null, names = C.parseNames(await namesText()), hints = '', what;
+  if (cat === C.BUILTIN) {
+    const kb = await kbDb();
+    snapshot = kb.records.length || kb.people.length ? new C.Snapshot(kb.records, kb.people) : null;
+    if (snapshot) {
+      hints = snapshot.hints();
+      const have = new Set(names.map(([n]) => n));
+      names = names.concat(snapshot.roster().filter(([n]) => !have.has(n)));
+    }
+    log(C.kbSummary(kb));
+    what = '，类别「刀单」' + (names.length ? `，名单 ${names.length} 人` : '，没有名单');
+  } else {
+    const db = await catDb(cat);
+    spec = new C.TableSpec(cat, db);
+    log(C.tableSummary(db, cat));
+    what = `，类别「${cat}」` + (spec.openMode ? '（还没定列：认全部内容）' : `（${spec.columns.length} 列）`);
+  }
+  return { spec, snapshot, names, hints, what };
+}
+
+async function newRun(cat, total, spec) {
+  const base = runId();                          // 同一秒干两批（照片少、网快）：别把上一批盖掉
+  let id = base;
+  for (let i = 2; await S.st.get('runs', id); i++) id = `${base}_${i}`;
+  return {
+    id, cat, at: nowIso(), total, width: Math.max(2, String(total).length), photos: [], rows: [],
+    xlsx: `识别结果_${id}${cat === C.BUILTIN ? '' : '_' + cat}.xlsx`, columns: spec ? [...spec.columns] : null,
+  };
+}
+
+// 上回干到一半被关掉的那批：认完的收个尾，没了的记一笔，剩下的接着干（编号不变）
+async function reopen(run, work) {
+  const byId = new Map(S.queue.map((q) => [q.id, q]));
+  const plan = C.resumePlan(work.items, run.rows, (qid) => byId.has(qid));
+  const todo = new Set(plan.todo.map((x) => x.no));
+  run.rows = run.rows.filter((r) => !(r.left && todo.has(r.no)));      // 停的时候记的「没干完」：这回接着干，先拿掉
+  for (const x of plan.done) {                 // 认完了、表也存了，就差记进「干过的」、清掉存的照片
+    const q = byId.get(x.qid);
+    if (!q) continue;
+    if (x.hash) await S.st.put('ledger', x.hash, { file: x.name, no: x.no, xlsx: run.xlsx, at: nowIso() }).catch(() => {});
+    drop(q);
+  }
+  for (const x of plan.lost) {
+    C.placeRows(run.rows, [{ no: x.no, kind: 'blank', fill: 'grey', left: true,
+      note: `未完成：页面被关的时候这张照片没存住，重新选 ${x.name} 再干` }]);
+  }
+  return { items: plan.todo.map((x) => { const q = byId.get(x.qid); return { no: x.no, file: q.file, q }; }), lost: plan.lost.length };
+}
+
+async function start(auto = false, woke = false) {     // woke：打开页面时发现上回干到一半被关了，自己接着干
   if (S.busy) return;
   const k1 = $('#key1').value.trim(), k2 = $('#key2').value.trim();
   if (!k1 && !k2) { log('✗ 先填钥匙。还没有？点钥匙框后面的「免费领钥匙」，两分钟的事，一分钱不花'); return; }
   if (k1 && k1 === k2) { log('✗ 两个钥匙填的是同一把（额度按项目算，同一把没意义）'); return; }
-  if (!S.queue.length) { log('还没选照片：点「选照片…」，或者把照片拖进来'); return; }
-  if (auto) log('▶ 来图就干：照片来了，自己开工');
-  await saveCfg(true);
-  setBusy(true);
+  setBusy(true);                                 // 马上占住：下面要等，别让人连点两下开出两批
   S.fresh = 0;
-  const cat = $('#cat').value, model = C.modelName($('#model').value);
-  let eng;
+  let release = null, mine = false, halted = true, extra = null, eng;
   try {
-    status('查重…');
-    bar(0, 0);
-    // 干过的照片（改了名也认得出）：跳过
-    const todo = [], hashes = new Map();
-    for (const q of [...S.queue]) {
-      if (!q.hash) {
-        try { q.hash = await I.sha256(q.file); } catch (e) { log(`✗ ${q.file.name} 读不了：${e.message}`); continue; }
-      }
-      const done = await S.st.get('ledger', q.hash);
-      if (done) {
-        log(`↷ ${q.file.name} 以前干过（${done.xlsx || ''} 第 ${done.no ?? '?'} 张），跳过`);
-        drop(q);
-      } else if (hashes.has(q.hash)) {
-        log(`↷ ${q.file.name} 跟 ${hashes.get(q.hash)} 是同一张，跳过`);
-        drop(q);
-      } else {
-        hashes.set(q.hash, q.file.name);
-        todo.push(q);
-      }
+    release = await grab(woke ? 3 : 1);
+    if (!release) { log('⚠ 另一个窗口正在干活：这边先不干，等那边干完'); return; }
+    const was = await S.st.get('kv', 'work').catch(() => null);
+    const prev = was && was.run ? await S.st.get('runs', was.run).catch(() => null) : null;
+    if (!S.queue.length && !prev) {
+      if (was) await S.st.del('kv', 'work').catch(() => {});
+      if (!woke) log('还没选照片：点「选照片…」，或者把照片拖进来');
+      return;
     }
-    if (!todo.length) { log('列表里没有新照片，收工。'); return; }
-    for (const q of todo) if (q.shot === undefined) q.shot = await I.shotTime(q.file);
-    todo.sort((a, b) => a.shot - b.shot || a.file.name.toLowerCase().localeCompare(b.file.name.toLowerCase()));
+    if (woke && !prev) log('▶ 上回刚开工页面就被关了，老衲诈尸重新开工');
+    else if (auto && !woke) log('▶ 来图就干：照片来了，自己开工');
+    await saveCfg(true);
+    await stashed();
+    // 记一笔「在干活」：查重、干活的时候页面被关了，重新打开自己接着干
+    const work = prev ? { ...was, at: Date.now(), stuck: woke ? was.stuck || 0 : 0 } : { at: Date.now(), auto, stuck: woke ? (was && was.stuck) || 0 : 0 };
+    await S.st.put('kv', 'work', work).catch(() => {});
+    mine = true;
 
-    // 拿数据库当准绳
-    let spec = null, snapshot = null, names = C.parseNames(await namesText()), hints = '', what;
-    if (cat === C.BUILTIN) {
-      const kb = await kbDb();
-      snapshot = kb.records.length || kb.people.length ? new C.Snapshot(kb.records, kb.people) : null;
-      if (snapshot) {
-        hints = snapshot.hints();
-        const have = new Set(names.map(([n]) => n));
-        names = names.concat(snapshot.roster().filter(([n]) => !have.has(n)));
+    const model = C.modelName($('#model').value);
+    let run, items, todoQ = null, lost = 0;
+    if (prev) {
+      run = prev;
+      if (!woke) {                               // 手动点的开始：上回那批干完，接着干列表里别的照片
+        const inRun = new Set(work.items.map((x) => x.qid));
+        extra = new Set(S.queue.filter((q) => !inRun.has(q.id)));
       }
-      log(C.kbSummary(kb));
-      what = '，类别「刀单」' + (names.length ? `，名单 ${names.length} 人` : '，没有名单');
+      ({ items, lost } = await reopen(run, work));
     } else {
-      const db = await catDb(cat);
-      spec = new C.TableSpec(cat, db);
-      log(C.tableSummary(db, cat));
-      what = `，类别「${cat}」` + (spec.openMode ? '（还没定列：认全部内容）' : `（${spec.columns.length} 列）`);
+      status('查重…');
+      bar(0, 0);
+      todoQ = await freshTodo();
+      if (!todoQ.length) { log('列表里没有新照片，收工。'); halted = false; return; }
     }
-
-    const total = todo.length, width = Math.max(2, String(total).length);
-    const base = runId();                          // 同一秒干两批（照片少、网快）：别把上一批盖掉
-    let id = base;
-    for (let i = 2; await S.st.get('runs', id); i++) id = `${base}_${i}`;
-    const run = {
-      id, cat, at: new Date().toISOString().slice(0, 19), total, width, photos: [], rows: [],
-      xlsx: `识别结果_${id}${cat === C.BUILTIN ? '' : '_' + cat}.xlsx`, columns: spec ? [...spec.columns] : null,
+    const cat = run ? run.cat : $('#cat').value;
+    const { spec, snapshot, names, hints, what } = await rules(cat);
+    if (!run) {
+      run = await newRun(cat, todoQ.length, spec);
+      items = todoQ.map((q, i) => ({ no: i + 1, file: q.file, q }));
+      Object.assign(work, { run: run.id, items: items.map((it) => ({ no: it.no, qid: it.q.id, hash: it.q.hash, name: it.file.name })) });
+      await S.st.put('kv', 'work', work).catch(() => {});
+      log(`▶ 开工（录入僧网页版 v${C.VERSION}）：${run.total} 张，按拍摄顺序编号 1–${run.total}，每批 ${C.BATCH} 张，模型 ${model}` +
+        (C.READS >= 2 ? '，每张认两遍对答案' : '') + what);
+    } else if (items.length) {
+      log(`▶ ${woke ? '上回干到一半页面被关了，老衲诈尸接着干' : '上回那批没干完，先接着干'}：还剩 ${items.length} 张，` +
+        `接着写进 ${run.xlsx}，编号不变（模型 ${model}${what}）`);
+    }
+    const { id, total, width } = run;
+    S.run = run;
+    let saveErr = '';
+    const saveRun = async () => {                     // 存这批的表：认完一张存一回
+      try { await S.st.put('runs', id, run); saveErr = ''; return true; } catch (e) {
+        if (saveErr !== e.message) { saveErr = e.message; log(`✗ 结果存不下：${e.message}`); }
+        return false;
+      }
     };
-    const items = todo.map((q, i) => ({ no: i + 1, file: q.file, q }));
-    log(`▶ 开工（录入僧网页版 v${C.VERSION}）：${total} 张，按拍摄顺序编号 1–${total}，每批 ${C.BATCH} 张，模型 ${model}` +
-      (C.READS >= 2 ? '，每张认两遍对答案' : '') + what);
+    await saveRun();
 
-    meterStart(total);
-    const elog = (m) => { log(m); if (m.startsWith('⏸')) slogan(waitLine(m)); };
+    const base = total - items.length;             // 接着干的：之前已经干完（或者记过）几张
     eng = S.eng = new Engine({
-      keys: [k1, k2], model, spec, names, hints, log: elog,
+      keys: [k1, k2], model, spec, names, hints, log: (m) => { log(m); if (m.startsWith('⏸')) slogan(waitLine(m)); },
       prepare: (file, enhance) => exclusive(async () => I.prepare(await openFor(file, !enhance), enhance)),
       stampIt: (file, no, side) => exclusive(async () => I.stamp(await openFor(file, false), no, side)),
     });
@@ -329,44 +509,61 @@ async function start(auto = false) {
       for (const k of Object.keys(rec)) if (!C.META.has(k) && !run.columns.includes(k)) run.columns.push(k);
       return { kind: 'rec', ...C.assessTableRecord(rec, run.columns, spec.snapshot) };
     };
-    const res = await eng.run(items, {
-      progress: meterTick,
-      onUnfinished: async (it, why) => {
-        run.rows.push({ no: it.no, kind: 'blank', fill: 'grey', note: `未完成：${why}（照片还在列表里，再点开始接着干）` });
-      },
-      onPhoto: async (it, recs, err, side, stamped) => {
-        const tag = tagOf(it.no), name = it.file.name;
-        if (recs === null) {
-          run.rows.push({ no: it.no, kind: 'blank', fill: 'red', note: `✗ 识别失败：${err}（照片还在列表里，再点开始会重干）` });
-          log(`✗ ${tag} ${name} · ${err}`);
-          return;
-        }
-        if (!recs.length) {
-          run.rows.push({ no: it.no, kind: 'blank', fill: 'red',
-            note: spec ? `这张照片里没认出「${cat}」的记录` : '这张照片里没认出刀具破损记录' });
-        }
-        for (const rec of recs) run.rows.push({ no: it.no, ...assess(rec) });
-        if (stamped) {
-          try { await S.st.put('photos', `${id}/${it.no}`, stamped); run.photos.push(it.no); } catch (e) { log(`${tag} 编号照片存不下：${e.message}`); }
-        }
-        await S.st.put('ledger', it.q.hash, { file: name, no: it.no, xlsx: run.xlsx, at: new Date().toISOString().slice(0, 19) });
-        drop(it.q);
-        log(`✓ ${tag} ${name} · ${recs.length} 条`);
-      },
-      onBatch: async () => { try { await S.st.put('runs', id, run); } catch (e) { log(`✗ 结果存不下：${e.message}`); } },
-    });
-    if (res.stopped) log(res.stopped === '手动停止' ? '■ 已停止，没干完的下次接着干' : `■ 停工：${res.stopped}`);
-    const kept = res.ok > 0 || res.failed > 0;
+    let res = null;
+    if (items.length) {
+      meterStart(total, base, woke ? WOKE : FISH);
+      res = await eng.run(items, {
+        progress: (d) => meterTick(base + d, total),
+        onUnfinished: async (it, why) => {
+          C.placeRows(run.rows, [{ no: it.no, kind: 'blank', fill: 'grey', left: true, note: `未完成：${why}（照片还在列表里，再点开始接着干）` }]);
+        },
+        onPhoto: async (it, recs, err, side, stamped) => {   // 认完一张马上存：表、编号照片、干过的记录，最后清掉存的原照片
+          const tag = tagOf(it.no), name = it.file.name;
+          if (recs === null) {
+            C.placeRows(run.rows, [{ no: it.no, kind: 'blank', fill: 'red', retry: true, note: `✗ 识别失败：${err}（照片还在列表里，再点开始会重干）` }]);
+            log(`✗ ${tag} ${name} · ${err}`);
+            await saveRun();
+            return;
+          }
+          C.placeRows(run.rows, recs.length ? recs.map((rec) => ({ no: it.no, ...assess(rec) }))
+            : [{ no: it.no, kind: 'blank', fill: 'red', note: spec ? `这张照片里没认出「${cat}」的记录` : '这张照片里没认出刀具破损记录' }]);
+          if (stamped) {
+            try {
+              await S.st.put('photos', `${id}/${it.no}`, stamped);
+              if (!run.photos.includes(it.no)) run.photos.push(it.no);
+            } catch (e) { log(`${tag} 编号照片存不下：${e.message}`); }
+          }
+          if (!(await saveRun())) return;               // 表没存上：照片先留在列表里，别记成干过
+          if (work.stuck) { work.stuck = 0; S.st.put('kv', 'work', work).catch(() => {}); }   // 干动了：诈尸次数清零
+          if (it.q.hash) {
+            try { await S.st.put('ledger', it.q.hash, { file: name, no: it.no, xlsx: run.xlsx, at: nowIso() }); } catch (e) { log(`${tag} 干过的记录存不下：${e.message}`); }
+          }
+          drop(it.q);
+          log(`✓ ${tag} ${name} · ${recs.length} 条`);
+        },
+        onBatch: saveRun,
+      });
+      if (res.stopped) log(res.stopped === '手动停止' ? '■ 已停止，没干完的下次接着干' : `■ 停工：${res.stopped}`);
+    } else if (lost) {
+      log(`⚠ 上回那批剩下的 ${lost} 张照片没存住（页面被关之前没来得及存）：重新选它们再干`);
+    } else {
+      log(`✓ 上回那批其实干完了：${run.xlsx}（点「下载结果」，或者「核对」里下载）`);
+    }
+    halted = !!(res && res.stopped);
+    const t = C.tally(run.rows), kept = t.ok + t.failed > 0;
     if (!kept) await S.st.del('runs', id).catch(() => {});
-    else { S.cfg.lastRun = id; await saveCfg(true); ST.persist(); }     // 有东西了才跟浏览器要「别清」
-    const used = eng.usedLine();
-    log(`${!res.failed && !res.stopped ? '✓' : '⚠'} 成功 ${res.ok} 张（${res.records} 条记录）· 失败 ${res.failed} 张 · ` +
-      `${res.requests} 次请求${used ? ' · ' + used : ''}` + (kept ? `\n结果：${run.xlsx}（点「下载结果」，或者「核对」里下载）` : ''));
+    else { await saveRun(); S.cfg.lastRun = id; await saveCfg(true); ST.persist(); }   // 有东西了才跟浏览器要「别清」
+    if (res) {
+      const used = eng.usedLine();
+      log(`${!t.failed && !res.stopped ? '✓' : '⚠'} 成功 ${t.ok} 张（${t.records} 条记录）· 失败 ${t.failed} 张 · ` +
+        `${res.requests} 次请求${used ? ' · ' + used : ''}` + (kept ? `\n结果：${run.xlsx}（点「下载结果」，或者「核对」里下载）` : ''));
+    }
     meterStop();
-    bar(res.ok + res.failed, total);
-    if (kept) status(`干完：成功 ${res.ok} · 失败 ${res.failed}`);
-    slogan(res.ok && !res.stopped ? DONE : '');
-    if (kept && res.ok && !res.stopped && !auto && S.cfg.auto_open) openViewer(id);
+    bar(t.ok + t.failed, total);
+    if (kept) status(`干完：成功 ${t.ok} · 失败 ${t.failed}`);
+    slogan(t.ok && !halted ? DONE : '');
+    const more = extra && S.queue.some((q) => extra.has(q));
+    if (kept && res && res.ok && !halted && !work.auto && !more && S.cfg.auto_open) openViewer(id);
   } catch (e) {
     log(`✗ 程序出错：${e.name || 'Error'}：${e.message}`);
     console.error(e);
@@ -374,15 +571,22 @@ async function start(auto = false) {
     meterStop();
     cache.clear();
     S.eng = null;
+    S.run = null;
+    if (mine) await S.st.del('kv', 'work').catch(() => {});   // 这一笔了结了（干完、停了、出错了）；只有页面被关才留着
+    if (release) release();
     setBusy(false);
     refreshQueue($('#status').textContent.startsWith('干完'));
-    if (S.fresh && $('#auto').checked && S.queue.length) setTimeout(() => start(true), 500);
+    if (extra && !halted && S.queue.some((q) => extra.has(q))) {
+      log('▶ 上回那批干完了，接着干列表里别的照片（另开一本表）');
+      setTimeout(() => start(auto), 500);
+    } else if (S.fresh && $('#auto').checked && S.queue.length) setTimeout(() => start(true), 500);
   }
 }
-function drop(q) {
+function drop(q) {                               // 干完了（或者不用干）：从列表里拿掉，存的原照片也清掉
   const i = S.queue.indexOf(q);
   if (i >= 0) S.queue.splice(i, 1);
   S.seen.delete(q.id);
+  unstash(q);
 }
 
 function halt() {
@@ -634,11 +838,18 @@ async function openViewer(id = null) {
 }
 
 async function loadRun(id, start = null) {
-  V.run = await S.st.get('runs', id);
+  V.run = S.run && S.run.id === id ? S.run : await S.st.get('runs', id);   // 正在干的这批：跟干活的用同一份，改的格子不会被盖掉
   $('#vruns').value = id;
   V.rowsByNo = new Map();
   for (const r of V.run.rows) { if (!V.rowsByNo.has(r.no)) V.rowsByNo.set(r.no, []); V.rowsByNo.get(r.no).push(r); }
   V.nos = [...new Set([...V.run.photos, ...V.rowsByNo.keys()])].sort((a, b) => a - b);
+  if (!V.nos.length) {                             // 刚开工，一张还没认完
+    V.cur = null;
+    $('#vnum').value = '';
+    for (const el of ['#vphoto', '#vpanel']) $(el).textContent = '';
+    $('#vinfo').textContent = '这批刚开工，一张还没认完：待会儿再来看';
+    return;
+  }
   await show(start && V.nos.includes(start) ? start : V.nos[0]);
 }
 
@@ -867,6 +1078,7 @@ function setupViewer() {
   };
   $('#vdel').onclick = async () => {
     const run = V.run;
+    if (S.run && S.run.id === run.id) { $('#vinfo').textContent = '这批还在干：干完（或者点「停止」）再删'; return; }
     const yes = await ask('删掉这批？', `${runLabel(run)}：表格和编号照片从这个浏览器里删掉，找不回来。要留着的话先点「编号照片」打包下载。\n干过的记录还在，这批照片以后再放进来还是会跳过。`, '删掉');
     if (!yes) return;
     for (const no of run.photos) await S.st.del('photos', `${run.id}/${no}`);
@@ -915,6 +1127,9 @@ async function boot() {
   if (S.st.kind === 'memory') log('⚠ 这个浏览器不让存东西（无痕窗口？）：这次能用，关掉页面数据库、结果就没了');
   if (!S.cfg.key1 && !S.cfg.key2) log('第一次用：先填钥匙（点「免费领钥匙」看怎么领），再选照片，点「开始工作」。');
   await refreshCategory(true);
+  const back = await restore();                    // 上回的照片还在浏览器里：放回列表
+  if (back) refreshQueue();
+  await wakeUp(back);                              // 上回干到一半被关了：自己接着干
 }
 
 boot().catch((e) => { log(`✗ 打不开：${e.name || 'Error'}：${e.message}`); console.error(e); });

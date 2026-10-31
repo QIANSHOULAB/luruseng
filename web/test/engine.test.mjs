@@ -15,7 +15,7 @@ function quota(per) {
 
 // 假服务器：按钥匙决定返回什么（跟 tests/mock_server.py 一样的几种）
 function server() {
-  const S = { modes: {}, once: {}, log: [], inflight: 0, peak: 0, delay: 2, calls: {} };
+  const S = { modes: {}, once: {}, log: [], inflight: 0, peak: 0, delay: 2, calls: {}, slow: {} };   // slow：{宽: 毫秒} 这张慢
   S.answer = (mode, body) => {
     if (mode === 'noschema' && body.generationConfig.responseSchema) {
       return [400, { error: { code: 400, message: 'Invalid JSON payload received. Unknown name "responseSchema" at \'generation_config\': Cannot find field.' } }];
@@ -52,7 +52,8 @@ function server() {
     S.log.push({ key, mode, url, gen: body.generationConfig, img: body.contents[0].parts[1].inline_data.data });
     S.inflight++;
     S.peak = Math.max(S.peak, S.inflight);
-    await new Promise((r) => setTimeout(r, S.delay));
+    const w = JSON.parse(Buffer.from(body.contents[0].parts[1].inline_data.data, 'base64').toString()).w;
+    await new Promise((r) => setTimeout(r, S.slow[w] ?? S.delay));
     S.inflight--;
     const [status, obj] = S.answer(mode, body);
     return new Response(JSON.stringify(obj), { status, headers: { 'Content-Type': 'application/json' } });
@@ -72,18 +73,18 @@ class FakeClock {
 }
 
 async function go(items, srv, opts = {}) {
-  const logs = [], photosOut = [], unfinished = [], ticks = [];
+  const logs = [], photosOut = [], unfinished = [], ticks = [], events = [];
   let batches = 0;
   const eng = new Engine({ keys: [K1], model: C.DEFAULT_MODEL, reads: 1, log: (m) => logs.push(m), fetchImpl: srv.fetch,
     prepare, sleep: async () => {}, ...opts });
   if (opts.stopAfter) setTimeout(() => eng.stop(), opts.stopAfter);
   const res = await eng.run(items, {
-    onPhoto: async (it, recs, err, side) => photosOut.push({ no: it.no, recs, err, side }),
+    onPhoto: async (it, recs, err, side) => { photosOut.push({ no: it.no, recs, err, side }); events.push(`photo ${it.no}`); },
     onUnfinished: async (it, why) => unfinished.push({ no: it.no, why }),
-    onBatch: async () => { batches++; },
+    onBatch: async () => { batches++; events.push('batch'); },
     progress: (d, t) => ticks.push([d, t]),
   });
-  return { res, logs, photosOut, unfinished, batches, eng, ticks };
+  return { res, logs, photosOut, unfinished, batches, eng, ticks, events };
 }
 
 test('twelve photos come back numbered in order, five at a time', async () => {
@@ -92,8 +93,9 @@ test('twelve photos come back numbered in order, five at a time', async () => {
   assert.equal(res.ok, 12); assert.equal(res.records, 12); assert.equal(res.requests, 12);
   assert.ok(srv.peak <= 5 && srv.peak >= 2);
   assert.equal(batches, 3);
-  assert.deepEqual(photosOut.map((p) => p.no), [...Array(12).keys()].map((i) => i + 1));
-  assert.deepEqual(photosOut.map((p) => p.recs[0].opr_no), [...Array(12).keys()].map((i) => String(800 + i)));
+  const byNo = [...photosOut].sort((a, b) => a.no - b.no);          // 认完一张交一张：先回来的不一定是小号，编号跟照片对得上就行
+  assert.deepEqual(byNo.map((p) => p.no), [...Array(12).keys()].map((i) => i + 1));
+  assert.deepEqual(byNo.map((p) => p.recs[0].opr_no), [...Array(12).keys()].map((i) => String(800 + i)));
   const g = srv.log[0].gen;
   assert.ok(!('temperature' in g));
   assert.deepEqual(new Set(g.responseSchema.properties.records.items.required), new Set([...C.FIELDS, 'unsure']));
@@ -151,7 +153,7 @@ test('both keys out for the day: waits for the Pacific midnight reset, then fini
   clock.hook = (c) => { if (c.t >= Date.UTC(2026, 9, 30, 7, 0)) srv.modes = {}; };   // 太平洋午夜（夏令时）
   const { res, logs, photosOut } = await go(photos(7), srv, { keys: [K1, K2], clock: clock.now, sleep: clock.sleep });
   assert.equal(res.ok, 7); assert.equal(res.failed, 0);
-  assert.deepEqual(photosOut.map((p) => p.no), [1, 2, 3, 4, 5, 6, 7]);
+  assert.deepEqual(photosOut.map((p) => p.no).sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7]);
   assert.ok(logs.some((m) => m.includes('等到') && m.includes('额度刷新后接着干')));
   assert.ok(Math.max(...clock.slept) > 20 * 3600);
 });
@@ -205,7 +207,7 @@ test('garbage answer: that photo fails, keeps its number, the rest go on', async
   assert.equal(res.ok, 2); assert.equal(res.failed, 1);
   const bad = photosOut.find((p) => p.recs === null);
   assert.ok(bad.err.includes('JSON 解析不了'));
-  assert.deepEqual(photosOut.map((p) => p.no), [1, 2, 3]);
+  assert.deepEqual(photosOut.map((p) => p.no).sort(), [1, 2, 3]);
 });
 
 test('stop button: what is in hand is marked unfinished, nothing after it starts', async () => {
@@ -235,4 +237,27 @@ test('progress ticks per photo, not per batch: 3 photos count 1, 2, 3 as each on
   assert.ok(ticks.every(([, t]) => t === 3));
   const { ticks: t7 } = await go(photos(7), server());
   assert.deepEqual(t7.map(([d]) => d), [0, 1, 2, 3, 4, 5, 5, 6, 7, 7]);
+});
+
+test('each photo is handed over the moment it is done: a slow one does not hold up the batch', async () => {
+  const srv = server();
+  srv.slow = { 800: 80 };                        // 第 1 张慢吞吞：2、3 先认完先存（页面这时被关，2、3 也不白干）
+  const { events, ticks, photosOut } = await go(photos(3), srv);
+  assert.deepEqual(events, ['photo 2', 'photo 3', 'photo 1', 'batch']);
+  assert.deepEqual(ticks.map(([d]) => d), [0, 1, 2, 3, 3]);
+  assert.deepEqual(photosOut.find((p) => p.no === 1).recs[0].opr_no, '800');
+});
+
+test('saving a photo blows up: logged, the rest still go on', async () => {
+  const srv = server();
+  const logs = [], got = [];
+  const eng = new Engine({ keys: [K1], model: C.DEFAULT_MODEL, reads: 1, log: (m) => logs.push(m), fetchImpl: srv.fetch, prepare, sleep: async () => {} });
+  const res = await eng.run(photos(3), {
+    onPhoto: async (it) => { if (it.no === 2) throw new Error('QuotaExceededError'); got.push(it.no); },
+    onUnfinished: async () => {}, onBatch: async () => {},
+  });
+  assert.equal(res.ok, 3);
+  assert.equal(res.stopped, '');
+  assert.deepEqual(got.sort(), [1, 3]);
+  assert.ok(logs.some((m) => m === '✗ 02 结果没存上：QuotaExceededError'), logs);
 });

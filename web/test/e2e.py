@@ -8,6 +8,7 @@ import http.server
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -154,7 +155,10 @@ def main():
                 status, body = r.status, r.read()
         except urllib.error.HTTPError as e:
             status, body = e.code, e.read()
-        route.fulfill(status=status, headers={**CORS, 'content-type': 'application/json'}, body=body)
+        try:
+            route.fulfill(status=status, headers={**CORS, 'content-type': 'application/json'}, body=body)
+        except Exception:                     # 页面已经被关了（测「页面被杀」的时候）
+            pass
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
@@ -633,14 +637,129 @@ def main():
                 p.screenshot(path=os.path.join(SHOTS, '7-手机干活中.png'))
                 p.wait_for_function('() => document.querySelector("#status").textContent.startsWith("干完")', timeout=60000)
                 seq = p.evaluate('() => window.__seq')
-                ticks = [t for t in seq if t.endswith('/3 张')]
+                ticks = [t for t in seq if re.fullmatch(r'\d+/3 张', t)]
                 assert ticks == ['0/3 张', '1/3 张', '2/3 张', '3/3 张'], seq
-                assert p.inner_text('#slogan') == '干完了，你核对就好。', p.inner_text('#slogan')
+                assert p.inner_text('#slogan') == '干完你核对就好了。', p.inner_text('#slogan')
                 if p.is_visible('#dlg-view'):
                     p.click('#vclose')
                 p.screenshot(path=os.path.join(SHOTS, '7-手机干完.png'))
             finally:
                 m.close()
+
+        def idb_get(pg, store, key):
+            return pg.evaluate("""([s, k]) => new Promise((ok, bad) => {
+                const r = indexedDB.open('luruseng-web');
+                r.onsuccess = () => { const q = r.result.transaction(s).objectStore(s).get(k);
+                  q.onsuccess = () => { r.result.close(); ok(q.result === undefined ? null : q.result); }; q.onerror = () => bad(q.error); };
+                r.onerror = () => bad(r.error);
+            })""", [store, key])
+
+        PENDING = """() => new Promise((ok) => { const r = indexedDB.open('luruseng-web');
+            r.onsuccess = () => { const q = r.result.transaction('photos').objectStore('photos').getAllKeys(IDBKeyRange.bound('pending/', 'pending/\\uffff'));
+              q.onsuccess = () => { r.result.close(); ok(q.result.map(k => k.slice(8).split('|')[0])); }; q.onerror = () => ok(null); };
+            r.onerror = () => ok(null); })"""
+
+        def wait_pending(pg, n, timeout=10):  # 等存着的原照片（还没干完的）正好 n 张（wait_for_function 不等 Promise，只能自己轮询）
+            end = time.time() + timeout
+            while True:
+                left = pg.evaluate(PENDING)
+                if left is not None and len(left) == n:
+                    return left
+                assert time.time() < end, f'存着的照片应该是 {n} 张，现在是 {left}'
+                pg.wait_for_timeout(100)
+
+        @step
+        def killed_midway_comes_back_and_finishes():
+            k = browser.new_context(viewport={'width': 390, 'height': 844}, device_scale_factor=2, is_mobile=True,
+                                    has_touch=True, accept_downloads=True)
+            # 谷歌回得有快有慢（在浏览器里等）：一批 5 张陆续认完，好在中间把页面杀掉
+            k.add_init_script("""(() => { const of = window.fetch; let n = 0;
+              window.fetch = async (u, o) => { if (String(u).includes('googleapis.com')) await new Promise(r => setTimeout(r, [150, 600, 1100, 1600, 2100][n++ % 5])); return of(u, o); };
+            })()""")
+            k.add_init_script("""document.addEventListener('DOMContentLoaded', () => { const el = document.querySelector('#slogan'); window.__slogans = [];
+              new MutationObserver(() => { if (window.__slogans.at(-1) !== el.textContent) window.__slogans.push(el.textContent); })
+                .observe(el, { childList: true, characterData: true, subtree: true }); })""")       # 进度条底下那句话先后说过啥
+
+            def open_app():
+                pg = k.new_page()
+                pg.on('pageerror', lambda e: errors.append(f'kill pageerror: {e}'))
+                pg.on('console', lambda m: errors.append(f'kill console.{m.type}: {m.text}')
+                      if m.type == 'error' and 'Failed to load resource' not in m.text else None)
+                offline(pg)
+                pg.goto(base)
+                pg.wait_for_function('() => document.querySelectorAll("#log p").length >= 1')
+                return pg
+
+            def peek(fn):                     # 页面被杀之后，浏览器里到底存下了什么（开个不跑录入僧的页面看）
+                q = k.new_page()
+                q.goto(base + 'icon-180.png')
+                try:
+                    return fn(q)
+                finally:
+                    q.close()
+
+            def logs_of(pg):
+                return pg.eval_on_selector_all('#log p', 'ps => ps.map(p => p.textContent)')
+
+            try:
+                p = open_app()
+                p.fill('#key1', K1)
+                p.set_input_files('#files', make_images(os.path.join(WORK, 'kill'), 8, start=140))
+                p.click('#start')
+                p.wait_for_function('() => /^2\\/8/.test(document.querySelector("#status").textContent)', timeout=30000)
+                p.screenshot(path=os.path.join(SHOTS, '9-被杀之前.png'))
+                p.close()                                                       # 手机把页面杀了
+                work, run, left = peek(lambda q: (lambda w: (w, idb_get(q, 'runs', w['run']), q.evaluate(PENDING)))(idb_get(q, 'kv', 'work')))
+                done = sorted({r['no'] for r in run['rows']})
+                assert 2 <= len(done) < 8 and len(work['items']) == 8, (done, work)
+                todo = {f'img_{139 + no}.jpg' for no in range(1, 9) if no not in done}
+                assert todo <= set(left), (sorted(left), done)                  # 没干完的照片都还存着
+                calls = dict(mock_server.STATE['calls'])
+
+                p = open_app()                                                  # 重新打开：不点、不选，自己接着干
+                p.wait_for_function('() => document.querySelector("#status").textContent.startsWith("干完")', timeout=60000)
+                text = '\n'.join(logs_of(p))
+                assert f'老衲诈尸接着干：还剩 {8 - len(done)} 张，接着写进 {run["xlsx"]}，编号不变' in text, text
+                assert '以前干过' not in text and '没存住' not in text, text
+                assert p.inner_text('#status').replace('\n', '') == '干完：成功 8 · 失败 0', p.inner_text('#status')
+                assert p.inner_text('#slogan') == '干完你核对就好了。'
+                said = p.evaluate('() => window.__slogans')
+                assert said[0] == '页面被关了一回，老衲诈尸接着干，你接着摸鱼。' and said[-1] == '干完你核对就好了。', said
+                for no in done:                                                 # 被杀之前干完的：一张都没重干
+                    assert mock_server.STATE['calls'][939 + no] == calls[939 + no] == 2, (no, calls.get(939 + no))
+                after = idb_get(p, 'runs', work['run'])
+                assert sorted(r['no'] for r in after['rows']) == list(range(1, 9)), after['rows']   # 同一本表，1–8 各一行
+                assert all(r['kind'] == 'rec' and not r.get('left') for r in after['rows'])
+                assert idb_get(p, 'kv', 'work') is None                         # 这一笔了结了
+                wait_pending(p, 0)                                              # 干完了：存的原照片清掉
+                assert not re.match(r'\d+ 张', p.inner_text('#droptxt')), p.inner_text('#droptxt')
+                p.wait_for_selector('#dlg-view[open]')
+                with p.expect_download() as d:
+                    p.click('#vxlsx')
+                assert d.value.suggested_filename == run['xlsx']
+                path = os.path.join(WORK, 'kill-' + d.value.suggested_filename)
+                d.value.save_as(path)
+                ws = load_workbook(path).worksheets[0]
+                assert [ws.cell(row=r, column=1).value for r in range(4, 12)] == list(range(1, 9))
+                assert [int(ws.cell(row=r, column=6).value) for r in range(4, 12)] == [940 + i for i in range(8)], \
+                    [ws.cell(row=r, column=6).value for r in range(4, 12)]          # 照片和编号对得上
+                p.click('#vclose')
+                p.screenshot(path=os.path.join(SHOTS, '9-诈尸干完.png'))
+
+                p.set_input_files('#files', make_images(os.path.join(WORK, 'keep'), 2, start=150))   # 选了没开工就被关
+                assert sorted(wait_pending(p, 2)) == ['img_150.jpg', 'img_151.jpg']
+                p.close()
+                p = open_app()
+                p.wait_for_function('() => [...document.querySelectorAll("#log p")].some(p => p.textContent.includes("上回留下的 2 张照片还在列表里"))')
+                assert p.inner_text('#droptxt').startswith('2 张：img_150.jpg'), p.inner_text('#droptxt')
+                p.click('#clear')
+                wait_pending(p, 0)
+                p.close()
+                p = open_app()
+                assert not re.match(r'\d+ 张', p.inner_text('#droptxt'))
+                assert not any('上回' in m for m in logs_of(p)), logs_of(p)
+            finally:
+                k.close()
 
         @step
         def phone_layout():
@@ -682,7 +801,10 @@ def main():
                    same_photos_again_are_skipped, result_button_downloads_latest, feed_database_xlsx_xls_csv_html,
                    database_fixes_confusable_letters, edit_cells_in_viewer, names_dialog, own_category_matches_desktop_book,
                    bad_key_stops_and_keeps_photos, stop_button_marks_unfinished, photos_of_all_kinds,
-                   title_on_the_right_turns_upright_number_in_top_right, settings_backup_restore_and_forget_keys, delete_a_batch, progress_counts_up_and_says_go_slack, phone_layout):
+                   title_on_the_right_turns_upright_number_in_top_right, settings_backup_restore_and_forget_keys, delete_a_batch, progress_counts_up_and_says_go_slack,
+                   killed_midway_comes_back_and_finishes, phone_layout):
+            if os.environ.get('E2E_ONLY') and fn.__name__ not in os.environ['E2E_ONLY'].split(','):
+                continue                      # 只跑某几项：E2E_ONLY=项名,项名
             try:
                 fn()
             except Exception:

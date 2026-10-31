@@ -321,3 +321,35 @@ test('进度条：认完一张跳一格，中间慢慢爬，最多爬到下一�
   assert.equal(C.meterFrac(m, 9000), 1);
   assert.equal(C.meterFrac({ total: 0, done: 0, tLast: 0, gaps: [] }, 5), 0);
 });
+
+test('rows land in number order whichever photo comes back first; a photo with two records keeps them together', () => {
+  const rows = [];
+  C.placeRows(rows, [{ no: 3, kind: 'rec', k: 'a' }]);
+  C.placeRows(rows, [{ no: 1, kind: 'rec', k: 'b' }, { no: 1, kind: 'rec', k: 'c' }]);
+  C.placeRows(rows, [{ no: 5, kind: 'blank' }]);
+  C.placeRows(rows, [{ no: 2, kind: 'rec', k: 'd' }]);
+  C.placeRows(rows, []);
+  assert.deepEqual(rows.map((r) => r.no), [1, 1, 2, 3, 5]);
+  assert.deepEqual(rows.slice(0, 2).map((r) => r.k), ['b', 'c']);
+});
+
+test('tally counts photos, not records; failed ones and unfinished ones apart', () => {
+  const rows = [{ no: 1, kind: 'rec' }, { no: 1, kind: 'rec' }, { no: 2, kind: 'blank', fill: 'red' },
+    { no: 3, kind: 'blank', retry: true }, { no: 4, kind: 'blank', left: true }];
+  assert.deepEqual(C.tally(rows), { ok: 2, failed: 1, records: 2 });      // 没认出记录的照片也算认完了
+  assert.deepEqual(C.tally([]), { ok: 0, failed: 0, records: 0 });
+});
+
+test('resume plan: done ones are not redone, failed ones wait for next time, lost ones are marked once', () => {
+  const items = [1, 2, 3, 4, 5, 6].map((no) => ({ no, qid: `q${no}` }));
+  const rows = [{ no: 1, kind: 'rec' }, { no: 2, kind: 'blank', fill: 'red', retry: true }, { no: 3, kind: 'blank', left: true }];
+  const have = (qid) => qid !== 'q5' && qid !== 'q1';                   // 1 干完了照片已清掉；5 没存住
+  const plan = C.resumePlan(items, rows, have);
+  assert.deepEqual(plan.done.map((x) => x.no), [1]);
+  assert.deepEqual(plan.retry.map((x) => x.no), [2]);
+  assert.deepEqual(plan.todo.map((x) => x.no), [3, 4, 6]);               // 3 是停的时候记的「没干完」：照片还在，接着干
+  assert.deepEqual(plan.lost.map((x) => x.no), [5]);
+  const again = C.resumePlan(items, [...rows, { no: 5, kind: 'blank', left: true }], have);
+  assert.deepEqual(again.lost, []);                                     // 记过一回「没存住」，再被关一回也不记第二遍
+  assert.deepEqual(again.todo.map((x) => x.no), [3, 4, 6]);
+});

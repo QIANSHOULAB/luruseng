@@ -4,11 +4,23 @@
 const NAME = 'luruseng-web';
 const VER = 1;
 export const STORES = ['kv', 'cats', 'ledger', 'runs', 'photos'];
-// kv：设置、名单、刀单数据库 · cats：自建类别（名字 → {columns, records}）
-// ledger：干过的照片（指纹 → {file, no, run, at}）· runs：每一批的结果 · photos：印了编号的照片（批次/编号 → 图）
+// kv：设置、名单、刀单数据库、正在干的活（work）· cats：自建类别（名字 → {columns, records}）
+// ledger：干过的照片（指纹 → {file, no, run, at}）· runs：每一批的结果
+// photos：印了编号的照片（批次/编号 → 图）；还有选了还没干完的原照片（pending/照片 → {blob, name, …}），干完就删
 
 function req(r) {
   return new Promise((ok, bad) => { r.onsuccess = () => ok(r.result); r.onerror = () => bad(r.error); });
+}
+function finished(t) {                         // 写的东西真落了盘才算数（空间满了是提交时才报错的）
+  return new Promise((ok, bad) => {
+    t.oncomplete = () => ok();
+    t.onerror = () => bad(t.error);
+    t.onabort = () => bad(t.error || new Error('没写进去'));
+  });
+}
+// 连接被掐了：iPhone 切到后台久了，Safari 会说「Connection to Indexed Database server lost」
+function lost(e) {
+  return !!e && (e.name === 'InvalidStateError' || e.name === 'UnknownError' || /connection|closed|closing/i.test(e.message || ''));
 }
 
 class Memory {
@@ -18,44 +30,65 @@ class Memory {
   async del(s, k) { this.m[s].delete(k); }
   async keys(s) { return [...this.m[s].keys()]; }
   async all(s) { return [...this.m[s].entries()]; }
+  async prefixed(s, p) { return [...this.m[s].entries()].filter(([k]) => typeof k === 'string' && k.startsWith(p)); }
   async many(s, pairs) { for (const [k, v] of pairs) this.m[s].set(k, v); }
 }
 
 class Idb {
-  constructor(db) { this.kind = 'idb'; this.db = db; }
-  tx(s, mode = 'readonly') { return this.db.transaction(s, mode).objectStore(s); }
-  get(s, k) { return req(this.tx(s).get(k)); }
-  put(s, k, v) { return req(this.tx(s, 'readwrite').put(v, k)); }
-  del(s, k) { return req(this.tx(s, 'readwrite').delete(k)); }
-  keys(s) { return req(this.tx(s).getAllKeys()); }
-  async all(s) {
-    const st = this.tx(s);
-    const [ks, vs] = await Promise.all([req(st.getAllKeys()), req(st.getAll())]);
-    return ks.map((k, i) => [k, vs[i]]);
+  constructor(db) { this.kind = 'idb'; this.bind(db); }
+  bind(db) {
+    this.db = db;
+    db.onversionchange = () => { db.close(); if (this.db === db) this.db = null; };   // 别的窗口要升级：让路，别卡着人家
+    db.onclose = () => { if (this.db === db) this.db = null; };                       // 被系统掐了：下回用的时候重连
   }
-  many(s, pairs) {                           // 一次写好几条：要么全写进去，要么一条不写
-    return new Promise((ok, bad) => {
-      const t = this.db.transaction(s, 'readwrite');
-      const st = t.objectStore(s);
-      for (const [k, v] of pairs) st.put(v, k);
-      t.oncomplete = () => ok();
-      t.onerror = () => bad(t.error);
-      t.onabort = () => bad(t.error);
+  async run(s, mode, fn) {                     // 连接断了就重连一次再来（写一半断的，浏览器整个撤回，重来不会写两份）
+    for (let tries = 0; ; tries++) {
+      try {
+        if (!this.db) this.bind(await open());
+        return await fn(this.db.transaction(s, mode).objectStore(s));
+      } catch (e) {
+        if (tries || !lost(e)) throw e;
+        try { if (this.db) this.db.close(); } catch (e2) { /* 已经断了 */ }
+        this.db = null;
+      }
+    }
+  }
+  get(s, k) { return this.run(s, 'readonly', (st) => req(st.get(k))); }
+  put(s, k, v) { return this.run(s, 'readwrite', (st) => { st.put(v, k); return finished(st.transaction); }); }
+  del(s, k) { return this.run(s, 'readwrite', (st) => { st.delete(k); return finished(st.transaction); }); }
+  keys(s) { return this.run(s, 'readonly', (st) => req(st.getAllKeys())); }
+  all(s) {
+    return this.run(s, 'readonly', async (st) => {
+      const [ks, vs] = await Promise.all([req(st.getAllKeys()), req(st.getAll())]);
+      return ks.map((k, i) => [k, vs[i]]);
     });
   }
+  prefixed(s, p) {                             // 键以 p 开头的那几条（照片只拿个把手，不整张读进内存）
+    const range = IDBKeyRange.bound(p, p + '￿');
+    return this.run(s, 'readonly', async (st) => {
+      const [ks, vs] = await Promise.all([req(st.getAllKeys(range)), req(st.getAll(range))]);
+      return ks.map((k, i) => [k, vs[i]]);
+    });
+  }
+  many(s, pairs) {                             // 一次写好几条：要么全写进去，要么一条不写
+    return this.run(s, 'readwrite', (st) => { for (const [k, v] of pairs) st.put(v, k); return finished(st.transaction); });
+  }
+}
+
+function open() {
+  return new Promise((ok, bad) => {
+    const r = indexedDB.open(NAME, VER);
+    r.onupgradeneeded = () => { for (const s of STORES) if (!r.result.objectStoreNames.contains(s)) r.result.createObjectStore(s); };
+    r.onsuccess = () => ok(r.result);
+    r.onerror = () => bad(r.error);
+    r.onblocked = () => bad(new Error('blocked'));
+  });
 }
 
 export async function openStore() {
   try {
     if (!globalThis.indexedDB) throw new Error('no indexedDB');
-    const db = await new Promise((ok, bad) => {
-      const r = indexedDB.open(NAME, VER);
-      r.onupgradeneeded = () => { for (const s of STORES) if (!r.result.objectStoreNames.contains(s)) r.result.createObjectStore(s); };
-      r.onsuccess = () => ok(r.result);
-      r.onerror = () => bad(r.error);
-      r.onblocked = () => bad(new Error('blocked'));
-    });
-    const st = new Idb(db);
+    const st = new Idb(await open());
     await st.get('kv', 'probe');             // 有的浏览器能打开却不让读写：试一下
     return st;
   } catch (e) {

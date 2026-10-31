@@ -1233,3 +1233,46 @@ export function meterFrac(m, now, guess = 6000) {
   const gap = g.length ? g.reduce((x, y) => x + y, 0) / g.length : guess;
   return (m.done + 0.9 * (1 - Math.exp(-(now - m.tLast) / gap))) / m.total;
 }
+
+// ---------------------------------------------------------------- 认完一张存一张；页面被关了接着干
+// 表里的一行：{no, kind:'rec'|'blank', …}；retry：认失败了（照片留在列表里，下回重干）；left：没干完（停了、照片丢了）
+// 认完一张马上进表：先回来的不一定是小号，按编号插进去（同一张的几条挨在一起、顺序不变）
+export function placeRows(rows, add) {
+  if (!add.length) return rows;
+  let i = rows.length;
+  while (i > 0 && rows[i - 1].no > add[0].no) i--;
+  rows.splice(i, 0, ...add);
+  return rows;
+}
+
+// 这批干得怎么样（按张算，一张认出几条也只算一张）
+export function tally(rows) {
+  const ok = new Set(), bad = new Set();
+  let records = 0;
+  for (const r of rows) {
+    if (r.kind === 'rec') records++;
+    if (r.retry) bad.add(r.no);
+    else if (!r.left) ok.add(r.no);
+  }
+  for (const no of bad) ok.delete(no);
+  return { ok: ok.size, failed: bad.size, records };
+}
+
+// 上回干到一半被关掉的那批：items = [{no, qid, …}]（开工时编的号），rows = 表里已经有的，have(qid) = 照片还在不在
+// -> done 认完了也存进表了（只差收尾）· retry 认失败了（照片留着下回重干）· todo 接着干 · lost 照片没了（得重选）
+// （todo 里要是有「没干完」的灰行，接着干之前先拿掉，免得一张两行）
+export function resumePlan(items, rows, have) {
+  const seen = new Set(), retry = new Set(), left = new Set();
+  for (const r of rows) {
+    if (r.left) { left.add(r.no); continue; }
+    seen.add(r.no);
+    if (r.retry) retry.add(r.no);
+  }
+  const out = { done: [], retry: [], todo: [], lost: [] };
+  for (const x of items) {
+    if (seen.has(x.no)) (retry.has(x.no) ? out.retry : out.done).push(x);
+    else if (have(x.qid)) out.todo.push(x);
+    else if (!left.has(x.no)) out.lost.push(x);          // 已经记过「照片丢了」的，不再记一遍
+  }
+  return out;
+}

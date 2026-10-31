@@ -156,8 +156,8 @@ export async function prepare(img, enhance = false) {
 }
 
 // ---------------------------------------------------------------- 指纹、拍摄时间
-export async function sha256(file) {
-  const buf = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+export async function sha256(file) {             // 照片，或者已经读出来的 ArrayBuffer
+  const buf = await crypto.subtle.digest('SHA-256', file instanceof ArrayBuffer ? file : await file.arrayBuffer());
   return [...new Uint8Array(buf)].map((x) => x.toString(16).padStart(2, '0')).join('');
 }
 

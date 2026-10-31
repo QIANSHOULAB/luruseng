@@ -162,10 +162,11 @@ export class Engine {
     return [out, C.pickSide(sides)];
   }
 
-  // items: [{no, file}]（按拍摄顺序编好号）。每批干完按编号顺序交给 onPhoto / onUnfinished，再 onBatch（存一次）
+  // items: [{no, file}]（按拍摄顺序编好号）。认完一张马上交给 onPhoto（马上存：页面被关了也只丢手上这几张）；
+  // 先回来的不一定是小号，表里按编号排是 onPhoto 那边的事。停了、出错了没干完的交给 onUnfinished，每批最后 onBatch
   async run(items, { onPhoto, onUnfinished, onBatch, progress = () => {} }) {
     const res = this.res;
-    let done = 0, live = 0;
+    let done = 0;
     progress(0, items.length);
     const one = async (it) => {
       let recs, side, err = '', stamped = null;
@@ -183,23 +184,18 @@ export class Engine {
     for (let b = 0; b < items.length; b += C.BATCH) {
       const batch = items.slice(b, b + C.BATCH);
       const settled = await Promise.allSettled(batch.map(async (it) => {
-        const out = await one(it);
-        progress(++live, items.length);        // 认完一张就报一声，别等一整批（3 张照片也能看见 1、2、3 往上跳）
-        return out;
+        const { recs, side, err, stamped } = await one(it);
+        if (recs) { res.ok++; res.records += recs.length; } else { res.failed++; res.errors.push([it.file.name, err]); }
+        try { await onPhoto(it, recs, err, side, stamped); } catch (e) { this.log(`✗ ${two(it.no)} 结果没存上：${e.message}`); }
+        progress(++done, items.length);        // 认完一张就报一声，别等一整批（3 张照片也能看见 1、2、3 往上跳）
       }));
       let halt = null;
-      for (let k = 0; k < batch.length; k++) {     // 按编号顺序写进表
+      for (let k = 0; k < batch.length; k++) {
         const it = batch[k], s = settled[k];
-        if (s.status === 'rejected') {
-          halt = halt || s.reason;
-          const why = s.reason instanceof C.Stopped && !this.fatal ? '已停止' : (this.fatal || s.reason.message);
-          await onUnfinished(it, why);
-          continue;
-        }
-        const { recs, side, err, stamped } = s.value;
-        if (recs) { res.ok++; res.records += recs.length; } else { res.failed++; res.errors.push([it.file.name, err]); }
-        await onPhoto(it, recs, err, side, stamped);
-        done++;
+        if (s.status !== 'rejected') continue;
+        halt = halt || s.reason;
+        const why = s.reason instanceof C.Stopped && !this.fatal ? '已停止' : (this.fatal || s.reason.message);
+        await onUnfinished(it, why);
       }
       await onBatch();
       progress(done, items.length);
