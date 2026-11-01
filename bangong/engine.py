@@ -31,7 +31,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-VERSION = '1.11.1'
+VERSION = '1.11.2'
 APP_NAME = '录入僧'
 SUBTITLE = '施主去玩，贫僧填表'
 TITLE = '入我千手院，凡事尽释手；千僧替牛马，施主自风流。'      # 窗口标题栏只写这一句（Song 定的）
@@ -1065,12 +1065,14 @@ class CopyResult:
     copied: list = field(default_factory=list)        # 复制进去的（新路径）
     already: list = field(default_factory=list)       # 待识别里已经有一模一样的
     done: list = field(default_factory=list)          # (文件名, 账本里那条)：以前干过的
+    redone: list = field(default_factory=list)        # 以前干过、但 ⚙ 开着「干过的照片也重干」照样复制进去的
     bad: list = field(default_factory=list)           # (文件名, 为什么没复制)
 
 
-def copy_in(paths, folder: str) -> CopyResult:
+def copy_in(paths, folder: str, redo: bool = False) -> CopyResult:
     """「选照片…」：把挑的照片复制进待识别（Song 定的：复制，原照片原地不动；复制完还是人点「开始工作」）。
-    待识别没有就当场建。待识别里已经有一模一样的、以前干过的（账本里有，改了名也认得）不再复制。"""
+    待识别没有就当场建。待识别里已经有一模一样的、以前干过的（账本里有，改了名也认得）不再复制。
+    redo = ⚙「干过的照片也重干」开着（测试用）：以前干过的也照样复制。"""
     import shutil
     res = CopyResult()
     os.makedirs(folder, exist_ok=True)
@@ -1104,7 +1106,7 @@ def copy_in(paths, folder: str) -> CopyResult:
                 res.already.append(name)            # 本来就在待识别里
                 continue
             h = file_hash(src)
-            if h in ledger:
+            if h in ledger and not redo:
                 res.done.append((name, ledger[h]))
                 continue
             if h in known():
@@ -1114,6 +1116,8 @@ def copy_in(paths, folder: str) -> CopyResult:
             shutil.copy2(src, dest)                 # copy2：连拍摄时间、修改时间一起带过去，编号顺序不乱
             here[h] = dest
             res.copied.append(dest)
+            if h in ledger:
+                res.redone.append(name)
         except OSError as e:
             res.bad.append((name, f'复制不了：{e.strerror or e}'))
     return res
@@ -1124,8 +1128,10 @@ class Engine:
                  log=print, progress=None, stop: threading.Event | None = None,
                  clock=time.time, sleep=None, names_path: str | None = None,
                  kb_path: str | None = None, feed_dir: str | None = None, reads: int | None = None,
-                 keep_originals: bool = True, discard=recycle, spec=None, collect: bool = False):
+                 keep_originals: bool = True, discard=recycle, spec=None, collect: bool = False,
+                 redo: bool = False):
         self.folder = folder
+        self.redo = redo            # ⚙「干过的照片也重干」（测试用）：账本里有的也照样认，不挪进 已识别\重复
         self.collect = collect      # ⚙「发数据给方丈」开着：每张怎么认的都记下来，干完写进 识别结果\.回传（见 report.py）
         self.collect_photos = False
         self.trace: dict[str, dict] = {}
@@ -1374,10 +1380,13 @@ class Engine:
         except Exception:
             ledger = {}
 
-        todo = []
+        todo, again = [], []
         for p in scan(self.folder):
             h = file_hash(p)
-            if h in ledger:          # 干过的（改了名也认得出）
+            if h in ledger and self.redo:
+                again.append(os.path.basename(p))
+                todo.append((p, h))
+            elif h in ledger:        # 干过的（改了名也认得出）
                 dup = os.path.join(done_root, DUP_DIR)
                 os.makedirs(dup, exist_ok=True)
                 os.replace(p, unique_dest(dup, os.path.basename(p)))
@@ -1385,6 +1394,9 @@ class Engine:
                 self.log(f'↷ {os.path.basename(p)} 以前干过（{ledger[h].get("xlsx", "")} 第 {ledger[h].get("no", "?")} 张），挪进 已识别\\{DUP_DIR}')
             else:
                 todo.append((p, h))
+        if again:
+            names = '、'.join(again[:5]) + ('…' if len(again) > 5 else '')
+            self.log(f'↻ {len(again)} 张以前干过，⚙ 开着「干过的照片也重干」，这回照样认（钥匙次数照扣）：{names}')
         total = len(todo)
         if not total:
             self.log('文件夹里没有新图片，收工。')

@@ -94,6 +94,8 @@ def copy_lines(r, folder: str = '待识别') -> list[str]:
     out = []
     if r.copied:
         out.append(f'✓ 复制了 {len(r.copied)} 张进「{os.path.basename(os.path.normpath(folder))}」，原照片还在老地方。点「开始工作」')
+    if r.redone:
+        out.append(f'↻ 其中 {len(r.redone)} 张以前干过，⚙ 开着「干过的照片也重干」，照样复制进去了')
     if r.already:
         out.append(f'↷ {len(r.already)} 张「{os.path.basename(os.path.normpath(folder))}」里已经有了，没再复制')
     if r.done:
@@ -486,7 +488,7 @@ class App:
 
         def work():
             try:
-                r = engine.copy_in(paths, folder)
+                r = engine.copy_in(paths, folder, redo=bool(self.cfg.get('redo')))
             except OSError as e:
                 self.log(f'✗ 复制不进 {folder}：{e}')
             else:
@@ -536,7 +538,8 @@ class App:
         self.pb.config(value=0)
         cat = self.category.get()
         common = dict(log=self.log, progress=lambda d, t: self.q.put(('prog', (d, t))), stop=self.stop,
-                      keep_originals=self.cfg.get('keep_originals', True), collect=bool(self.cfg.get('report')))
+                      keep_originals=self.cfg.get('keep_originals', True), collect=bool(self.cfg.get('report')),
+                      redo=bool(self.cfg.get('redo')))
         if cat == tables.BUILTIN:                    # 刀单：专门的那一套
             eng = engine.Engine(self.folder.get(), [k1, k2], self.model.get(), names_path=names_path(),
                                 kb_path=kb_path(), feed_dir=feed_dir(), **common)
@@ -972,6 +975,9 @@ class App:
             threading.Thread(target=sync_shortcuts, args=(self.cfg,), daemon=True).start()
         if key == 'auto_update' and value:
             self.next_update = min(self.next_update, time.time() + 5)
+        if key == 'redo':
+            self.write('↻ 干过的照片也重干：开了。以前认过的照片再放进待识别，照样认一遍（钥匙次数照扣），测完记得关'
+                       if value else '干过的照片也重干：关了，以前干过的照旧自动跳过')
         if key == 'report':
             if value:
                 self.write('✓ 发数据给方丈：开了。每批认完，照片和认的过程自己送去方丈网盘；'

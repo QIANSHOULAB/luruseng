@@ -51,6 +51,12 @@ def test_copy_in_skips_done_and_renames_clashes(tmp_path):
     assert [n for n, _ in r.done] == ['干过的.jpg'] and r.done[0][1]['no'] == 3
     assert [os.path.basename(p) for p in r.copied] == ['IMG_1_1.jpg']      # 同名不覆盖
     assert Image.open(folder / 'IMG_1.jpg').size[0] == 700
+    from bangong import app
+    again = engine.copy_in([done], str(folder), redo=True)                  # ⚙「干过的照片也重干」开着
+    assert not again.done and again.redone == ['干过的.jpg'] and [os.path.basename(p) for p in again.copied] == ['干过的.jpg']
+    assert any('照样复制' in m for m in app.copy_lines(again, str(folder)))
+    twice = engine.copy_in([done], str(folder), redo=True)                  # 待识别里已经有了：还是不重复复制
+    assert twice.already == ['干过的.jpg'] and not twice.copied
 
 
 def test_pick_button_copies_photos_and_feed_is_called_samples(tmp_path, monkeypatch):

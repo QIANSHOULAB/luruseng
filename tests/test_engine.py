@@ -224,6 +224,26 @@ def test_rerun_skips_done_even_renamed(tmp_path):
     assert not [f for f in os.listdir(tmp_path) if f.endswith('.jpg')]
 
 
+def test_redo_switch_does_done_photos_again(tmp_path):
+    """⚙「干过的照片也重干」开着（测试用）：账本里有的照样认、另出一本表，不挪进 已识别\\重复。"""
+    make_images(tmp_path, 2)
+    run(tmp_path)
+    mock_server.STATE['log'] = []
+    for f in [f for f in done_files(tmp_path) if '原图' in f]:
+        shutil.copy(tmp_path / f, tmp_path / os.path.basename(f))           # 干过的两张原样放回待识别
+    res, logs, _ = run(tmp_path, redo=True)
+    assert res.ok == 2 and res.skipped == 0 and len(mock_server.STATE['log']) == 2
+    assert res.xlsx and [r[0] for r in data_rows(res.xlsx)] == [1, 2]
+    assert any(m.startswith('↻ 2 张以前干过') and '干过的照片也重干' in m for m in logs)
+    assert not os.path.exists(tmp_path / '已识别' / '重复')
+    assert not [f for f in os.listdir(tmp_path) if f.endswith('.jpg')]
+    mock_server.STATE['log'] = []
+    for f in [f for f in done_files(tmp_path) if '原图' in f][:1]:
+        shutil.copy(tmp_path / f, tmp_path / os.path.basename(f))
+    res, logs, _ = run(tmp_path)                                           # 关着：照旧跳过
+    assert res.skipped == 1 and res.requests == 0 and not mock_server.STATE['log']
+
+
 def test_nothing_to_do(tmp_path):
     res, logs, _ = run(tmp_path)
     assert res.requests == 0 and res.xlsx == '' and '没有新图片' in logs[-1]

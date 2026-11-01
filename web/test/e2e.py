@@ -881,6 +881,43 @@ def main():
             close_viewer()
 
         @step
+        def redo_switch_does_done_photos_again():   # Song 2026-11-02：「加个做过的也可以做的设置开关方便测试」
+            def flip():
+                page.click('#gear')
+                page.wait_for_selector('#dlg-set[open]')
+                row = page.locator('#setrows label:nth-child(3)')
+                assert row.inner_text().startswith('干过的照片也重干'), row.inner_text()
+                row.locator('.switch').click()
+                page.click('#dlg-set [data-close]')
+            close_viewer()
+            two = imgs[:2]
+            out = '\n'.join(run_and_wait(two, '收工'))
+            assert out.count('以前干过') == 2 and '列表里没有新照片' in out, out           # 关着（默认）：照旧跳过
+            flip()
+            wait_log('干过的照片也重干：开了')
+            out = '\n'.join(run_and_wait(two))
+            assert '↻ 2 张以前干过，⚙ 开着「干过的照片也重干」，这回照样认' in out and '2 张，按拍摄顺序编号 1–2' in out, out
+            assert '跳过' not in out, out
+            wait_viewer()                                                         # 干完照样自动打开核对
+            close_viewer()
+            add_photos(two)                                                       # 放进来还没开工页面就被关了：重新打开照样拿回来
+            page.wait_for_function('''async () => { const S = await import('./store.js');
+                return (await (await S.openStore()).prefixed('photos', 'pending/')).length === 2; }''')
+            page.reload()
+            wait_log('上回留下的 2 张照片还在列表里')
+            before = len(logs())
+            page.click('#start')
+            page.wait_for_function('n => [...document.querySelectorAll("#log p")].slice(n).some(p => p.textContent.includes("成功"))', arg=before, timeout=60000)
+            page.wait_for_function('() => !document.querySelector("#start").disabled')
+            assert '↻ 2 张以前干过' in '\n'.join(logs()[before:]), logs()[before:]
+            wait_viewer()
+            close_viewer()
+            flip()
+            wait_log('干过的照片也重干：关了')
+            out = '\n'.join(run_and_wait(two, '收工'))
+            assert out.count('以前干过') == 2 and '列表里没有新照片' in out, out           # 关回去：又跳过了
+
+        @step
         def progress_counts_up_and_says_go_slack():
             m = browser.new_context(viewport={'width': 390, 'height': 844}, device_scale_factor=2, is_mobile=True, has_touch=True)
             p = m.new_page()
@@ -1182,7 +1219,8 @@ def main():
                    database_fixes_confusable_letters, edit_cells_in_viewer, btmp_copies_total, names_dialog, fill_into_company_book, fill_after_reopening,
                    own_category_matches_desktop_book,
                    bad_key_stops_and_keeps_photos, stop_button_marks_unfinished, photos_of_all_kinds,
-                   title_on_the_right_turns_upright_number_in_top_right, settings_backup_restore_and_forget_keys, delete_a_batch, progress_counts_up_and_says_go_slack,
+                   title_on_the_right_turns_upright_number_in_top_right, settings_backup_restore_and_forget_keys, delete_a_batch, redo_switch_does_done_photos_again,
+                   progress_counts_up_and_says_go_slack,
                    killed_midway_comes_back_and_finishes, phone_sends_and_pc_starts_by_itself, phone_layout):
             if os.environ.get('E2E_ONLY') and fn.__name__ not in os.environ['E2E_ONLY'].split(','):
                 continue                      # 只跑某几项：E2E_ONLY=项名,项名

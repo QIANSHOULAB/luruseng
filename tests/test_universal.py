@@ -21,15 +21,17 @@ def test_new_computer_gets_polite_defaults():
     assert cfg['auto'] is False and cfg['startup'] is False and cfg['hide_on_close'] is False
     assert cfg['auto_update'] is False                       # 别人的电脑：有新版只提醒，点了才换
     assert cfg['report'] is False                            # 发数据给方丈：默认关
+    assert cfg['redo'] is False                              # 干过的照片也重干：测试用，默认关
     assert cfg['auto_open'] and cfg['keep_originals'] and cfg['remember_keys'] and cfg['shortcuts']
 
 
 def test_old_computer_keeps_everything_on():
     old = {'folder': r'F:\songchengmin\录入僧\待识别', 'key1': 'AIzaX', 'auto': True, 'model': 'm'}
     cfg = settings.upgrade(dict(old), existed=True)
-    assert all(cfg[k] is True for k in settings.NEW if k not in ('auto_update', 'report')), cfg
+    assert all(cfg[k] is True for k in settings.NEW if k not in ('auto_update', 'report', 'redo')), cfg
     assert cfg['auto_update'] is False                       # 没存过新设置的老电脑都是别人的
     assert cfg['report'] is False                            # 往外送东西：必须是人自己打开的
+    assert cfg['redo'] is False                              # 测试用：平时干过的照旧跳过
     assert {k: cfg[k] for k in old} == old                      # 原来的值一个不动
     again = settings.upgrade(dict(cfg), existed=True)
     assert again == cfg
@@ -229,3 +231,51 @@ def test_notes_from_site(tmp_path, site, monkeypatch):
     assert updater.notes() == 'v99.0.0\n- 大更新'
     monkeypatch.setattr(updater, 'LATEST', updater.LATEST + '/没有这个')   # 拿不到说明（404）
     assert updater.notes() == ''                              # 拿不到说明不耽误更新
+
+
+def test_redo_switch_reaches_the_engine_and_pick(tmp_path, monkeypatch):
+    """⚙「干过的照片也重干」（Song 2026-11-02：「加个做过的也可以做的设置开关方便测试」）：开了，开始工作和选照片都照样干。"""
+    try:
+        import tkinter as tk
+        root = tk.Tk()
+    except Exception:
+        pytest.skip('没有显示器，跳过窗口测试')
+    import json
+    import types
+    from bangong import app, macui as ui
+    monkeypatch.delenv('LURUSENG_SCALE', raising=False)
+    monkeypatch.setattr(app, 'app_dir', lambda: str(tmp_path / 'app'))
+    monkeypatch.setattr(app, 'CONFIG', str(tmp_path / 'config.json'))
+    scaling0 = root.tk.call('tk', 'scaling')
+    try:
+        a = app.App(root)
+        a.folder.set(str(tmp_path / '待识别'))
+        a.open_settings()
+        root.update()
+        card = a.settings_win
+        assert card.vars['redo'].get() is False
+        card.vars['redo'].set(True)
+        card.changed('redo', True)
+        assert json.load(open(tmp_path / 'config.json', encoding='utf-8'))['redo'] is True
+        assert '干过的照片也重干：开了' in a.text.get('1.0', 'end')
+        seen, picked = {}, {}
+        monkeypatch.setattr(app.engine, 'Engine', lambda *x, **kw: seen.update(kw) or types.SimpleNamespace(run=lambda: None))
+        a.key1.set('AIzaX')
+        a.start()
+        a.worker.join(5)
+        assert seen['redo'] is True
+        monkeypatch.setattr(app.engine, 'copy_in', lambda paths, folder, redo=False: picked.update(redo=redo) or engine.CopyResult())
+        monkeypatch.setattr(app.filedialog, 'askopenfilenames', lambda **kw: [str(tmp_path / 'a.jpg')])
+        a.pick()
+        for _ in range(40):
+            root.update()
+            if picked:
+                break
+            threading.Event().wait(0.05)
+        assert picked == {'redo': True}
+        card.changed('redo', False)
+        assert '干过的照片也重干：关了' in a.text.get('1.0', 'end')
+    finally:
+        root.tk.call('tk', 'scaling', scaling0)
+        root.destroy()
+        ui.S = 1.0

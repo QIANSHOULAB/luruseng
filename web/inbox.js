@@ -85,9 +85,12 @@ export class Inbox {
     const s = this.said;
     s.text = text;
     clearTimeout(s.timer);
-    const send = async () => {
+    const send = () => {                       // 一句一句排队发：后说的那句不会被先说的那句盖掉
       s.at = Date.now();
-      try { await P.putStatus(this.pair, await P.sealText(this.pair.key, JSON.stringify({ text: s.text, at: s.at }))); } catch (e) { /* 报不出去不耽误干活 */ }
+      const body = JSON.stringify({ text: s.text, at: s.at });
+      this.sending = (this.sending || Promise.resolve()).then(async () => {
+        try { await P.putStatus(this.pair, await P.sealText(this.pair.key, body)); } catch (e) { /* 报不出去不耽误干活 */ }
+      });
     };
     const wait = now ? 0 : Math.max(0, 1500 - (Date.now() - s.at));
     if (!wait) send();

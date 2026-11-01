@@ -17,8 +17,9 @@ const CONTACT = ['oilsongchengmin', 'gmail.com'].join('@');
 const SETTINGS = [
   ['auto_open', '干完自动打开核对', '手动点「开始工作」干完后，自动打开核对，点格子就能改'],
   ['remember_keys', '记住钥匙', '钥匙存在这个浏览器里，下次不用再填；公用电脑建议关掉'],
+  ['redo', '干过的照片也重干', '测试用：以前认过的照片再放进来照样认一遍，钥匙次数照扣；平时关着，干过的自动跳过'],
 ];
-const DEFAULTS = { category: C.BUILTIN, model: C.DEFAULT_MODEL, auto: false, auto_open: true, remember_keys: true };
+const DEFAULTS = { category: C.BUILTIN, model: C.DEFAULT_MODEL, auto: false, auto_open: true, remember_keys: true, redo: false };
 
 const S = {
   st: null, cfg: { ...DEFAULTS }, cats: [], queue: [], seen: new Set(), eng: null, busy: false,
@@ -217,6 +218,7 @@ async function stashed() {                    // 开工前等照片都存好：�
 }
 
 const gone = new Set();                        // 拿回来时发现其实已经干完的（清掉了，不算「没存住」）
+const doneSince = (done, added) => (done.ms || Date.parse(`${done.at}Z`) || 0) >= added;   // 账本那条是放进来之后记的（ms：记到毫秒）
 async function restore() {                     // 上回选了还没干完的照片：从浏览器里拿回来，不用重选
   if (!canStash()) return 0;
   const all = await S.st.prefixed('photos', PEND).catch(() => []);
@@ -225,7 +227,8 @@ async function restore() {                     // 上回选了还没干完的照
   for (const [key, v] of all) {
     const id = key.slice(PEND.length);
     if (S.seen.has(id)) continue;
-    const done = v && v.hash && await S.st.get('ledger', v.hash).catch(() => null);
+    let done = v && v.hash && await S.st.get('ledger', v.hash).catch(() => null);
+    if (done && S.cfg.redo && v.added && !doneSince(done, v.added)) done = null;   // 开着重干：放进来之后还没干完的照样拿回来
     if (!v || !(v.blob instanceof Blob) || done) {
       if (done) gone.add(id);
       S.st.del('photos', key).catch(() => {});             // 坏了的，或者其实已经干完了：清掉
@@ -384,13 +387,17 @@ function runId(d = new Date()) {
 
 // 新开一批：干过的照片（改了名也认得出）跳过，剩下的按拍摄顺序排好
 async function freshTodo() {
-  const todo = [], hashes = new Map();
+  const todo = [], hashes = new Map(), again = [];
   for (const q of [...S.queue]) {
     if (!q.hash) {
       try { q.hash = await I.sha256(q.file); } catch (e) { log(`✗ ${q.file.name} 读不了：${e.message}`); continue; }
     }
     const done = await S.st.get('ledger', q.hash);
-    if (done) {
+    if (done && S.cfg.redo && !hashes.has(q.hash)) {   // ⚙「干过的照片也重干」开着（测试用）：照样认
+      again.push(q.file.name);
+      hashes.set(q.hash, q.file.name);
+      todo.push(q);
+    } else if (done && !S.cfg.redo) {
       log(`↷ ${q.file.name} 以前干过（${done.xlsx || ''} 第 ${done.no ?? '?'} 张），跳过`);
       drop(q);
     } else if (hashes.has(q.hash)) {
@@ -401,6 +408,7 @@ async function freshTodo() {
       todo.push(q);
     }
   }
+  if (again.length) log(`↻ ${again.length} 张以前干过，⚙ 开着「干过的照片也重干」，这回照样认（钥匙次数照扣）：${again.slice(0, 5).join('、')}${again.length > 5 ? '…' : ''}`);
   for (const q of todo) if (q.shot === undefined) q.shot = await I.shotTime(q.file);
   todo.sort((a, b) => a.shot - b.shot || a.file.name.toLowerCase().localeCompare(b.file.name.toLowerCase()));
   return todo;
@@ -446,7 +454,7 @@ async function reopen(run, work) {
   for (const x of plan.done) {                 // 认完了、表也存了，就差记进「干过的」、清掉存的照片
     const q = byId.get(x.qid);
     if (!q) continue;
-    if (x.hash) await S.st.put('ledger', x.hash, { file: x.name, no: x.no, xlsx: run.xlsx, at: nowIso() }).catch(() => {});
+    if (x.hash) await S.st.put('ledger', x.hash, { file: x.name, no: x.no, xlsx: run.xlsx, at: nowIso(), ms: Date.now() }).catch(() => {});
     drop(q);
   }
   for (const x of plan.lost) {
@@ -570,7 +578,7 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
           if (!(await saveRun())) return;               // 表没存上：照片先留在列表里，别记成干过
           if (work.stuck) { work.stuck = 0; S.st.put('kv', 'work', work).catch(() => {}); }   // 干动了：诈尸次数清零
           if (it.q.hash) {
-            try { await S.st.put('ledger', it.q.hash, { file: name, no: it.no, xlsx: run.xlsx, at: nowIso() }); } catch (e) { log(`${tag} 干过的记录存不下：${e.message}`); }
+            try { await S.st.put('ledger', it.q.hash, { file: name, no: it.no, xlsx: run.xlsx, at: nowIso(), ms: Date.now() }); } catch (e) { log(`${tag} 干过的记录存不下：${e.message}`); }
           }
           drop(it.q);
           log(`✓ ${tag} ${name} · ${recs.length} 条`);
@@ -795,7 +803,12 @@ function setupSettings() {
     r.querySelector('.t').append(title, Object.assign(document.createElement('div'), { className: 'd', textContent: desc }));
     const box = r.querySelector('input');
     box.dataset.key = key;
-    box.onchange = () => { S.cfg[key] = box.checked; saveCfg(true); };
+    box.onchange = () => {
+      S.cfg[key] = box.checked;
+      saveCfg(true);
+      if (key === 'redo') log(box.checked ? '↻ 干过的照片也重干：开了。以前认过的照片再放进来，照样认一遍（钥匙次数照扣），测完记得关'
+        : '干过的照片也重干：关了，以前干过的照旧自动跳过');
+    };
     rows.appendChild(r);
   }
   $('#setver').innerHTML = '';
