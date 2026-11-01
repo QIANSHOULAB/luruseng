@@ -120,7 +120,7 @@ export async function usage() {              // [用了多少, 能用多少]（�
 // ---------------------------------------------------------------- 备份：换电脑、换浏览器、清浏览器之前存一份
 // 钥匙不进备份（备份文件可能发给别人）；照片也不进（太大，Excel 和编号照片另外下载）。
 export async function exportBackup(st, extra = {}) {
-  const kb = (await st.get('kv', 'kb')) || { records: [], people: [] };
+  const kb = (await st.get('kv', 'kb')) || { records: [], people: [], lists: {} };
   const cats = Object.fromEntries(await st.all('cats'));
   const ledger = Object.fromEntries(await st.all('ledger'));
   const names = (await st.get('kv', 'names')) || '';
@@ -136,6 +136,12 @@ export async function importBackup(st, data) {
   for (const r of data.kb.records || []) if (r && r.key && !have.has(r.key)) { have.add(r.key); kb.records.push(r); out.records++; }
   const known = new Set(kb.people.map(([n]) => n));
   for (const p of data.kb.people || []) if (Array.isArray(p) && p[0] && !known.has(p[0])) { known.add(p[0]); kb.people.push(p); out.people++; }
+  kb.lists = kb.lists || {};                    // 机台表、工序表
+  for (const [kind, vals] of Object.entries(data.kb.lists || {})) {
+    if (!Array.isArray(vals)) continue;
+    const have = (kb.lists[kind] = kb.lists[kind] || []);
+    for (const v of vals) if (typeof v === 'string' && v && !have.includes(v)) have.push(v);
+  }
   await st.put('kv', 'kb', kb);
   for (const [name, db] of Object.entries(data.cats || {})) {
     if (!db || !Array.isArray(db.columns)) continue;

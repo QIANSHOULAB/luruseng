@@ -672,7 +672,18 @@ class App:
         if self.viewer is not None and self.viewer.winfo_exists():
             self.viewer.destroy()
         self.viewer = Viewer(self.root, self.folder.get(), run_dir or self.last_photos or None,
-                             on_checked=self.feed_checked, busy=self.busy_dir)
+                             on_checked=self.feed_checked, busy=self.busy_dir, roster=self.roster)
+
+    def roster(self) -> list[tuple[str, str]]:
+        """名单：名单.txt 加上数据库里认识的人（核对里 SETTER 只打工号，照这个补名字）。"""
+        names = engine.load_names(names_path())
+        try:
+            from .kb import KnowledgeBase
+            have = {n for n, _ in names}
+            names += [(n, nm) for n, nm in KnowledgeBase(kb_path()).load().roster() if n not in have]
+        except Exception:
+            pass
+        return names
 
     def busy_dir(self) -> str:
         """正在干的那批的编号照片文件夹（没在干就是空）：那批的表干完会整本重写，核对里先别改它。"""
@@ -1250,7 +1261,7 @@ class NamesCard(CardDialog):
                 self.box.set(sheets._decode(fh.read()).replace('\r\n', '\n').rstrip('\n'))
         except OSError:
             self.box.set('')
-        ui.Para(b, tk.StringVar(value='一行一个「工号/名字」，比如 639/Lee Ah Kow。只帮它认潦草的工号，SETTER 还是照单子抄。没有也能用。'),
+        ui.Para(b, tk.StringVar(value='一行一个「工号/名字」，比如 639/Lee Ah Kow。单子上只写了工号的，贫僧照这个把名字补上。没有也能用。'),
                 font=(self.fam, 9), width_px=470).pack(fill='x', pady=(8, 0))
         self.err = tk.StringVar()
         tk.Label(b, textvariable=self.err, font=(self.fam, 10), bg=ui.CARD, fg='#C0392B', anchor='w').pack(anchor='w')

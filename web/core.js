@@ -1,7 +1,7 @@
 // 录入僧网页版 · 认单子的核心（跟电脑版 bangong/engine.py、kb.py、tables.py 同一套规矩，改一边要改另一边）
 // 纯逻辑：不碰页面、不碰存储，浏览器和 node 测试都能跑。
 
-export const VERSION = '1.10.4';
+export const VERSION = '1.11.0';
 export const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 export const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
 export const MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro'];
@@ -55,6 +55,7 @@ export const PROMPT = `你是工厂的刀具破损记录（TOOL BROKEN RECORD）
 - 单子上没写的字段填空字符串。
 - 印刷的栏目名（DATE、MACHINE 之类）不是内容，不要抄进值里。
 - 分清 0 和 O、1 和 I、5 和 S、8 和 B：数字字段只会是数字；机台和零件号照上面例子的样子判断。
+- 手写的 7 常在中间加一横，横还可能拉得很长、碰到旁边的字：顶上有一横或一个小钩、中间再一横的是 7，不是 4（顶上开口的才是 4）；横碰到后面的 1 时，别把 7 和 1 拼成一个 H。
 - 被划掉、涂掉作废的内容不要。
 - 图片歪斜或横着拍的，按正确方向读。
 - unsure：每条记录里你拿不准的字段名（字迹潦草、被挡住、反光、可能看错的），只列真拿不准的；全都看得清就给空数组。
@@ -436,6 +437,46 @@ export function lev1(a, b) {                // 只差一个字（替换、多一
   for (let i = 0; i < b.length; i++) if (a === b.slice(0, i) + b.slice(i + 1)) return true;
   return false;
 }
+export function mkey(v) {                   // 机台比对用：VM-07、VM-7、vm7 都是同一台
+  const k = nkey(v);
+  const m = k.match(/^([A-Z0-9]*?[A-Z])-?0*(\d+)$/);
+  return m ? `${m[1]}-${m[2]}` : k;
+}
+export function skel(v) { return nkey(v).replace(/[^A-Z0-9]/g, ''); }   // 零件号只看字母和数字
+export function lev(a, b) {                 // 差几个字（替换、多、少各算一个）
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur.push(Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] !== b[j - 1] ? 1 : 0)));
+    prev = cur;
+  }
+  return prev[b.length];
+}
+export function swap47(a, b) {              // 只差几个 4↔7：带横的 7 被看成 4（或者反过来）
+  if (a.length !== b.length || a === b) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i] && [a[i], b[i]].sort().join('') !== '47') return false;
+  return true;
+}
+// 手写数字里长得像的：带横的 7 跟 4 最像（Song 那张单子），其次这几对
+const LOOKALIKE = new Set(['47', '49', '17', '38', '56', '68', '08', '06', '09', '35', '27', '12']);
+export function lookRank(read, cand) {      // 候选排队：只差 4↔7 最像；其次只差一个手写易混的数字；再其次别的只差一个字
+  if (swap47(read, cand)) return 0;
+  if (read.length === cand.length) {
+    const diff = [];
+    for (let i = 0; i < read.length; i++) if (read[i] !== cand[i]) diff.push([read[i], cand[i]].sort().join(''));
+    if (diff.length === 1 && LOOKALIKE.has(diff[0])) return 1;
+  }
+  return 2;
+}
+const cmpStr = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+export function closeCodes(read, pool, count = new Map(), limit = 4) {   // 工号、工序：只差一个字（或者只差 4↔7）的，最像的排前面
+  const n = (c) => (count && count.get ? count.get(c) : count && count[c]) || 0;
+  const near = [...pool].filter((c) => c !== read && (swap47(read, c) || lev(read, c) === 1));
+  near.sort((a, b) => lookRank(read, a) - lookRank(read, b) || n(b) - n(a) || cmpStr(a, b));
+  return near.slice(0, limit);
+}
+export function isShiftWord(v) { return Object.prototype.hasOwnProperty.call(SHIFT_WORDS, String(v ?? '').trim().toUpperCase()); }
+function fmtNum(x) { return x.toFixed(3).replace(/0+$/, '').replace(/\.$/, ''); }
 export function cellText(v) {
   if (v === null || v === undefined) return '';
   if (v instanceof Date) {
@@ -477,30 +518,72 @@ export function findHeader(rows) {          // 同时有 DATE 和 MACHINE 的那
   return null;
 }
 
-export function readPeople(rows) {
+// 名字页上的清单列（公司那本 NAME 页：MACHINE、OPERATION 各一列）：拿来当准绳，里面的字不当人名
+const LIST_KEYS = {
+  MACHINE: 'machine', MACHINES: 'machine', 'M/C': 'machine', MACHINENO: 'machine',
+  OPERATION: 'opr_no', OPERATIONS: 'opr_no', OPR: 'opr_no', OPRNO: 'opr_no', OP: 'opr_no', OPNO: 'opr_no',
+};
+const LIST_OTHER = new Set(['SHIFT', 'TOOL', 'TOOLS', 'TNO', 'DESCRIPTION', 'DATE', 'MO', 'PARTNUMBER', 'PARTNO']);
+const LIST_SHEET = /NAME|EMP|LIST|名单|名字|人员|清单/i;
+export const LIST_NAME = { machine: '机台表', opr_no: '工序表' };
+const LIST_UNIT = { machine: '台', opr_no: '道' };
+
+export function readLists(rows) {           // 前 5 行里找 MACHINE、OPERATION 这样的列头，底下一格一个值 -> [{machine, opr_no}, 清单列]
+  for (let i = 0; i < Math.min(rows.length, 5); i++) {
+    const keys = (rows[i] || []).map(labelKey);
+    const kinds = new Map();
+    keys.forEach((k, c) => { if (LIST_KEYS[k]) kinds.set(c, LIST_KEYS[k]); });
+    if (!kinds.size) continue;
+    const skip = new Set();
+    keys.forEach((k, c) => { if (LIST_KEYS[k] || LIST_OTHER.has(k)) skip.add(c); });
+    const out = {};
+    for (const [c, kind] of kinds) {
+      for (const r of rows.slice(i + 1)) {
+        let t = r && c < r.length ? cellText(r[c]) : '';
+        if (!t) continue;
+        if (kind === 'opr_no') { const n = toInt(t); if (n === null) continue; t = String(n); }
+        const b = (out[kind] = out[kind] || []);
+        if (!b.includes(t)) b.push(t);
+      }
+    }
+    return [out, skip];
+  }
+  return [{}, new Set()];
+}
+
+export function readPeople(rows, skip = new Set()) {
+  // 认「535/RAJ KUMAR」这种格子，或者一格工号紧跟一格名字。清单列里的字不算：不然工序 130 跟班次 NIGHT 会被凑成一个人
   const out = [];
   for (const row of rows) {
     const cells = (row || []).map(cellText);
     cells.forEach((t, j) => {
+      if (skip.has(j)) return;
       const m = t.match(SETTER_RE);
-      if (m) { out.push([m[1], m[2].trim()]); return; }
+      if (m) { if (!isShiftWord(m[2])) out.push([m[1], m[2].trim()]); return; }
       if (/^\d{2,6}$/.test(t)) {
-        const nxt = cells.slice(j + 1).find((x) => x) || '';
-        if (/^[A-Za-z][A-Za-z .'-]{1,60}$/.test(nxt) && nxt.replace(/[^A-Za-z]/g, '').length >= 3) out.push([t, nxt.trim()]);
+        let k = -1;
+        for (let i = j + 1; i < cells.length; i++) if (cells[i]) { k = i; break; }
+        const nxt = k >= 0 && !skip.has(k) ? cells[k] : '';
+        if (/^[A-Za-z][A-Za-z .'-]{1,60}$/.test(nxt) && nxt.replace(/[^A-Za-z]/g, '').length >= 3 && !isShiftWord(nxt)) out.push([t, nxt.trim()]);
       }
     });
   }
   return out;
 }
 
-export function readWorkbook(sheets) {      // sheets: [[页名, 行[]]] -> {recs: [[页名, 记录]], people, used}
+export function readWorkbook(sheets) {      // sheets: [[页名, 行[]]] -> {recs: [[页名, 记录]], people, used, lists}
   const recs = [], people = [], used = [], loose = [];
+  const lists = {}, looseLists = {};
+  const addTo = (bucket, kind, vals) => { const b = (bucket[kind] = bucket[kind] || []); for (const v of vals) if (!b.includes(v)) b.push(v); };
   let hasHeader = false;
   for (const [title, rows] of sheets) {
     const hdr = findHeader(rows);
     if (!hdr) {
-      const found = readPeople(rows);
-      if (/NAME|EMP|名单|名字|人员/i.test(title)) people.push(...found); else loose.push(...found);
+      const [foundLists, skip] = readLists(rows);
+      const found = readPeople(rows, skip);
+      const named = LIST_SHEET.test(title);
+      if (named) people.push(...found); else loose.push(...found);
+      for (const [kind, vals] of Object.entries(foundLists)) addTo(named ? lists : looseLists, kind, vals);
       continue;
     }
     hasHeader = true;
@@ -519,15 +602,18 @@ export function readWorkbook(sheets) {      // sheets: [[页名, 行[]]] -> {rec
     }
     if (n) used.push(title);
   }
-  if (hasHeader) people.push(...loose);        // 真是刀单本子，别的页上的工号名字才算数
-  return { recs, people, used };
+  if (hasHeader) {                             // 真是刀单本子，别的页上的工号名字、清单才算数
+    people.push(...loose);
+    for (const [kind, vals] of Object.entries(looseLists)) addTo(lists, kind, vals);
+  }
+  return { recs, people, used, lists };
 }
 
 // 刀单数据库：{records: [{key, source, sheet, fed_at, ...13 列}], people: [[工号, 名字]]}
 export function feedKb(db, sheets, source) {
-  const res = { source, rows: 0, added: 0, people: 0, sheets: [], error: '' };
-  const { recs, people, used } = readWorkbook(sheets);
-  if (!recs.length && !people.length) {
+  const res = { source, rows: 0, added: 0, people: 0, sheets: [], error: '', lists: {} };
+  const { recs, people, used, lists } = readWorkbook(sheets);
+  if (!recs.length && !people.length && !Object.keys(lists).length) {
     res.error = '这本不像刀单：没找到 DATE、MACHINE 那样的表头，一条没吃。是别的单子的话，放进它自己的类别';
     return res;
   }
@@ -547,6 +633,12 @@ export function feedKb(db, sheets, source) {
     db.people.push([n, nm]);
     res.people++;
   }
+  db.lists = db.lists || {};
+  for (const [kind, vals] of Object.entries(lists)) {     // 机台表、工序表
+    const have = (db.lists[kind] = db.lists[kind] || []);
+    for (const v of vals) if (!have.includes(v)) have.push(v);
+    res.lists[kind] = vals.length;
+  }
   res.rows = recs.length;
   res.sheets = used;
   return res;
@@ -557,21 +649,30 @@ export function feedLine(r) {
     return `✓ 放进去 ${r.source}：读到 ${r.rows} 行，新增 ${r.added} 行（其余以前放过）` +
       (r.newColumns && r.newColumns.length ? `，新列：${r.newColumns.join('、')}` : '');
   }
+  const got = Object.entries(r.lists || {}).filter(([, n]) => n).map(([k, n]) => `${LIST_NAME[k]} ${n} ${LIST_UNIT[k]}`).join('、');
   return `✓ 吃进 ${r.source}：读到 ${r.rows} 行记录，新增 ${r.added} 行（其余以前吃过）` +
-    (r.people ? `，新认识 ${r.people} 人` : '') + (r.sheets.length ? `（${r.sheets.join('、')}）` : '');
+    (r.people ? `，新认识 ${r.people} 人` : '') + (got ? `，认得${got}` : '') + (r.sheets.length ? `（${r.sheets.join('、')}）` : '');
 }
 export function kbSummary(db) {
   const n = db.records.length;
   if (!n) return '数据库还是空的：点「放入样板资料」喂几本改对的刀单表，喂得越多它越不瞎';
   const d = (f) => new Set(db.records.map((r) => r[f]).filter(Boolean)).size;
-  return `数据库：${n} 条记录 · 机台 ${d('machine')} 台 · 零件 ${d('part_number')} 种 · 刀具描述 ${d('description')} 种 · 认识 ${db.people.length} 人`;
+  const machines = new Set([...db.records.map((r) => r.machine).filter(Boolean), ...((db.lists || {}).machine || [])].map(mkey));
+  const people = db.people.filter(([, nm]) => !isShiftWord(nm)).length;
+  return `数据库：${n} 条记录 · 机台 ${machines.size} 台 · 零件 ${d('part_number')} 种 · 刀具描述 ${d('description')} 种 · 认识 ${people} 人`;
 }
 
 const CAT_FIELDS = ['machine', 'part_number', 'description'];
+const SHORT_RE = /^([A-Z]{1,3})(\d+(?:\.\d*)?)$/;          // 公司表里刀具描述的简写：EM3、DR2.5、M4
+const CODE_RE = /^Φ?([0-9A-Z]{1,8})-M([0-9O.]{4,8})/;      // 刀具编码：4FEM-M0300C-0080-04（直径 03.00）
+const PHI_RE = /^Φ(\d+(?:\.\d+)?)([A-Z]{2,6})$/;           // 手写的 Φ1.5 FEM
+const bump = (m, k, n = 1) => m.set(k, (m.get(k) || 0) + n);
+export function say(cands) { return cands && cands.length ? `，可能是：${cands.join(' / ')}` : ''; }   // 红格子的候选：点一下就填
+
 export class Snapshot {                     // 拿数据库当准绳
-  constructor(records = [], people = []) {
+  constructor(records = [], people = [], lists = {}) {
     this.n = records.length;
-    this.people = people;
+    this.people = people.filter(([, nm]) => !isShiftWord(nm)).map(([no, nm]) => [String(no), String(nm)]);
     this.canon = {}; this.count = {}; this.byCkey = {};
     for (const f of CAT_FIELDS) {
       const spell = new Map();
@@ -579,8 +680,7 @@ export class Snapshot {                     // 拿数据库当准绳
         if (!r[f]) continue;
         const k = nkey(r[f]);
         if (!spell.has(k)) spell.set(k, new Map());
-        const m = spell.get(k);
-        m.set(r[f], (m.get(r[f]) || 0) + 1);
+        bump(spell.get(k), r[f]);
       }
       this.canon[f] = new Map();
       this.count[f] = new Map();
@@ -596,13 +696,68 @@ export class Snapshot {                     // 拿数据库当准绳
         this.byCkey[f].get(ck).add(v);
       }
     }
+    this.bySkel = new Map();                  // 零件号去掉横杠以后的样子
+    for (const v of this.canon.part_number.values()) {
+      if (!this.bySkel.has(skel(v))) this.bySkel.set(skel(v), new Set());
+      this.bySkel.get(skel(v)).add(v);
+    }
+    lists = lists || {};
+    // 机台：公司记录里出现过的 + 名字页上的机台表；VM-07 跟 VM-7 算一台，猜的时候写机台表上的写法
+    const mc = new Map();
+    for (const r of records) if (r.machine) bump(mc, r.machine);
+    this.machines = new Map();
+    for (const [v] of [...mc.entries()].sort((a, b) => b[1] - a[1])) if (!this.machines.has(mkey(v))) this.machines.set(mkey(v), v);
+    const listed = (lists.machine || []).filter(Boolean);
+    for (const v of listed) this.machines.set(mkey(v), v);
+    this.listedMachines = uniq(listed.map((v) => this.machines.get(mkey(v))));
+    this.mcount = new Map();
+    for (const [v, c] of mc) bump(this.mcount, this.machines.get(mkey(v)), c);
+    this.mkIndex = new Map();                 // 易混字统一以后（VM-O7 → VM-7）对到哪台
+    for (const v of this.machines.values()) {
+      const k = mkey(ckey(v));
+      if (!this.mkIndex.has(k)) this.mkIndex.set(k, new Set());
+      this.mkIndex.get(k).add(v);
+    }
+    this.checkMachine = listed.length > 0 || this.n >= 100;   // 有机台表，或者记录够多，才拿公司的机台把关
+    this.partMachines = new Map();            // 这个零件以前上过哪几台机
+    for (const r of records) {
+      if (!r.part_number || !r.machine) continue;
+      const k = skel(r.part_number);
+      if (!this.partMachines.has(k)) this.partMachines.set(k, new Map());
+      bump(this.partMachines.get(k), this.machines.get(mkey(r.machine)));
+    }
+    // 工序：有工序表才把关；表上没有、记录里出现过两回以上的也算公司有
+    this.oprCount = new Map();
+    for (const r of records) { const k = toInt(r.opr_no || ''); if (k !== null) bump(this.oprCount, String(k)); }
+    const listedOps = new Set((lists.opr_no || []).map((v) => toInt(String(v))).filter((k) => k !== null).map(String));
+    this.oprs = listedOps.size ? new Set([...listedOps, ...[...this.oprCount].filter(([, c]) => c >= 2).map(([k]) => k)]) : new Set();
+    // 调试员：名单上的人 + 公司记录里出现过两回以上的工号（只有工号、没写名字的也算）
+    this.setterCount = new Map();
+    for (const r of records) { const m = String(r.setter || '').match(/^\s*(\d{2,6})(?!\d)/); if (m) bump(this.setterCount, m[1]); }
+    this.setterIds = new Set([...this.people.map(([no]) => no), ...[...this.setterCount].filter(([, c]) => c >= 2).map(([k]) => k)]);
+    // 刀具描述：公司表里大多是简写（EM3、DR2.5）就照它的写；简写用过哪几种刀（两个字母以上的）
+    const tc = new Map();
+    let total = 0, shorts = 0;
+    for (const [v, c] of this.count.description) {
+      total += c;
+      const m = nkey(v).match(SHORT_RE);
+      if (m) { bump(tc, m[1], c); shorts += c; }
+    }
+    this.descTypes = new Set([...tc.keys()].filter((t) => t.length >= 2));
+    this.shortDesc = total >= 5 && shorts >= 0.6 * total;
   }
   roster() { return [...this.people]; }
   hints(maxParts = 200) {
-    if (!this.n) return '';
+    if (!this.n && !this.machines.size && !this.oprs.size) return '';
+    const top = (f, lim) => [...this.count[f].entries()].sort((a, b) => b[1] - a[1]).slice(0, lim).map(([v]) => v);
     const lines = [];
-    for (const [f, lim] of [['machine', 100], ['description', 150], ['part_number', maxParts]]) {
-      const vals = [...this.count[f].entries()].sort((a, b) => b[1] - a[1]).slice(0, lim).map(([v]) => v);
+    const machines = top('machine', 100);
+    const seen = new Set(machines.map(mkey));
+    for (const v of this.listedMachines) if (!seen.has(mkey(v))) { machines.push(v); seen.add(mkey(v)); }
+    if (machines.length) lines.push('MACHINE：' + machines.join('、'));
+    if (this.oprs.size) lines.push('OPR NO.：' + [...this.oprs].sort((a, b) => a.length - b.length || cmpStr(a, b)).join('、'));
+    for (const [f, lim] of [['description', 150], ['part_number', maxParts]]) {
+      const vals = top(f, lim);
       if (vals.length) lines.push(`${LABEL[f]}：` + vals.join('、'));
     }
     return `公司记录里出现过的值（数据库 ${this.n} 条记录）：单子上的字跟其中某个很像时，一律以这里的写法为准；` +
@@ -620,45 +775,265 @@ export class Snapshot {                     // 拿数据库当准绳
         if ((this.count[f].get(c) || 0) >= 2) return c;
       }
     }
+    return f === 'part_number' ? this.snapPart(v) : null;
+  }
+  snapPart(v) {
+    // 零件号再宽一点：去掉横杠比（TD-123-456-01A 就是 TD-123-456-01-A）；B 被看成 13（A13-1234567B）；
+    // 去掉横杠以后只差一个字（AB51234567B）。后两种库里得出现过两回以上
+    const s = skel(v);
+    if (s.length < 4) return null;
+    const same = this.bySkel.get(s);
+    if (same && same.size) return same.size === 1 ? [...same][0] : null;
+    const hit = new Set();
+    for (let i = 0; i < s.length - 1; i++) {
+      if (s.slice(i, i + 2) !== '13') continue;
+      for (const c of this.bySkel.get(s.slice(0, i) + 'B' + s.slice(i + 2)) || []) hit.add(c);
+    }
+    if (!hit.size) for (const [sk, cs] of this.bySkel) if (lev1(sk, s)) for (const c of cs) hit.add(c);
+    if (hit.size === 1) {
+      const c = [...hit][0];
+      if ((this.count.part_number.get(c) || 0) >= 2) return c;
+    }
     return null;
   }
+  // ---------------------------------------------------------------- 机台
+  knownMachine(x) {                         // 公司有这台机就返回该写的写法（只差易混字的 VM-O7 也算），没有返回 null
+    const k = nkey(x);
+    if (this.canon.machine.has(k)) return this.canon.machine.get(k);
+    if (this.machines.has(mkey(x))) return this.machines.get(mkey(x));
+    const hits = this.mkIndex.get(mkey(ckey(x)));
+    return hits && hits.size === 1 ? [...hits][0] : null;
+  }
+  guessMachine(v, part = '') {
+    // 公司就那么几台机床，看起来像的就猜（Song 2026-11-01）。-> [猜的, 猜不准时的候选]
+    // 只差一个字的只有一台就是它；有好几台，这个零件以前只上过其中一台就是那台；都不行就不猜
+    const x = mkey(ckey(v));
+    const pm = (part && this.partMachines.get(skel(part))) || new Map();
+    const scored = uniq([...this.machines.values()]).map((m) => [lev(x, mkey(ckey(m))), -(pm.get(m) || 0), -(this.mcount.get(m) || 0), m])
+      .sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2] || cmpStr(a[3], b[3]));
+    if (!scored.length) return ['', []];
+    const best = scored[0][0];
+    const top = scored.filter((sc) => sc[0] === best).map((sc) => sc[3]);
+    if (best <= 1) {
+      if (top.length === 1) return [top[0], []];
+      const hist = top.filter((m) => pm.get(m));
+      return hist.length === 1 ? [hist[0], top.slice(0, 4)] : ['', top.slice(0, 4)];
+    }
+    return ['', [...scored].sort((a, b) => a[1] - b[1] || a[0] - b[0] || a[2] - b[2] || cmpStr(a[3], b[3])).slice(0, 4).map((sc) => sc[3])];
+  }
+  machineRule(rec, disputed, unsure, fixed, flags, alts, ctx) {
+    const v = rec.machine || '';
+    if (!v) return;
+    const k = nkey(v);
+    if (!this.checkMachine) {               // 公司的机台还认不全：照老规矩，像的改、拿不准的才标
+      if (this.canon.machine.has(k)) { rec.machine = this.canon.machine.get(k); return; }
+      const c = this.snap('machine', v);
+      if (c) { fixed.machine = [v, c, '按数据库改']; rec.machine = c; } else if (unsure.includes('machine')) flags.machine = `MACHINE 数据库里没见过，模型也拿不准：${v}`;
+      return;
+    }
+    let reads = uniq((disputed.machine || [v]).filter((x) => x && x !== '空'));
+    if (!reads.length) reads = [v];
+    const good = uniq(reads.map((x) => this.knownMachine(x)).filter(Boolean));
+    if (good.length === 1) {
+      const g = good[0];
+      if (reads.length > 1) { fixed.machine = [v, g, `几遍认得不一样：${reads.join(' / ')}，公司只有 ${g}`]; delete disputed.machine; }
+      else if (g !== v) fixed.machine = [v, g, '按数据库改'];
+      rec.machine = g;
+      return;
+    }
+    if (good.length > 1) { disputed.machine = good; alts.machine = good; rec.machine = this.knownMachine(v) || good[0]; return; }
+    delete disputed.machine;                  // 一个都不是公司的机台：看起来像的就猜，实在没法猜才标红
+    const [guess, cands] = this.guessMachine(v, rec.part_number || '');
+    ctx.machine = { read: v, guess, cands };
+    if (guess) { fixed.machine = [v, guess, `公司没有 ${v}，按长得像猜的`]; rec.machine = guess; } else { flags.machine = `MACHINE ${v} 公司没有这台机` + say(cands); alts.machine = cands; }
+  }
+  // ---------------------------------------------------------------- 工序
+  oprRule(rec, disputed, fixed, flags, alts) {
+    const v = rec.opr_no || '';
+    if (!this.oprs.size || !v) return;
+    const key = (x) => { const n = toInt(x); return n !== null ? String(n) : nkey(x); };
+    let reads = uniq((disputed.opr_no || [v]).filter((x) => x && x !== '空'));
+    if (!reads.length) reads = [v];
+    const good = uniq(reads.map(key).filter((x) => this.oprs.has(x)));
+    if (good.length === 1) {
+      if (reads.length > 1) { fixed.opr_no = [v, good[0], `几遍认得不一样：${reads.join(' / ')}，公司只有 ${good[0]}`]; delete disputed.opr_no; rec.opr_no = good[0]; }
+      return;
+    }
+    if (good.length > 1) { disputed.opr_no = good; alts.opr_no = good; return; }
+    delete disputed.opr_no;
+    const cands = uniq(reads.flatMap((x) => closeCodes(key(x), this.oprs, this.oprCount))).slice(0, 4);
+    flags.opr_no = `OPR_NO ${v} 公司没有这道工序` + (reads.length > 1 ? `（几遍认的：${reads.join(' / ')}）` : '') + say(cands);
+    alts.opr_no = cands;
+  }
+  // ---------------------------------------------------------------- 刀具描述
+  descType(letters) {                       // 最长的、公司表里用过的简写（至少两个字母）：4FEM → EM、CZSD → SD
+    for (let i = 0; i < letters.length - 1; i++) if (this.descTypes.has(letters.slice(i))) return letters.slice(i);
+    return null;
+  }
+  descParse(x) {
+    // 拆成 [刀的简写, 直径, 哪种写法]：4FEM-M0300C-0080-04 → ['EM', '3', 'code']；Φ1.5 FEM → ['EM', '1.5', 'phi']；
+    // 已经是简写的 EM8 → ['EM', '8', 'short']；别的样子返回 null
+    const t = nkey(x);
+    let m = t.match(CODE_RE);
+    if (m) {
+      const letters = (m[1].match(/[A-Z]+$/) || [''])[0];
+      const d = m[2].replace(/O/g, '0').replace(/\./g, '');
+      const dia = /^\d{4,6}$/.test(d) ? fmtNum(parseInt(d.slice(0, 2), 10) + parseInt(d.slice(2), 10) / 10 ** (d.length - 2)) : null;
+      return [this.descType(letters), dia, 'code'];
+    }
+    if ((m = t.match(PHI_RE))) return [this.descType(m[2]), fmtNum(parseFloat(m[1])), 'phi'];
+    if ((m = t.match(SHORT_RE)) && this.descTypes.has(m[1])) return [m[1], fmtNum(parseFloat(m[2].replace(/\.$/, '') || '0')), 'short'];
+    return null;
+  }
+  shortRule(rec, disputed, fixed, flags, alts) {
+    // 单子上的刀具编码照公司的简写写（Song 2026-11-01 定的：4FEM-M0300C-0080-04 写成 EM3，原编码写进核对提示）。
+    // 几遍认的编码前面几个字母不一样（HRDR、HL2DR、HZDP）也不要紧：拆出来是同一种刀、同一个直径就算对上
+    const v = rec.description;
+    const p = this.descParse(v);
+    if (!p || p[2] === 'short') return false;
+    let reads = uniq((disputed.description || [v]).filter((x) => x && x !== '空'));
+    if (!reads.length) reads = [v];
+    const parsed = reads.map((x) => this.descParse(x)).filter(Boolean);
+    const types = new Set(parsed.map((q) => q[0]).filter(Boolean));
+    const dias = new Set(parsed.map((q) => q[1]).filter(Boolean));
+    if (types.size === 1 && dias.size === 1 && parsed.every((q) => q[1])) {
+      let short = [...types][0] + [...dias][0];
+      short = this.canon.description.get(nkey(short)) || short;
+      fixed.description = [v, short, '照公司简写'];
+      rec.description = short;
+      delete disputed.description;
+      return true;
+    }
+    const opts = uniq(parsed.filter((q) => q[0] && q[1]).map((q) => q[0] + q[1]));
+    if (!opts.length) return false;
+    if (p[0] && p[1]) rec.description = this.canon.description.get(nkey(p[0] + p[1])) || p[0] + p[1];
+    delete disputed.description;
+    flags.description = `DESCRIPTION 几遍认得不一样：${opts.join(' / ')}（单子上的编码：${reads.join(' / ')}）`;
+    alts.description = opts;
+    return true;
+  }
   fix(rec, unsure = []) {
-    // 认出来的值跟库里某个只差一个容易看错的字，就改成库里的写法（橙）。
-    // 不按零件对历史（Song 定的：零件、刀、MO 之间的老关系不拿来标红；没见过的零件也不标红）。
+    // -> [改好的记录, {字段: [原来, 改成, 原因]}, {字段: 标红原因}, {alts: {字段: 候选}, ctx: 等这批认完再看的}]
+    // 零件号、刀具描述：跟库里某个只差容易看错的字，就改成库里的写法；刀具编码照公司的简写写。
+    // 机台、工序：公司表里压根没有的，机台看起来像的就猜，工序标红列出像的（Song 2026-11-01 定的）。
+    // 几遍认得不一样、只有一个是公司有的：就是它。
+    // 不按零件对历史标红（Song 定的：零件、刀、MO 之间的老关系不拿来标红；没见过的零件也不标红）。
     rec = { ...rec };
-    const fixed = {}, flags = {};
-    if (!this.n) return [rec, fixed, flags];
-    for (const f of CAT_FIELDS) {
+    const fixed = {}, flags = {}, alts = {}, ctx = {};
+    const extra = { alts, ctx };
+    if (!this.n && !this.machines.size && !this.oprs.size) return [rec, fixed, flags, extra];
+    const had = 'disputed' in rec;
+    const disputed = { ...(rec.disputed || {}) };
+    for (const f of ['part_number', 'description']) {
       const v = rec[f] || '';
       if (!v) continue;
+      if (f === 'description' && this.shortDesc && this.shortRule(rec, disputed, fixed, flags, alts)) continue;
       const k = nkey(v);
       if (this.canon[f].has(k)) { rec[f] = this.canon[f].get(k); continue; }
       const c = this.snap(f, v);
-      if (c) { fixed[f] = [v, c, '按数据库改']; rec[f] = c; }
-      else if (f !== 'part_number' && unsure.includes(f)) flags[f] = `${LABEL[f]} 数据库里没见过，模型也拿不准：${v}`;
+      if (c) { fixed[f] = [v, c, '按数据库改']; rec[f] = c; } else if (f !== 'part_number' && unsure.includes(f)) flags[f] = `${LABEL[f]} 数据库里没见过，模型也拿不准：${v}`;
     }
-    return [rec, fixed, flags];
+    this.machineRule(rec, disputed, unsure, fixed, flags, alts, ctx);
+    this.oprRule(rec, disputed, fixed, flags, alts);
+    if (had || Object.keys(disputed).length) rec.disputed = disputed;
+    return [rec, fixed, flags, extra];
   }
+}
+
+// ---------------------------------------------------------------- SETTER 按名单对
+function lettersOf(s) { return String(s || '').toUpperCase().replace(/[^A-Z一-鿿]/g, ''); }
+function sim(a, b) {                        // 跟电脑版 difflib.SequenceMatcher(None, a, b).ratio() 一样的算法
+  a = lettersOf(a); b = lettersOf(b);
+  if (!a || !b) return 0;
+  let total = 0;
+  const queue = [[0, a.length, 0, b.length]];
+  while (queue.length) {
+    const [alo, ahi, blo, bhi] = queue.pop();
+    let bi = alo, bj = blo, bk = 0, j2len = new Map();
+    for (let i = alo; i < ahi; i++) {
+      const next = new Map();
+      for (let j = blo; j < bhi; j++) {
+        if (a[i] !== b[j]) continue;
+        const k = (j2len.get(j - 1) || 0) + 1;
+        next.set(j, k);
+        if (k > bk) { bi = i - k + 1; bj = j - k + 1; bk = k; }
+      }
+      j2len = next;
+    }
+    if (bk) {
+      total += bk;
+      if (alo < bi && blo < bj) queue.push([alo, bi, blo, bj]);
+      if (bi + bk < ahi && bj + bk < bhi) queue.push([bi + bk, ahi, bj + bk, bhi]);
+    }
+  }
+  return (2 * total) / (a.length + b.length);
+}
+export function splitSetter(x) {            // 「556」「556/Lee Ah Kow」「Lee Ah Kow」-> [工号, 名字]
+  const m = String(x || '').match(/^\s*([0-9□]+)\s*(?:[/／\-\s]\s*(.*))?$/);
+  return m ? [m[1], (m[2] || '').trim()] : ['', String(x || '').trim()];
+}
+export function setterCheck(raw, names, valid = null, reads = [], counts = null) {
+  // 号对上就自动写成名单上的「工号/名字」，跟公司表那一列的下拉单一个样（Song 2026-11-01）。
+  // 有公司数据（valid：名单上的 + 公司表里出现过的工号）才把关：工号哪儿都没有就标红，列出长得像的工号。
+  // -> [值, 'ok' / 'fixed' / 'red', 提示, 候选, 名单外的工号]
+  const t = String(raw || '').trim();
+  const roster = new Map(names.map(([n, nm]) => [String(n), nm]));
+  const known = new Set([...roster.keys(), ...(valid || [])]);
+  if (!t || !known.size) return [raw, 'ok', '', [], ''];
+  const full = (n) => (roster.has(n) ? `${n}/${roster.get(n)}` : n);
+  const [num, nm] = splitSetter(t);
+  const seen = uniq([t, ...reads].map((x) => String(x || '').trim()).filter((x) => x && x !== '空'));
+  if (seen.length > 1) {                    // 几遍认得不一样：只有一个工号是名单上的，就是它
+    const good = uniq(seen.map((x) => splitSetter(x)[0]).filter((n) => known.has(n)));
+    if (good.length === 1) return [full(good[0]), 'fixed', `SETTER 几遍认得不一样：${seen.join(' / ')}，名单上只有 ${good[0]}`, [], ''];
+    if (good.length > 1) return [known.has(num) ? full(num) : t, 'red', `SETTER 几遍认得不一样：${seen.join(' / ')}`, good.map(full), ''];
+  }
+  if (num && !num.includes('□')) {
+    if (roster.has(num)) {
+      if (nm && sim(nm, roster.get(num)) < 0.5) return [t, 'red', `SETTER 工号 ${num} 在名单上是 ${roster.get(num)}，单子上名字是「${nm}」`, [full(num)], ''];
+      return [full(num), 'ok', '', [], ''];   // 号对上自动对名字
+    }
+    if (known.has(num) || valid === null) return [t, 'ok', '', [], ''];   // 公司表里出现过、名单上没写名字；或者没有公司数据：照抄
+    const nums = uniq([num, ...seen.map((x) => splitSetter(x)[0]).filter((n) => n && !n.includes('□'))]);
+    const cands = uniq(nums.flatMap((n) => closeCodes(n, known, counts).map(full))).slice(0, 4);
+    return [t, 'red', `SETTER ${num} 名单上没有` + (seen.length > 1 ? `（几遍认的：${seen.join(' / ')}）` : ''), cands, num];
+  }
+  if (num) {                                // 工号里有看不清的字：名单能唯一补上就补
+    const re = new RegExp('^' + num.replace(/□/g, '\\d') + '$');
+    const hit = [...known].filter((n) => re.test(n)).sort();
+    if (hit.length === 1) return [full(hit[0]), 'ok', `SETTER 看不清的工号按名单补成 ${hit[0]}`, [], ''];
+    return [t, 'red', 'SETTER 有看不清的字', hit.slice(0, 4).map(full), ''];
+  }
+  if (roster.size) {                        // 只写了名字
+    let best = null, bs = -1;
+    for (const [n, who] of roster) { const sc = sim(nm, who); if (sc > bs) { best = n; bs = sc; } }
+    if (bs >= 0.75) return [full(best), 'fixed', `SETTER 按名字对上名单，工号补成 ${best}`, [], ''];
+  }
+  if (valid === null) return [t, 'ok', '', [], ''];
+  return [t, 'red', `SETTER ${nm} 名单上没有`, [], ''];
 }
 
 // ---------------------------------------------------------------- 一条记录写进表之前：标红、标橙、核对提示
 export function assessRecord(rec, { snapshot = null, names = [], today = new Date() } = {}) {
-  // 跟电脑版 RecordBook._record_row 同一套：先拿数据库当准绳（橙），再查数字、班次、看不清的字、两遍不一样、模型拿不准（红）
-  const notes = [], red = new Set(), orange = new Set(), values = {};
+  // 跟电脑版 RecordBook.assess 同一套：先拿数据库当准绳（橙），再查名单、数字、班次、日期、看不清的字、两遍不一样、模型拿不准（红）
+  const notes = [], red = new Set(), orange = new Set(), values = {}, alts = {}, ctx = {};
   const unsure = rec.unsure || [];
-  const disputed = { ...(rec.disputed || {}) };
   if (snapshot) {
-    let fixed, flags;
-    [rec, fixed, flags] = snapshot.fix(rec, unsure);
-    for (const [f, [old, nw, why]] of Object.entries(fixed)) { orange.add(f); notes.push(`${f.toUpperCase()} ${old}→${nw}（${why}）`); }
+    let fixed, flags, extra;
+    [rec, fixed, flags, extra] = snapshot.fix(rec, unsure);
+    for (const [f, [old, nw, why]] of Object.entries(fixed)) { orange.add(f); notes.push(old !== nw ? `${f.toUpperCase()} ${old}→${nw}（${why}）` : `${f.toUpperCase()} ${why}`); }
     for (const [f, why] of Object.entries(flags)) { red.add(f); notes.push(why); }
+    Object.assign(alts, extra.alts);
+    Object.assign(ctx, extra.ctx);
   }
+  const disputed = { ...(rec.disputed || {}) };   // 几遍认得不一样的字段（数据库对上的已经拿掉了）
+  const valid = snapshot && snapshot.setterIds.size ? snapshot.setterIds : null;   // 有公司数据才把工号关
   for (const f of FIELDS) {
     const raw = rec[f] || '';
     let v = raw;
-    if (f === 'date' && raw) {
+    if (f === 'date' && raw) {              // 认不成日期才标红（Song 2026-11-01；认成别的日子照旧不管）
       const d = parseDate(raw, today);
-      if (d) v = d;                         // 日期从不标红（Song 定的：错了无所谓），认不出就照原样写
+      if (d) v = d; else { red.add(f); notes.push(`DATE ${raw} 认不成日期`); ctx.date = { raw }; }
     } else if (NUM_FIELDS.has(f) && raw) {
       const n = toInt(raw);
       if (n === null) { red.add(f); notes.push(`${f.toUpperCase()} 不是数字：${raw}`); } else v = n;
@@ -668,29 +1043,26 @@ export function assessRecord(rec, { snapshot = null, names = [], today = new Dat
     } else if (f === 'shift' && raw) {
       v = normShift(raw);
       if (v !== 'D' && v !== 'N') { red.add(f); notes.push(`SHIFT 不是 D/N：${raw}`); }
-    } else if (f === 'setter' && raw) {
-      // SETTER 照单子抄；只有工号里有看不清的字（□）而名单能唯一补上时才补
-      if (raw.includes('□') && names.length) {
-        const mm = raw.match(/^\s*([0-9□]+)(.*)$/);
-        if (mm && mm[1].includes('□')) {
-          const re = new RegExp('^' + mm[1].replace(/□/g, '\\d') + '$');
-          const hit = names.filter(([n]) => re.test(n)).map(([n]) => n);
-          if (hit.length === 1) { v = hit[0] + mm[2]; notes.push(`SETTER 看不清的工号按名单补成 ${hit[0]}`); }
-        }
-      }
+    } else if (f === 'setter' && raw && (names.length || valid)) {
+      // 号对上自动对名字；有公司数据时，名单上、公司表里都没有的工号标红，列出长得像的（Song 2026-11-01）
+      const [val, look, why, cands, read] = setterCheck(raw, names, valid, disputed.setter || [], snapshot ? snapshot.setterCount : null);
+      v = val;
+      if (look !== 'ok') { delete disputed.setter; (look === 'red' ? red : orange).add(f); }
+      if (why) notes.push(why + (look === 'red' ? say(cands) : ''));
+      if (cands.length && look === 'red') alts[f] = cands;
+      if (read) ctx.setter = { base: why, cands };
     }
-    if (typeof v === 'string' && v.includes('□') && !NEVER_RED.has(f)) { red.add(f); notes.push(`${f.toUpperCase()} 有看不清的字`); }
+    if (typeof v === 'string' && v.includes('□') && !NEVER_RED.has(f) && !red.has(f)) { red.add(f); notes.push(`${f.toUpperCase()} 有看不清的字`); }
     values[f] = v;
   }
   // 换刀调试单上没有 BTMP：照公司那本的规矩抄 TOTAL SCREENED（那本里这两格每行都一样，Song 定的）
   if (values.btmp === '' && Number.isInteger(values.total_screened)) values.btmp = values.total_screened;
   if (rec.single) notes.push('只认成了一遍，没能对答案');
   if (rec.counts) notes.push('几遍认出的条数不一样（' + rec.counts.join(' / ') + ' 条），按多数定');
-  const alts = {};                            // 几遍认出来的不同写法：核对时点一下就填上
-  for (const f of FIELDS) {
-    if (f in disputed && !orange.has(f) && !NEVER_RED.has(f)) {
+  for (const f of FIELDS) {                 // 几遍认出来的不同写法：核对时点一下就填上
+    if (f in disputed && !orange.has(f) && !NEVER_RED.has(f) && !red.has(f)) {
       red.add(f); notes.push(`${f.toUpperCase()} 几遍认得不一样：` + disputed[f].join(' / '));
-      alts[f] = disputed[f].filter((v) => v !== '空');
+      if (!(f in alts)) alts[f] = disputed[f].filter((x) => x !== '空');
     }
   }
   for (const f of FIELDS) {
@@ -701,7 +1073,83 @@ export function assessRecord(rec, { snapshot = null, names = [], today = new Dat
     ['total_screened', 'passed', 'failed'].forEach((f) => red.add(f));
     notes.push(`PASSED ${p} + FAILED ${fl} ≠ TOTAL ${t}`);
   }
-  return { values, red: [...red], orange: [...orange], notes: notes.join('；'), alts };
+  for (const f of red) orange.delete(f);
+  return { values, red: [...red], orange: [...orange], notes: notes.join('；'), alts, ctx };
+}
+
+// 一批里的单子互相看一眼（Song 2026-11-01），原地改 rows（人动过的那条不碰）：
+// 机台公司没有、又没法按长相猜准的：这批同一个 MO（其次同一个零件）的单子写的是哪台，就是哪台；
+// 日期认不成的：列出这批别的单子写的日期；工号名单上没有的：同一个 MO 的单子是谁，排在候选最前面
+export function settle(rows) {
+  const recs = rows.filter((r) => r && r.kind === 'rec' && r.values);
+  if (!recs.some((r) => r.ctx && Object.keys(r.ctx).length && !(r.human || []).length)) return rows;
+  const moOf = (r) => String(r.values.mo ?? '').trim();
+  const has = (arr, f) => (arr || []).includes(f);
+  const top = (m) => {
+    if (!m) return null;
+    const e = [...m.entries()].sort((a, b) => b[1] - a[1]);
+    return e.length && (e.length === 1 || e[0][1] > e[1][1]) ? e[0][0] : null;
+  };
+  const byMo = new Map(), byPart = new Map();
+  const add = (map, k, v) => { if (!map.has(k)) map.set(k, new Map()); bump(map.get(k), v); };
+  for (const r of recs) {
+    const m = r.values.machine;
+    if (!m || (r.ctx && r.ctx.machine) || has(r.red, 'machine')) continue;
+    if (moOf(r)) add(byMo, moOf(r), m);
+    if (r.values.part_number) add(byPart, r.values.part_number, m);
+  }
+  const dates = new Map();
+  for (const r of recs) {
+    const d = r.values.date;
+    if (!d || typeof d !== 'object' || has(r.red, 'date')) continue;
+    const k = `${d.y}-${d.m}-${d.d}`;
+    const e = dates.get(k) || [0, d];
+    e[0]++;
+    dates.set(k, e);
+  }
+  const dateCands = [...dates.values()].sort((a, b) => b[0] - a[0]).slice(0, 3).map(([, d]) => showValue(d));
+  for (const r of recs) {
+    const ctx = r.ctx || {};
+    if (!Object.keys(ctx).length || (r.human || []).length) continue;
+    let notes = String(r.notes || '').split('；').filter(Boolean);
+    const put = (prefix, piece) => { notes = notes.filter((n) => !n.startsWith(prefix)); notes.push(piece); };
+    r.alts = r.alts || {};
+    if (ctx.machine) {
+      const { read, guess, cands } = ctx.machine;
+      let ev = moOf(r) ? top(byMo.get(moOf(r))) : null;
+      let why = ev ? `这批同一个 MO 的单子是 ${ev}` : '';
+      if (!ev && r.values.part_number) { ev = top(byPart.get(r.values.part_number)); why = ev ? `这批同一个零件的单子是 ${ev}` : ''; }
+      delete r.alts.machine;
+      const val = ev || guess;
+      if (val) {
+        r.values.machine = val;
+        r.red = r.red.filter((f) => f !== 'machine');
+        r.orange = uniq([...r.orange, 'machine']);
+        put('MACHINE ', `MACHINE ${read}→${val}（公司没有 ${read}，${why || '按长得像猜的'}）`);
+      } else {
+        r.values.machine = read;
+        r.orange = r.orange.filter((f) => f !== 'machine');
+        r.red = uniq([...r.red, 'machine']);
+        put('MACHINE ', `MACHINE ${read} 公司没有这台机` + say(cands));
+        if (cands.length) r.alts.machine = [...cands];
+      }
+    }
+    if (ctx.date) {
+      put('DATE ', `DATE ${ctx.date.raw} 认不成日期` + say(dateCands));
+      delete r.alts.date;
+      if (dateCands.length) r.alts.date = dateCands;
+    }
+    if (ctx.setter) {
+      const mates = recs.filter((r2) => r2 !== r && moOf(r) && moOf(r2) === moOf(r) && r2.values.setter
+        && !(r2.ctx && r2.ctx.setter) && !has(r2.red, 'setter')).map((r2) => r2.values.setter);
+      const cands = uniq([...mates, ...ctx.setter.cands]).slice(0, 4);
+      put('SETTER ', ctx.setter.base + say(cands));
+      delete r.alts.setter;
+      if (cands.length) r.alts.setter = cands;
+    }
+    r.notes = notes.join('；');
+  }
+  return rows;
 }
 
 // 格子显示成字（核对、复制整行用）
@@ -1068,18 +1516,25 @@ export function assessTableRecord(rec, columns, snapshot = null) {
 export const HUMAN_NOTE = '✓ 人核过';
 const SUM = ['total_screened', 'passed', 'failed'];
 
-// 红格子的候选：几遍认出来的不同写法。老批次没存候选，就从核对提示里抠出来。
+// 红格子的候选：几遍认出来的不同写法，名单、机台表、工序表、这批别的单子给的「可能是」。老批次没存候选，就从核对提示里抠出来。
 export function altsOf(row, key, cat = BUILTIN) {
   const have = row.alts && row.alts[key];
   if (have && have.length) return [...have];
   const label = cat === BUILTIN ? key.toUpperCase() : key;
-  const esc = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const m = String(row.notes || '').match(new RegExp(`(?:^|；)${esc} 几遍认得不一样：([^；]+)`));
-  return m ? m[1].split(' / ').map((v) => v.trim()).filter((v) => v && v !== '空') : [];
+  const out = [];
+  for (const piece of String(row.notes || '').split('；')) {
+    const head = `${label} 几遍认得不一样：`;
+    let tail = null;
+    if (cat === BUILTIN && piece.startsWith(label + ' ') && piece.includes('可能是：')) tail = piece.split('可能是：')[1];
+    else if (piece.startsWith(head)) tail = piece.slice(head.length).split(/[，（]/)[0];
+    if (tail === null) continue;
+    for (const v of tail.split(' / ').map((x) => x.trim())) if (v && v !== '空' && !out.includes(v)) out.push(v);
+  }
+  return out;
 }
 
 // 人打的字变成表里该有的样子：规矩跟认出来时一样（日期按这批的年份、数字变数字、班次变 D/N、零件号去空格大写）
-export function editValue(key, text, { cat = BUILTIN, orig = undefined, today = new Date() } = {}) {
+export function editValue(key, text, { cat = BUILTIN, orig = undefined, today = new Date(), names = [] } = {}) {
   const t = String(text ?? '').replace(/\s+/g, ' ').trim();
   if (!t) return '';
   if (cat === BUILTIN) {
@@ -1088,7 +1543,11 @@ export function editValue(key, text, { cat = BUILTIN, orig = undefined, today = 
     if (key === 'shift') return normShift(t);
     if (key === 'machine' || key === 'part_number') return t.replace(/\s+/g, '').replace(DASHES, '-').toUpperCase();
     if (key === 't_no' || key === 'description') return t.replace(DIAMETER, 'Φ').toUpperCase();
-    if (key === 'setter') return t.replace(/\s*\/\s*/g, '/');
+    if (key === 'setter') {                  // 只打了工号、名单上有这个人：补成「工号/名字」
+      const v = t.replace(/\s*\/\s*/g, '/');
+      const who = new Map(names.map(([n, nm]) => [String(n), nm]));
+      return who.has(v) ? `${v}/${who.get(v)}` : v;
+    }
     return t;
   }
   if (typeof orig === 'number') {
@@ -1116,7 +1575,7 @@ function typedProblem(key, v) {
 
 // 核对一格：给了 text 就改成它，没给就是「对的」（照原样，只把红去掉）。改过的格子记进 human，表里染成淡绿。
 // 这一格的核对提示跟着删；红格子全处理完，提示换成「✓ 人核过」。
-export function checkCell(row, key, { text = undefined, cat = BUILTIN, today = new Date() } = {}) {
+export function checkCell(row, key, { text = undefined, cat = BUILTIN, today = new Date(), roster = [] } = {}) {
   const builtin = cat === BUILTIN;
   const keys = builtin ? FIELDS : uniq([...Object.keys(row.values || {}), key]);
   const name = (k) => (builtin ? k.toUpperCase() : k);
@@ -1124,7 +1583,7 @@ export function checkCell(row, key, { text = undefined, cat = BUILTIN, today = n
   let bad = null;
   if (text !== undefined) {
     const oldT = row.values.total_screened, oldB = row.values.btmp;
-    const v = row.values[key] = editValue(key, text, { cat, orig: row.values[key], today });
+    const v = row.values[key] = editValue(key, text, { cat, orig: row.values[key], today, names: roster });
     if (builtin) bad = typedProblem(key, v);
     // BTMP 是照 TOTAL SCREENED 抄的（空着或者跟它一样）：TOTAL 改了它跟着改；单子上真写了别的数就不动
     if (builtin && key === 'total_screened' && (oldB === '' || oldB == null || oldB === oldT)) {

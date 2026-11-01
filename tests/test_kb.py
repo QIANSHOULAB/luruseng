@@ -86,10 +86,10 @@ def rec(**kw):
 
 def test_fix_confusable_and_near_values(tmp_path):
     s = snapshot(tmp_path)
-    out, fixed, flags = s.fix(rec(machine='VM-O7', part_number='TD-S24613-5', description='EM2.S'))
+    out, fixed, flags, _ = s.fix(rec(machine='VM-O7', part_number='TD-S24613-5', description='EM2.S'))
     assert out['machine'] == 'VM-07' and out['part_number'] == 'TD-524613-5' and out['description'] == 'EM2.5'
     assert set(fixed) == {'machine', 'part_number', 'description'} and not flags
-    out, fixed, flags = s.fix(rec(machine='4X-16'))              # 只是大小写不同：直接用库里的写法，不算改
+    out, fixed, flags, _ = s.fix(rec(machine='4X-16'))              # 只是大小写不同：直接用库里的写法，不算改
     assert out['machine'] == '4x-16' and not fixed and not flags
 
 
@@ -101,20 +101,20 @@ def test_no_part_based_history_flags(tmp_path):
               rec(opr_no='170'),                                        # 这个零件以前没这道工序：不管
               rec(part_number='XY-0001'),                               # 没见过的零件：不管
               rec(mo='82666999')):
-        out, fixed, flags = s.fix(r)
+        out, fixed, flags, _ = s.fix(r)
         assert not flags and not fixed and out['mo'] == r['mo']
-    out, _, flags = s.fix(rec(part_number='XY-0001'))
+    out, _, flags, _ = s.fix(rec(part_number='XY-0001'))
     assert out['part_number'] == 'XY-0001'
-    _, _, flags = s.fix(rec(machine='ZZ-99', description='QQ7'))         # 没见过、但认得清：不标
+    _, _, flags, _ = s.fix(rec(machine='ZZ-99', description='QQ7'))         # 没见过、但认得清：不标
     assert not flags
-    _, _, flags = s.fix(rec(machine='ZZ-99', description='QQ7'), unsure={'machine'})   # 没见过、又拿不准：标红
+    _, _, flags, _ = s.fix(rec(machine='ZZ-99', description='QQ7'), unsure={'machine'})   # 没见过、又拿不准：标红
     assert '模型也拿不准：ZZ-99' in flags['machine'] and 'description' not in flags
 
 
 def test_empty_db_changes_nothing(tmp_path):
     s = kb.KnowledgeBase(str(tmp_path / 'db.sqlite')).load()
     r = rec(machine='ZZ-99')
-    assert s.fix(r) == (r, {}, {}) and s.hints() == ''
+    assert s.fix(r) == (r, {}, {}, {'alts': {}, 'ctx': {}}) and s.hints() == ''
 
 
 def test_engine_uses_db_marks_orange_and_feeds_folder(tmp_path):
@@ -167,7 +167,7 @@ def test_unsure_drives_red(tmp_path):
     company_book(feed / 'c.xlsx')
     roster = tmp_path / '名单.txt'
     roster.write_text('639/Lee Ah Kow\n', encoding='utf-8')
-    for mode, want_red in (('unsure', {3, 9, 14}), ('newsure', set())):
+    for mode, want_red in (('unsure', {3, 9, 14}), ('newsure', {14})):
         imgs = tmp_path / f'in_{mode}'
         make_images(imgs, 1)
         mock_server.STATE['modes'] = {K1: mode}
@@ -178,7 +178,7 @@ def test_unsure_drives_red(tmp_path):
         assert red == want_red, (mode, red)
         note = ws.cell(row=4, column=15).value or ''
         if mode == 'unsure':
-            assert '模型也拿不准：VM-99' in note and 'BTMP 模型拿不准' in note and 'SETTER 模型拿不准' in note
+            assert '模型也拿不准：VM-99' in note and 'BTMP 模型拿不准' in note and 'SETTER 777 名单上没有' in note
             assert 'QQ7' not in note                                   # 描述没见过但认得清：不提
         else:
-            assert note == ''                                          # 全认得清：一个红都没有
+            assert note == 'SETTER 777 名单上没有'                       # 别的都认得清；工号名单上、公司表里都没有：标红（Song 2026-11-01）

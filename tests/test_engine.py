@@ -169,10 +169,10 @@ def test_unclear_chars_bad_date_bad_shift(tmp_path):
     res, _, _ = run(tmp_path)
     ws = sheet(res.xlsx)
     assert ws.cell(row=4, column=14).value == '6□9/Lee Ah Kow' and ws.cell(row=4, column=14).fill.fgColor.rgb.endswith('FFC7CE')
-    assert ws.cell(row=4, column=2).value == '3□/10' and not ws.cell(row=4, column=2).fill.fgColor.rgb.endswith('FFC7CE')  # 日期不标红
+    assert ws.cell(row=4, column=2).value == '3□/10' and ws.cell(row=4, column=2).fill.fgColor.rgb.endswith('FFC7CE')  # 认不成日期：标红（Song 2026-11-01）
     assert ws.cell(row=4, column=13).fill.fgColor.rgb.endswith('FFC7CE')
     note = ws.cell(row=4, column=15).value
-    assert 'DATE' not in note and '日期' not in note and 'SHIFT 不是 D/N' in note and 'SETTER 有看不清的字' in note
+    assert 'DATE 3□/10 认不成日期' in note and 'SHIFT 不是 D/N' in note and 'SETTER 有看不清的字' in note
     assert ws.title == 'RECORD'                                            # 没有认得出的日期就不按月份起名
 
 
@@ -436,18 +436,25 @@ def test_stamp_follows_exif_rotation_and_shrinks_huge_photos(tmp_path):
 NAMES = [('639', 'Lee Ah Kow'), ('535', 'RAJ KUMAR'), ('552', 'ARJUN MENON'), ('232', 'ZHANG WEI')]
 
 
-def test_match_setter_rules():
-    m = lambda raw: engine.match_setter(raw, NAMES)
-    assert m('535') == ('535/RAJ KUMAR', '', False)                       # 只写工号：补名字
-    assert m('535/Raj') == ('535/RAJ KUMAR', '', False)               # 名字潦草：按名单
-    assert m('639 Lee A Kow') == ('639/Lee Ah Kow', '', False)
-    v, note, red = m('ARJUN MENON')                                     # 只写名字：补工号，标红让你看
-    assert v == '552/ARJUN MENON' and red and '工号补成 552' in note
-    v, note, red = m('535/ZHANG WEI')                                            # 工号和名字对不上
-    assert v == '535/ZHANG WEI' and red and '工号 535 在名单上是 RAJ KUMAR' in note
-    v, note, red = m('999/NOBODY HERE')
-    assert v == '999/NOBODY HERE' and red and note == 'SETTER 不在名单里'
-    assert engine.match_setter('535', []) == ('535', '', False)                 # 没名单：照抄
+def test_setter_check_rules():
+    """号对上自动对名字；有公司数据时名单上没有的工号标红、列出长得像的（Song 2026-11-01）。"""
+    m = lambda raw, valid=None, reads=(): engine.setter_check(raw, NAMES, valid, reads)
+    assert m('535') == ('535/RAJ KUMAR', 'ok', '', [], '')                     # 只写工号：补名字
+    assert m('535/Raj') == ('535/RAJ KUMAR', 'ok', '', [], '')                 # 名字潦草：按名单
+    assert m('639 Lee A Kow')[:2] == ('639/Lee Ah Kow', 'ok')
+    v, look, why, _, _ = m('ARJUN MENON')                                       # 只写名字：补工号，标橙看一眼
+    assert v == '552/ARJUN MENON' and look == 'fixed' and '工号补成 552' in why
+    v, look, why, cands, _ = m('535/ZHANG WEI')                                 # 工号和名字对不上
+    assert v == '535/ZHANG WEI' and look == 'red' and '工号 535 在名单上是 RAJ KUMAR' in why and cands == ['535/RAJ KUMAR']
+    assert m('999/NOBODY HERE')[:2] == ('999/NOBODY HERE', 'ok')                # 没有公司数据：名单外的照抄、不标
+    valid = {'639', '535', '552', '232', '9471', '9491', '9641', '9777'}
+    v, look, why, cands, read = m('9441', valid)                                # 有公司数据：名单外的标红，带横的 7 排最前
+    assert (v, look, read) == ('9441', 'red', '9441') and why == 'SETTER 9441 名单上没有'
+    assert cands == ['9471', '9491', '9641']
+    assert m('9777', valid) == ('9777', 'ok', '', [], '')                       # 公司表里出现过、名单上没名字：照抄
+    v, look, why, _, _ = m('9441', valid, reads=('9441', '9491'))               # 几遍认得不一样、只有一个在名单上：就是它
+    assert (v, look) == ('9491', 'fixed') and '名单上只有 9491' in why
+    assert engine.setter_check('535', []) == ('535', 'ok', '', [], '')          # 没名单：照抄
 
 
 def test_roster_goes_into_prompt_and_fixes_setter(tmp_path):

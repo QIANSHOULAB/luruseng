@@ -133,7 +133,17 @@ function fillCats(sel, value) {
   for (const c of S.cats) sel.add(new Option(c, c));
   sel.value = S.cats.includes(value) ? value : C.BUILTIN;
 }
-async function kbDb() { return (await S.st.get('kv', 'kb')) || { records: [], people: [] }; }
+async function kbDb() {
+  const kb = (await S.st.get('kv', 'kb')) || { records: [], people: [] };
+  kb.lists = kb.lists || {};                    // 机台表、工序表（v1.11 起才有）
+  return kb;
+}
+async function roster() {                      // 名单：名单文本加上数据库里认识的人（核对里 SETTER 只打工号，照这个补名字）
+  const names = C.parseNames(await namesText());
+  const have = new Set(names.map(([n]) => n));
+  for (const [n, nm] of (await kbDb()).people) if (!have.has(n) && !C.isShiftWord(nm)) { have.add(n); names.push([n, nm]); }
+  return names;
+}
 async function catDb(name) { return (await S.st.get('cats', name)) || { columns: [], records: [], created: Date.now() }; }
 async function namesText() { return (await S.st.get('kv', 'names')) || ''; }
 
@@ -393,7 +403,7 @@ async function rules(cat) {                    // 拿数据库当准绳
   let spec = null, snapshot = null, names = C.parseNames(await namesText()), hints = '', what;
   if (cat === C.BUILTIN) {
     const kb = await kbDb();
-    snapshot = kb.records.length || kb.people.length ? new C.Snapshot(kb.records, kb.people) : null;
+    snapshot = kb.records.length || kb.people.length || Object.keys(kb.lists).length ? new C.Snapshot(kb.records, kb.people, kb.lists) : null;
     if (snapshot) {
       hints = snapshot.hints();
       const have = new Set(names.map(([n]) => n));
@@ -543,6 +553,7 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
           }
           C.placeRows(run.rows, recs.length ? recs.map((rec) => ({ no: it.no, ...assess(rec) }))
             : [{ no: it.no, kind: 'blank', fill: 'red', note: spec ? `这张照片里没认出「${cat}」的记录` : '这张照片里没认出刀具破损记录' }]);
+          if (!spec) C.settle(run.rows);               // 这批里互相看一眼：同一个 MO 的机台、别的单子的日期、同一个 MO 的调试员
           if (stamped) {
             try {
               await S.st.put('photos', `${id}/${it.no}`, stamped);
@@ -987,7 +998,7 @@ function openCell(dl, dd, rec, k, f, label) {
 
 async function saveCell(rec, k, f, label, text) {
   const before = C.showValue(rec.values[f]);
-  C.checkCell(rec, f, { text, cat: V.run.cat, today: runDay(V.run) });
+  C.checkCell(rec, f, { text, cat: V.run.cat, today: runDay(V.run), roster: V.run.cat === C.BUILTIN ? await roster() : [] });
   const after = C.showValue(rec.values[f]);
   try { await S.st.put('runs', V.run.id, V.run); } catch (e) { $('#vinfo').textContent = `✗ 存不下：${e.message}`; return; }
   const still = (rec.red || []).includes(f);

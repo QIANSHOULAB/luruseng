@@ -31,7 +31,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-VERSION = '1.10.4'
+VERSION = '1.11.0'
 APP_NAME = '录入僧'
 SUBTITLE = '施主去玩，贫僧填表'
 TITLE = '入我千手院，凡事尽释手；千僧替牛马，施主自风流。'      # 窗口标题栏只写这一句（Song 定的）
@@ -92,6 +92,7 @@ PROMPT = """你是工厂的刀具破损记录（TOOL BROKEN RECORD）录入员�
 - 单子上没写的字段填空字符串。
 - 印刷的栏目名（DATE、MACHINE 之类）不是内容，不要抄进值里。
 - 分清 0 和 O、1 和 I、5 和 S、8 和 B：数字字段只会是数字；机台和零件号照上面例子的样子判断。
+- 手写的 7 常在中间加一横，横还可能拉得很长、碰到旁边的字：顶上有一横或一个小钩、中间再一横的是 7，不是 4（顶上开口的才是 4）；横碰到后面的 1 时，别把 7 和 1 拼成一个 H。
 - 被划掉、涂掉作废的内容不要。
 - 图片歪斜或横着拍的，按正确方向读。
 - unsure：每条记录里你拿不准的字段名（字迹潦草、被挡住、反光、可能看错的），只列真拿不准的；全都看得清就给空数组。
@@ -300,28 +301,129 @@ def _sim(a: str, b: str) -> float:
     return difflib.SequenceMatcher(None, a, b).ratio()
 
 
-def match_setter(raw: str, names: list[tuple[str, str]]) -> tuple[str, str, bool]:
-    """按名单把 SETTER 补全/纠正成「工号/名字」。返回 (值, 提示, 要不要标红)。"""
+def split_setter(x: str) -> tuple[str, str]:
+    """「556」「556/Lee Ah Kow」「Lee Ah Kow」→ (工号, 名字)。"""
+    m = re.match(r'^\s*([0-9□]+)\s*(?:[/／\-\s]\s*(.*))?$', x or '')
+    return (m.group(1), (m.group(2) or '').strip()) if m else ('', (x or '').strip())
+
+
+def say(cands) -> str:
+    """红格子后面接一句「可能是：A / B」：核对时这几个就是候选，点一下就填。"""
+    return f'，可能是：{" / ".join(cands)}' if cands else ''
+
+
+def setter_check(raw: str, names, valid=None, reads=(), counts=None):
+    """SETTER 按名单对（Song 2026-11-01）：工号对上就自动写成名单上的「工号/名字」，跟公司表那一列的下拉单一个样。
+    有公司数据（valid：名单上的 + 公司表里出现过的工号）才把关：工号哪儿都没有就标红，列出长得像的工号。
+    reads：几遍认出来的不同写法。返回 (值, 'ok' / 'fixed' / 'red', 提示, 候选, 名单外的工号)。"""
+    from .kb import close_codes, uniq
     t = (raw or '').strip()
-    if not names or not t:
-        return raw, '', False
-    mm = re.match(r'^\s*([0-9□]+)\s*[/／\-\s]?\s*(.*)$', t)
-    num, nm = (mm.group(1), mm.group(2).strip()) if mm else ('', t)
-    by_num = dict(names)
-    if num.isdigit() and num in by_num:
-        canon = f'{num}/{by_num[num]}'
-        if not nm or _sim(nm, by_num[num]) >= 0.5:
-            return canon, '', False
-        return raw, f'SETTER 工号 {num} 在名单上是 {by_num[num]}，单子上名字是「{nm}」', True
-    best = max(names, key=lambda x: _sim(nm, x[1]))
-    if nm and _sim(nm, best[1]) >= 0.75:
-        canon = f'{best[0]}/{best[1]}'
-        if num == best[0]:
-            return canon, '', False
-        if '□' in num and re.fullmatch(num.replace('□', r'\d'), best[0]):      # 工号有个字看不清，名字对得上：按名单补
-            return canon, f'SETTER 看不清的工号按名单补成 {best[0]}', False
-        return canon, f'SETTER 按名字对上名单，工号补成 {best[0]}（单子上：{t}）', True
-    return raw, 'SETTER 不在名单里', True
+    roster = {str(n): nm for n, nm in names}
+    known = set(roster) | set(valid or ())
+    if not t or not known:
+        return raw, 'ok', '', [], ''
+
+    def full(n):
+        return f'{n}/{roster[n]}' if n in roster else n
+    num, nm = split_setter(t)
+    seen = uniq([x.strip() for x in (t, *reads) if x and x.strip() and x != '空'])
+    if len(seen) > 1:                                   # 几遍认得不一样：只有一个工号是名单上的，就是它
+        good = uniq([n for n in (split_setter(x)[0] for x in seen) if n in known])
+        if len(good) == 1:
+            return full(good[0]), 'fixed', f'SETTER 几遍认得不一样：{" / ".join(seen)}，名单上只有 {good[0]}', [], ''
+        if len(good) > 1:
+            return (full(num) if num in known else t), 'red', f'SETTER 几遍认得不一样：{" / ".join(seen)}', \
+                [full(n) for n in good], ''
+    if num and '□' not in num:
+        if num in roster:
+            if nm and _sim(nm, roster[num]) < 0.5:
+                return t, 'red', f'SETTER 工号 {num} 在名单上是 {roster[num]}，单子上名字是「{nm}」', [full(num)], ''
+            return full(num), 'ok', '', [], ''          # 号对上自动对名字
+        if num in known or valid is None:               # 公司表里出现过、名单上没写名字；或者没有公司数据：照抄
+            return t, 'ok', '', [], ''
+        nums = uniq([num] + [n for n in (split_setter(x)[0] for x in seen) if n and '□' not in n])
+        cands = uniq([full(c) for n in nums for c in close_codes(n, known, counts)])[:4]
+        return t, 'red', f'SETTER {num} 名单上没有' + (f'（几遍认的：{" / ".join(seen)}）' if len(seen) > 1 else ''), \
+            cands, num
+    if num:                                             # 工号里有看不清的字：名单能唯一补上就补
+        hit = sorted(n for n in known if re.fullmatch(num.replace('□', r'\d'), n))
+        if len(hit) == 1:
+            return full(hit[0]), 'ok', f'SETTER 看不清的工号按名单补成 {hit[0]}', [], ''
+        return t, 'red', 'SETTER 有看不清的字', [full(n) for n in hit[:4]], ''
+    if roster:                                          # 只写了名字
+        best = max(roster.items(), key=lambda kv: _sim(nm, kv[1]))
+        if _sim(nm, best[1]) >= 0.75:
+            return full(best[0]), 'fixed', f'SETTER 按名字对上名单，工号补成 {best[0]}', [], ''
+    if valid is None:
+        return t, 'ok', '', [], ''
+    return t, 'red', f'SETTER {nm} 名单上没有', [], ''
+
+
+def settle(rows: list[dict], show=str) -> None:
+    """一批里的单子互相看一眼（Song 2026-11-01）。rows：每条 {'values', 'red', 'orange', 'notes'(列表), 'alts', 'ctx'}，原地改；人动过的那条不碰。
+    机台公司没有、又没法按长相猜准的：这批同一个 MO（其次同一个零件）的单子写的是哪台，就是哪台；
+    日期认不成的：列出这批别的单子写的日期；工号名单上没有的：同一个 MO 的单子是谁，排在候选最前面。"""
+    from .kb import uniq
+
+    def mo_of(r):
+        return str(r['values'].get('mo') or '').strip()
+
+    def top(c):
+        best = c.most_common(2) if c else []
+        return best[0][0] if best and (len(best) == 1 or best[0][1] > best[1][1]) else None
+    by_mo, by_part = {}, {}
+    for r in rows:
+        m = r['values'].get('machine')
+        if m and 'machine' not in r['ctx'] and 'machine' not in r['red']:
+            if mo_of(r):
+                by_mo.setdefault(mo_of(r), Counter())[m] += 1
+            if r['values'].get('part_number'):
+                by_part.setdefault(r['values']['part_number'], Counter())[m] += 1
+    dates = Counter(r['values']['date'] for r in rows
+                    if r['values'].get('date') and not isinstance(r['values']['date'], str) and 'date' not in r['red'])
+    for r in rows:
+        ctx = r['ctx']
+        if not ctx or r.get('human'):                   # 人动过的那条不碰
+            continue
+        if 'machine' in ctx:
+            c, read = ctx['machine'], ctx['machine']['read']
+            ev = top(by_mo.get(mo_of(r))) if mo_of(r) else None
+            why = f'这批同一个 MO 的单子是 {ev}' if ev else ''
+            if not ev and r['values'].get('part_number'):
+                ev = top(by_part.get(r['values']['part_number']))
+                why = f'这批同一个零件的单子是 {ev}' if ev else ''
+            r['notes'] = [n for n in r['notes'] if not n.startswith('MACHINE ')]
+            r['alts'].pop('machine', None)
+            val = ev or c['guess']
+            if val:
+                r['values']['machine'] = val
+                r['red'].discard('machine')
+                r['orange'].add('machine')
+                r['notes'].append(f'MACHINE {read}→{val}（公司没有 {read}，{why or "按长得像猜的"}）')
+            else:
+                r['values']['machine'] = read
+                r['orange'].discard('machine')
+                r['red'].add('machine')
+                r['notes'].append(f'MACHINE {read} 公司没有这台机' + say(c['cands']))
+                if c['cands']:
+                    r['alts']['machine'] = list(c['cands'])
+        if 'date' in ctx:
+            cands = [show(d) for d, _ in dates.most_common(3)]
+            r['notes'] = [n for n in r['notes'] if not n.startswith('DATE ')]
+            r['notes'].append(f'DATE {ctx["date"]["raw"]} 认不成日期' + say(cands))
+            r['alts'].pop('date', None)
+            if cands:
+                r['alts']['date'] = cands
+        if 'setter' in ctx:
+            c = ctx['setter']
+            mates = [r2['values']['setter'] for r2 in rows if r2 is not r and mo_of(r) and mo_of(r2) == mo_of(r)
+                     and r2['values'].get('setter') and 'setter' not in r2['ctx'] and 'setter' not in r2['red']]
+            cands = uniq([*mates, *c['cands']])[:4]
+            r['notes'] = [n for n in r['notes'] if not n.startswith('SETTER ')]
+            r['notes'].append(c['base'] + say(cands))
+            r['alts'].pop('setter', None)
+            if cands:
+                r['alts']['setter'] = cands
 
 
 # ---------------------------------------------------------------- API
@@ -623,6 +725,7 @@ RED_FONT = Font(name='Calibri', size=11, color='9C0006')
 GREY_FILL = PatternFill('solid', fgColor='EDEDED')
 ORANGE_FILL = PatternFill('solid', fgColor='FCE4D6')      # 按数据库改过的格子
 ORANGE_FONT = Font(name='Calibri', size=11, color='833C0B')
+NO_FILL = PatternFill(fill_type=None)
 BASE_FONT = Font(name='Calibri', size=11)
 BOLD = Font(name='Calibri', size=11, bold=True)
 CENTER = Alignment(horizontal='center', vertical='center', wrap_text=True)
@@ -659,6 +762,10 @@ class RecordBook:
         self.named = False
         self.n_rows = 0
         self.photos = 0
+        self.meta: list[dict] = []                  # 写进去的每条记录：最后这批互相看一眼时要重画
+        has_people = kb is not None and bool(kb.setter_ids)
+        self.valid = set(kb.setter_ids) if has_people else None    # 有公司数据才把工号关
+        self.setter_counts = dict(kb.setter_count) if has_people else {}
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=14)
         t = put(ws, 1, 1, 'TOOL BROKEN RECORD')
         t.font = Font(name='Calibri', size=26)
@@ -732,29 +839,41 @@ class RecordBook:
         self._blank_row(no, f'未完成：{why}（照片还在待识别里，下次点开始会重干）', GREY_FILL)
 
     def _record_row(self, no: int, rec: dict):
-        ws, r = self.ws, self._next()
-        c = put(ws, r, COL_NO, no)
-        c.alignment, c.border, c.font = CENTER, BOX, BOLD
+        m = self.assess(rec)
+        m['r'], m['no'] = self._next(), no
+        self.meta.append(m)
+        if isinstance(m['values'].get('date'), datetime):
+            self._name_sheet(m['values']['date'])
+        self._paint(m)
+
+    def assess(self, rec: dict) -> dict:
+        """一条记录写进表之前：先拿数据库当准绳（橙），再查名单、数字、班次、日期、看不清的字、几遍不一样、模型拿不准（红）。
+        返回 {'values', 'red', 'orange', 'notes', 'alts': {红格子: 候选}, 'ctx': 等这批认完再看的}。"""
         notes, red, orange = [], set(), set()
-        values = {}
+        values, alts, ctx = {}, {}, {}
         unsure = set(rec.get('unsure') or ())       # 模型自己说拿不准的字段：认得清的不标，拿不准的才标
-        disputed = dict(rec.get('disputed') or {})   # 几遍认得不一样的字段
         if self.kb is not None:                     # 先拿数据库当准绳：像的改成库里的写法（橙）
-            rec, fixed, flags = self.kb.fix(rec, unsure)
+            rec, fixed, flags, extra = self.kb.fix(rec, unsure)
             for f, (old, new, why) in fixed.items():
                 orange.add(f)
-                notes.append(f'{f.upper()} {old}→{new}（{why}）')
+                notes.append(f'{f.upper()} {old}→{new}（{why}）' if old != new else f'{f.upper()} {why}')
             for f, why in flags.items():
                 red.add(f)
                 notes.append(why)
+            alts.update(extra['alts'])
+            ctx.update(extra['ctx'])
+        disputed = dict(rec.get('disputed') or {})   # 几遍认得不一样的字段（数据库对上的已经拿掉了）
         for f in FIELDS:
             raw = rec.get(f, '')
             v: object = raw
-            if f == 'date' and raw:                 # 日期从不标红（Song 定的：错了无所谓），认不出就照原样写
+            if f == 'date' and raw:                 # 认不成日期才标红（Song 2026-11-01；认成别的日子照旧不管）
                 d = parse_date(raw, self.today)
                 if d:
                     v = datetime(d.year, d.month, d.day)
-                    self._name_sheet(d)
+                else:
+                    red.add(f)
+                    notes.append(f'DATE {raw} 认不成日期')
+                    ctx['date'] = {'raw': raw}
             elif f in NUM_FIELDS and raw:
                 n = to_int(raw)
                 if n is None:
@@ -770,17 +889,20 @@ class RecordBook:
                 if v not in ('D', 'N'):
                     red.add(f)
                     notes.append(f'SHIFT 不是 D/N：{raw}')
-            elif f == 'setter' and raw:
-                # Song 定的：工号和名字有一个就知道是谁，SETTER 照单子抄，不补、不按名单标红。
-                # 只有工号里有看不清的字（□）而名单能唯一补上时才补。
-                if '□' in raw and self.names:
-                    mm = re.fullmatch(r'\s*([0-9□]+)(.*)', raw)
-                    if mm and '□' in mm.group(1):
-                        hit = [n for n, _ in self.names if re.fullmatch(mm.group(1).replace('□', r'\d'), n)]
-                        if len(hit) == 1:
-                            v = hit[0] + mm.group(2)
-                            notes.append(f'SETTER 看不清的工号按名单补成 {hit[0]}')
-            if isinstance(v, str) and '□' in v and f not in NEVER_RED:
+            elif f == 'setter' and raw and (self.names or self.valid):
+                # 号对上自动对名字；有公司数据时，名单上、公司表里都没有的工号标红，列出长得像的（Song 2026-11-01）
+                v, look, why, cands, read = setter_check(raw, self.names, self.valid, disputed.get('setter', ()),
+                                                         self.setter_counts)
+                if look != 'ok':
+                    disputed.pop('setter', None)
+                    (red if look == 'red' else orange).add(f)
+                if why:
+                    notes.append(why + (say(cands) if look == 'red' else ''))
+                if cands and look == 'red':
+                    alts[f] = cands
+                if read:
+                    ctx['setter'] = {'base': why, 'cands': cands}
+            if isinstance(v, str) and '□' in v and f not in NEVER_RED and f not in red:
                 red.add(f)
                 notes.append(f'{f.upper()} 有看不清的字')
             values[f] = v
@@ -791,9 +913,10 @@ class RecordBook:
         if rec.get('counts'):
             notes.append('几遍认出的条数不一样（' + ' / '.join(map(str, rec['counts'])) + ' 条），按多数定')
         for f in FIELDS:                            # 几遍认得不一样、又没被数据库改好的字段：标红
-            if f in disputed and f not in orange and f not in NEVER_RED:
+            if f in disputed and f not in orange and f not in NEVER_RED and f not in red:
                 red.add(f)
                 notes.append(f'{f.upper()} 几遍认得不一样：' + ' / '.join(disputed[f]))
+                alts.setdefault(f, [x for x in disputed[f] if x != '空'])
         for f in FIELDS:                            # 模型拿不准、又没被数据库改好的字段：标红
             if f in unsure and f not in red and f not in orange and f not in NEVER_RED:
                 red.add(f)
@@ -802,23 +925,43 @@ class RecordBook:
         if all(isinstance(x, int) for x in (t, p, fl)) and p + fl != t:
             red |= {'total_screened', 'passed', 'failed'}
             notes.append(f'PASSED {p} + FAILED {fl} ≠ TOTAL {t}')
+        return {'values': values, 'red': red, 'orange': orange - red, 'notes': notes, 'alts': alts, 'ctx': ctx}
+
+    def _paint(self, m: dict):
+        ws, r, values, red, orange = self.ws, m['r'], m['values'], m['red'], m['orange']
+        c = put(ws, r, COL_NO, m['no'])
+        c.alignment, c.border, c.font = CENTER, BOX, BOLD
         for i, f in enumerate(FIELDS):
             cell = put(ws, r, COL_FIRST + i, values[f] if values[f] != '' else None)
-            cell.border, cell.font = BOX, BASE_FONT
+            cell.border, cell.font, cell.fill = BOX, BASE_FONT, NO_FILL
             cell.alignment = LEFT if f in LEFT_FIELDS else CENTER
-            if f == 'date' and isinstance(values[f], datetime):
-                cell.number_format = 'd-mmm'
+            cell.number_format = 'd-mmm' if f == 'date' and isinstance(values[f], datetime) else 'General'
             if f == 'btmp':
                 cell.fill = YELLOW
             if f in orange:
                 cell.fill, cell.font = ORANGE_FILL, ORANGE_FONT
             if f in red:
                 cell.fill, cell.font = RED_FILL, RED_FONT
-        if notes:
-            n = put(ws, r, COL_NOTE, '；'.join(notes))
+        if m['notes']:
+            n = put(ws, r, COL_NOTE, '；'.join(m['notes']))
             n.font, n.alignment = (RED_FONT if red else ORANGE_FONT), LEFT
+            m['noted'] = True
+        elif m.get('noted'):                        # 这批互相看过以后提示没了：格子还原成空白
+            n = ws.cell(row=r, column=COL_NOTE)
+            n.value, n.style = None, 'Normal'
+            m['noted'] = False
+
+    def _settle(self):
+        """这批里互相看一眼（见 settle）：机台、日期、工号的提示跟着改，改过的行重画。"""
+        if not any(m['ctx'] for m in self.meta):
+            return
+        settle(self.meta, show=lambda d: f'{d.day}-{MONTH_TAB[d.month].title()}')
+        for m in self.meta:
+            if m['ctx']:
+                self._paint(m)
 
     def save(self):
+        self._settle()
         last = max(3 + self.n_rows, 4)
         self.ws.auto_filter.ref = f'A3:N{last}'
         self.ws.print_area = f'A1:N{last}'

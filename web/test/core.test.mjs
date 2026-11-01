@@ -100,17 +100,17 @@ test('callApi：钥匙走 ?key=，报错原样带回', async () => {
 // ---------------------------------------------------------------- 写表前的判断
 const rec = (kw = {}) => ({ ...Object.fromEntries(C.FIELDS.map((f, i) => [f, ['28/10', 'VM-07', 'TD-524613-5', '82664580', '150', 'T4', 'EM2.5', '1', '1', '1', '0', 'D', '639/Lee Ah Kow'][i]])), ...kw });
 
-test('标红：数字、班次、看不清、两遍不一样、拿不准；日期从不标红', () => {
+test('标红：数字、班次、看不清、两遍不一样、拿不准；认不成的日期才标红', () => {
   let a = C.assessRecord({ ...rec({ passed: '9', total_screened: '10', failed: '0' }), unsure: [], disputed: {} }, { today: T });
   assert.deepEqual(new Set(a.red), new Set(['total_screened', 'passed', 'failed'])); assert.ok(a.notes.includes('PASSED 9 + FAILED 0 ≠ TOTAL 10'));
   assert.deepEqual(a.values.date, { y: 2026, m: 10, d: 28 }); assert.equal(a.values.mo, 82664580);
   a = C.assessRecord({ ...rec({ setter: '6□9/Lee Ah Kow', date: '3□/10', shift: 'X' }), unsure: [], disputed: {} }, { today: T });
-  assert.ok(a.red.includes('setter') && a.red.includes('shift') && !a.red.includes('date'));
-  assert.ok(a.notes.includes('SHIFT 不是 D/N') && a.notes.includes('SETTER 有看不清的字') && !a.notes.includes('DATE'));
+  assert.ok(a.red.includes('setter') && a.red.includes('shift') && a.red.includes('date'));   // 认不成日期：标红（Song 2026-11-01）
+  assert.ok(a.notes.includes('SHIFT 不是 D/N') && a.notes.includes('SETTER 有看不清的字') && a.notes.includes('DATE 3□/10 认不成日期'));
   a = C.assessRecord({ ...rec(), unsure: ['machine', 'date'], disputed: { part_number: ['A', 'B'], date: ['1/10', '2/10'] } }, { today: T });
   assert.deepEqual(new Set(a.red), new Set(['machine', 'part_number']));
   a = C.assessRecord({ ...rec({ setter: '6□9' }), unsure: [], disputed: {} }, { names: [['639', 'Lee Ah Kow'], ['648', 'MURUGAN']], today: T });
-  assert.equal(a.values.setter, '639'); assert.ok(!a.red.includes('setter'));
+  assert.equal(a.values.setter, '639/Lee Ah Kow'); assert.ok(!a.red.includes('setter'));   // 看不清的按名单补上，名字也对上
 });
 
 // ---------------------------------------------------------------- 数据库（刀单）
@@ -164,7 +164,7 @@ test('拿数据库当准绳：像的改成库里写法，不按零件对历史',
   [, , flags] = s.fix(rec({ machine: 'ZZ-99', description: 'QQ7' }), ['machine']);
   assert.ok(flags.machine.includes('模型也拿不准：ZZ-99') && !('description' in flags));
   const empty = new C.Snapshot();
-  assert.deepEqual(empty.fix(rec({ machine: 'ZZ-99' })), [rec({ machine: 'ZZ-99' }), {}, {}]); assert.equal(empty.hints(), '');
+  assert.deepEqual(empty.fix(rec({ machine: 'ZZ-99' })), [rec({ machine: 'ZZ-99' }), {}, {}, { alts: {}, ctx: {} }]); assert.equal(empty.hints(), '');
   assert.ok(s.hints().includes('MACHINE：VM-07') && s.hints().includes('数据库 8 条记录'));
   const a = C.assessRecord({ ...rec({ machine: 'VM-O7' }), unsure: [], disputed: { machine: ['VM-O7', 'VM-07'] } }, { snapshot: s, today: T });
   assert.ok(a.orange.includes('machine') && !a.red.includes('machine') && a.notes.includes('MACHINE VM-O7→VM-07'));

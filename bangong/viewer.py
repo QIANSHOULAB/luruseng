@@ -120,10 +120,22 @@ def _names(builtin: bool, labels: list[str]) -> list[str]:
     return [f.upper() for f in engine.FIELDS] if builtin else list(labels)
 
 
-def alts_from_note(note: str, name: str) -> list[str]:
-    """红格子的候选：核对提示里「XX 几遍认得不一样：A / B」的 A、B（空的不算）。"""
-    m = re.search(r'(?:^|；)' + re.escape(name) + r' 几遍认得不一样：([^；]+)', note or '')
-    return [v.strip() for v in m.group(1).split(' / ') if v.strip() and v.strip() != '空'] if m else []
+def alts_from_note(note: str, name: str, names: list[str] | None = None) -> list[str]:
+    """红格子的候选：核对提示里「XX 几遍认得不一样：A / B」的 A、B（空的不算），
+    和「XX …，可能是：A / B」的 A、B（名单、机台表、工序表、这批别的单子给的）。
+    names：所有格子名，「Part No …」那句不能算到「Part」头上。"""
+    out: list[str] = []
+    for piece in (note or '').split('；'):
+        if (note_owner(piece, names) if names else (name if piece.startswith(name + ' ') else None)) != name:
+            continue
+        if '可能是：' in piece:
+            tail = piece.split('可能是：', 1)[1]
+        elif '几遍认得不一样：' in piece:
+            tail = re.split(r'[，（]', piece.split('几遍认得不一样：', 1)[1], maxsplit=1)[0]
+        else:
+            continue
+        out += [v for v in (x.strip() for x in tail.split(' / ')) if v and v != '空' and v not in out]
+    return out
 
 
 def _read_row(ws, r: int, layout) -> dict:
@@ -138,7 +150,7 @@ def _read_row(ws, r: int, layout) -> dict:
     note = ws.cell(row=r, column=note_col).value
     note = '' if note is None else str(note)
     names = _names(builtin, labels)
-    alts = {i: a for i in sorted(red) if (a := alts_from_note(note, names[i]))}
+    alts = {i: a for i in sorted(red) if (a := alts_from_note(note, names[i], names))}
     return {'labels': labels, 'values': vals, 'red': red, 'fixed': fixed, 'note': note,
             'human': human, 'raw': raw, 'alts': alts, 'row': r, 'builtin': builtin}
 
@@ -163,8 +175,9 @@ def load_rows(xlsx: str) -> dict[int, list[dict]]:
 
 
 # ---------------------------------------------------------------- 核对里直接改格子（跟网页版 core.js 的 checkCell 同一套）
-def typed_value(key: str, text: str, builtin: bool = True, orig=None, today: date | None = None):
-    """人打的字变成表里该有的样子：规矩跟认出来时一样（日期按这批的年份、数字变数字、班次变 D/N、零件号去空格大写）。"""
+def typed_value(key: str, text: str, builtin: bool = True, orig=None, today: date | None = None, roster=()):
+    """人打的字变成表里该有的样子：规矩跟认出来时一样（日期按这批的年份、数字变数字、班次变 D/N、零件号去空格大写，
+    SETTER 只打了工号、名单上有这个人就补成「工号/名字」）。"""
     t = re.sub(r'\s+', ' ', str(text or '')).strip()
     if not t:
         return ''
@@ -182,7 +195,9 @@ def typed_value(key: str, text: str, builtin: bool = True, orig=None, today: dat
         if key in ('t_no', 'description'):
             return engine.DIAMETER.sub('Φ', t).upper()
         if key == 'setter':
-            return re.sub(r'\s*/\s*', '/', t)
+            t = re.sub(r'\s*/\s*', '/', t)
+            who = {str(n): nm for n, nm in roster}
+            return f'{t}/{who[t]}' if t in who else t
         return t
     if isinstance(orig, (int, float)) and not isinstance(orig, bool):
         n = t.replace(',', '')
@@ -229,7 +244,7 @@ def _isint(v) -> bool:
     return isinstance(v, int) and not isinstance(v, bool)
 
 
-def edit_cell(xlsx: str, row: int, i: int, text: str | None = None, today: date | None = None) -> dict:
+def edit_cell(xlsx: str, row: int, i: int, text: str | None = None, today: date | None = None, roster=()) -> dict:
     """核对里改一格，直接写回表里：给了 text 就改成它，没给就是「对的」（照原样，只把红去掉）。
     改过的格子染淡绿；这一格的核对提示跟着删；数量对上了三格一起不红；打错了（数字格打了字母）还红着。
     红格子全处理完，核对提示换成「✓ 人核过」。表在 Excel 里开着就抛 Locked，一个字都不动。
@@ -253,7 +268,7 @@ def edit_cell(xlsx: str, row: int, i: int, text: str | None = None, today: date 
     if text is not None:
         old_t = cells[TOTAL].value if builtin else None
         old_b = cells[BTMP].value if builtin else None
-        v = typed_value(key, text, builtin, cell.value, today)
+        v = typed_value(key, text, builtin, cell.value, today, roster)
         cell.value = None if v == '' else v
         if builtin and key == 'total_screened' and (old_b in (None, '') or old_b == old_t):
             cells[BTMP].value = v if _isint(v) else None   # BTMP 是照 TOTAL 抄的：TOTAL 改了它跟着改；单子上真写了别的数就不动
@@ -348,10 +363,11 @@ class Viewer(tk.Toplevel):
     busy()：正在干的那批的编号照片文件夹，那批的表干完会整本重写，先不让改。"""
 
     def __init__(self, master, folder: str, run_dir: str | None = None, start: int | None = None,
-                 on_checked=None, busy=None):
+                 on_checked=None, busy=None, roster=None):
         super().__init__(master)
         self.folder = folder
         self.on_checked, self.busy = on_checked, busy
+        self.roster = roster or (lambda: [])                  # 名单：SETTER 只打工号也补上名字
         self.editing: tuple[int, int, int] | None = None      # 正在改哪一格：(编号, 第几条, 第几列)
         self.editor = None
         self.run_id = self.run_dir = self.cat = ''
@@ -631,7 +647,11 @@ class Viewer(tk.Toplevel):
         rec = self.rows[no][k]
         label, before = rec['labels'][i], rec['values'][i]
         try:
-            res = edit_cell(self.xlsx, rec['row'], i, text, today=self.today)
+            try:
+                names = self.roster()                          # 只有刀单的 SETTER 用得上
+            except Exception:
+                names = []
+            res = edit_cell(self.xlsx, rec['row'], i, text, today=self.today, roster=names)
         except Locked:
             self.info.set('✗ 表在 Excel 里开着，写不进去：关掉 Excel 再点「改好了」')
             return
