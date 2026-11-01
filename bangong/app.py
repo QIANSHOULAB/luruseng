@@ -674,7 +674,16 @@ class App:
         if self.viewer is not None and self.viewer.winfo_exists():
             self.viewer.destroy()
         self.viewer = Viewer(self.root, self.folder.get(), run_dir or self.last_photos or None,
-                             on_checked=self.feed_checked, busy=self.busy_dir, roster=self.roster)
+                             on_checked=self.feed_checked, busy=self.busy_dir, roster=self.roster,
+                             snapshot=self.snapshot)
+
+    def snapshot(self):
+        """样板资料（核对里改了 SETTER，班次照这个人以前的班次再猜一遍）；没有就 None。"""
+        try:
+            from .kb import KnowledgeBase
+            return KnowledgeBase(kb_path()).load()
+        except Exception:
+            return None
 
     def roster(self) -> list[tuple[str, str]]:
         """名单：名单.txt 加上数据库里认识的人（核对里 SETTER 只打工号，照这个补名字）。"""

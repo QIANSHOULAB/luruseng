@@ -1005,14 +1005,26 @@ function openCell(dl, dd, rec, k, f, label) {
   input.select();
 }
 
+async function kbSnapshot() {                   // 拿样板资料当准绳（核对里改了调试员，班次照这个人以前的班次再猜一遍）
+  const kb = await kbDb();
+  return kb.records.length || kb.people.length ? new C.Snapshot(kb.records, kb.people, kb.lists) : null;
+}
+
 async function saveCell(rec, k, f, label, text) {
   const before = C.showValue(rec.values[f]);
-  C.checkCell(rec, f, { text, cat: V.run.cat, today: runDay(V.run), roster: V.run.cat === C.BUILTIN ? await roster() : [] });
+  const builtin = V.run.cat === C.BUILTIN;
+  const shiftWas = [C.showValue(rec.values.shift), (rec.red || []).includes('shift')];
+  C.checkCell(rec, f, { text, cat: V.run.cat, today: runDay(V.run), roster: builtin ? await roster() : [],
+    snapshot: builtin && f === 'setter' ? await kbSnapshot() : null });
   const after = C.showValue(rec.values[f]);
+  const shiftNow = C.showValue(rec.values.shift);
+  const shiftMoved = builtin && f === 'setter' && (rec.orange || []).includes('shift')
+    && (shiftNow !== shiftWas[0] || (shiftWas[1] && !(rec.red || []).includes('shift')));
   try { await S.st.put('runs', V.run.id, V.run); } catch (e) { $('#vinfo').textContent = `✗ 存不下：${e.message}`; return; }
   const still = (rec.red || []).includes(f);
   let msg = still ? `${label} ${after || '空'} 还不对：${rec.notes.split('；').pop()}`
     : text === undefined || after === before ? `${label} 核过了` : `${label} 改成 ${after || '空'}`;
+  if (shiftMoved) msg += `，SHIFT 跟着猜成 ${shiftNow}（照 ${C.splitSetter(after)[0]} 以前的班次）`;
   try { if (await feedRow(rec, k)) msg += '，这条核完进了样板资料'; } catch (e) { /* 样板资料存不下，不耽误改表 */ }
   fillPanel(rec.no);
   const done = V.run.cat === C.BUILTIN && !fillState();     // 最后一个红格子核完：「填进公司表」变蓝，说一声

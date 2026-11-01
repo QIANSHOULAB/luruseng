@@ -15,7 +15,7 @@ from PIL import Image, ImageTk
 
 from . import engine
 from . import macui as ui
-from .kb import cell_text
+from .kb import cell_text, uniq
 
 LABELS = ['DATE', 'MACHINE', 'PART NUMBER', 'MO', 'OPR NO.', 'T NO.', 'DESCRIPTION', 'BTMP',
           'TOTAL SCREENED', 'PASSED', 'FAILED', 'SHIFT', 'SETTER']
@@ -244,12 +244,14 @@ def _isint(v) -> bool:
     return isinstance(v, int) and not isinstance(v, bool)
 
 
-def edit_cell(xlsx: str, row: int, i: int, text: str | None = None, today: date | None = None, roster=()) -> dict:
+def edit_cell(xlsx: str, row: int, i: int, text: str | None = None, today: date | None = None, roster=(),
+              kb=None) -> dict:
     """核对里改一格，直接写回表里：给了 text 就改成它，没给就是「对的」（照原样，只把红去掉）。
     改过的格子染淡绿；这一格的核对提示跟着删；数量对上了三格一起不红；打错了（数字格打了字母）还红着。
     红格子全处理完，核对提示换成「✓ 人核过」。表在 Excel 里开着就抛 Locked，一个字都不动。
+    kb：样板资料（Snapshot）。改的是刀单的 SETTER 时给它：班次照这个人以前的班次再猜一遍（Song 2026-11-01）。
     返回 {'value': 这格现在显示的字, 'still': 还红着没有, 'why': 为什么还红, 'checked': 这条核完没有,
-    'data': 核完的话放进数据库的那份}。"""
+    'data': 核完的话放进数据库的那份, 'also': 班次跟着猜成了什么（没动是空）}。"""
     # 不看旁边有没有 ~$ 小文件：Excel 崩过会留下一个假的，那样就永远改不了了。真开着的话最后换文件那一下会被拒
     try:
         wb = load_workbook(xlsx)
@@ -264,6 +266,7 @@ def edit_cell(xlsx: str, row: int, i: int, text: str | None = None, today: date 
     before = [_look(c) for c in cells]
     red = {j for j, lk in enumerate(before) if lk == 'red'}
     human = {j for j, lk in enumerate(before) if lk == 'human'}
+    fixed = {j for j, lk in enumerate(before) if lk == 'fixed'}
     cell, key, bad = cells[i], keys[i], None
     if text is not None:
         old_t = cells[TOTAL].value if builtin else None
@@ -278,8 +281,10 @@ def edit_cell(xlsx: str, row: int, i: int, text: str | None = None, today: date 
             bad = typed_problem(key, v)
     red.discard(i)
     human.add(i)
+    fixed.discard(i)
     note_cell = ws.cell(row=row, column=note_col)
-    notes = [n for n in str(note_cell.value or '').split('；')
+    note_was = str(note_cell.value or '')
+    notes = [n for n in note_was.split('；')
              if n and n != HUMAN_NOTE and note_owner(n, names) != names[i]]
     if bad:
         red.add(i)
@@ -294,8 +299,22 @@ def edit_cell(xlsx: str, row: int, i: int, text: str | None = None, today: date 
             else:                                    # 还对不上：没核过的那几格红着
                 red |= {j for j in idx if j not in human}
                 notes.append(f'PASSED {p} + FAILED {f} ≠ TOTAL {t}')
+    also = ''
+    si = engine.FIELDS.index('shift') if builtin else -1
+    if builtin and key == 'setter' and kb is not None and i not in red and si not in human:
+        # 核对里把调试员改对了：班次照这个人以前的班次再看一遍（认的时候工号认不出是谁，没法猜）
+        cur = engine.norm_shift(cell_text(cells[si].value))
+        reads = uniq([cur or '空', *alts_from_note(note_was, 'SHIFT', names)]) if si in red else None
+        call = kb.shift_call(cells[i].value, cells[engine.FIELDS.index('date')].value, cur, reads)
+        if call:
+            cells[si].value = call[0]
+            red.discard(si)
+            fixed.add(si)
+            notes = [n for n in notes if note_owner(n, names) != 'SHIFT']
+            notes.append(call[1])
+            also = call[0]
     for j, c in enumerate(cells):
-        look = 'red' if j in red else 'human' if j in human else ('fixed' if before[j] == 'fixed' else '')
+        look = 'red' if j in red else 'human' if j in human else ('fixed' if j in fixed else '')
         if look != before[j] or j == i:
             _restyle(c, look, builtin, keys[j])
     if red:
@@ -317,7 +336,7 @@ def edit_cell(xlsx: str, row: int, i: int, text: str | None = None, today: date 
         raise Locked(xlsx)
     data = {(engine.FIELDS[j] if builtin else labels[j]): cell_text(c.value) for j, c in enumerate(cells)}
     return {'value': fmt(cell.value), 'still': i in red, 'why': bad or (notes[-1] if i in red and notes else ''),
-            'checked': not red, 'data': data}
+            'checked': not red, 'data': data, 'also': also}
 
 
 def cat_of(xlsx: str) -> str:
@@ -363,11 +382,12 @@ class Viewer(tk.Toplevel):
     busy()：正在干的那批的编号照片文件夹，那批的表干完会整本重写，先不让改。"""
 
     def __init__(self, master, folder: str, run_dir: str | None = None, start: int | None = None,
-                 on_checked=None, busy=None, roster=None):
+                 on_checked=None, busy=None, roster=None, snapshot=None):
         super().__init__(master)
         self.folder = folder
         self.on_checked, self.busy = on_checked, busy
         self.roster = roster or (lambda: [])                  # 名单：SETTER 只打工号也补上名字
+        self.snapshot = snapshot or (lambda: None)            # 样板资料：改了 SETTER，班次照这个人以前的班次再猜
         self.editing: tuple[int, int, int] | None = None      # 正在改哪一格：(编号, 第几条, 第几列)
         self.editor = None
         self.run_id = self.run_dir = self.cat = ''
@@ -651,7 +671,13 @@ class Viewer(tk.Toplevel):
                 names = self.roster()                          # 只有刀单的 SETTER 用得上
             except Exception:
                 names = []
-            res = edit_cell(self.xlsx, rec['row'], i, text, today=self.today, roster=names)
+            snap = None
+            if rec.get('builtin') and engine.FIELDS[i] == 'setter':
+                try:
+                    snap = self.snapshot()
+                except Exception:
+                    snap = None
+            res = edit_cell(self.xlsx, rec['row'], i, text, today=self.today, roster=names, kb=snap)
         except Locked:
             self.info.set('✗ 表在 Excel 里开着，写不进去：关掉 Excel 再点「改好了」')
             return
@@ -664,6 +690,8 @@ class Viewer(tk.Toplevel):
             msg = f'{label} 核过了'
         else:
             msg = f'{label} 改成 {res["value"] or "空"}'
+        if res.get('also'):
+            msg += f'，SHIFT 跟着猜成 {res["also"]}（照 {engine.split_setter(res["value"])[0]} 以前的班次）'
         if self.on_checked:
             try:
                 if self.on_checked(self.cat, f'核对 {self.run_id} #{no}.{k}', res['data'] if res['checked'] else None):

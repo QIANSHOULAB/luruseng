@@ -31,7 +31,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-VERSION = '1.11.0'
+VERSION = '1.11.1'
 APP_NAME = '录入僧'
 SUBTITLE = '施主去玩，贫僧填表'
 TITLE = '入我千手院，凡事尽释手；千僧替牛马，施主自风流。'      # 窗口标题栏只写这一句（Song 定的）
@@ -362,8 +362,8 @@ def setter_check(raw: str, names, valid=None, reads=(), counts=None):
 def settle(rows: list[dict], show=str) -> None:
     """一批里的单子互相看一眼（Song 2026-11-01）。rows：每条 {'values', 'red', 'orange', 'notes'(列表), 'alts', 'ctx'}，原地改；人动过的那条不碰。
     机台公司没有、又没法按长相猜准的：这批同一个 MO（其次同一个零件）的单子写的是哪台，就是哪台；
-    日期认不成的：列出这批别的单子写的日期；工号名单上没有的：同一个 MO 的单子是谁，排在候选最前面。"""
-    from .kb import uniq
+    日期认不成的：列出这批别的单子写的日期；工号名单上没有的：同一个 MO、其次同一个零件的单子是谁，排在候选最前面。"""
+    from .kb import skel, uniq
 
     def mo_of(r):
         return str(r['values'].get('mo') or '').strip()
@@ -415,10 +415,17 @@ def settle(rows: list[dict], show=str) -> None:
             if cands:
                 r['alts']['date'] = cands
         if 'setter' in ctx:
+            # 同一个 MO 的单子是谁排最前，其次同一个零件的（Song 2026-11-01 3A：MO 本身认错了，还能靠零件对上人）
             c = ctx['setter']
-            mates = [r2['values']['setter'] for r2 in rows if r2 is not r and mo_of(r) and mo_of(r2) == mo_of(r)
-                     and r2['values'].get('setter') and 'setter' not in r2['ctx'] and 'setter' not in r2['red']]
-            cands = uniq([*mates, *c['cands']])[:4]
+
+            def sure(r2):
+                return r2 is not r and r2['values'].get('setter') and 'setter' not in r2['ctx'] and 'setter' not in r2['red']
+
+            def part_of(x):
+                return skel(str(x['values'].get('part_number') or ''))
+            by_mo_mates = [r2['values']['setter'] for r2 in rows if sure(r2) and mo_of(r) and mo_of(r2) == mo_of(r)]
+            by_part_mates = [r2['values']['setter'] for r2 in rows if sure(r2) and part_of(r) and part_of(r2) == part_of(r)]
+            cands = uniq([*by_mo_mates, *by_part_mates, *c['cands']])[:4]
             r['notes'] = [n for n in r['notes'] if not n.startswith('SETTER ')]
             r['notes'].append(c['base'] + say(cands))
             r['alts'].pop('setter', None)
@@ -908,6 +915,14 @@ class RecordBook:
             values[f] = v
         if values['btmp'] in ('', None) and isinstance(values['total_screened'], int):
             values['btmp'] = values['total_screened']   # 换刀调试单上没有 BTMP：照公司那本的规矩抄 TOTAL SCREENED（Song 定的）
+        # 班次：单子上没写、几遍不一样、跟这个人一向的班对不上——照他以前的班次猜（橙）。工号还红着（认不出是谁）就先不猜
+        if self.kb is not None and values.get('setter') and 'setter' not in red and 'shift' not in red:
+            call = self.kb.shift_call(values['setter'], values['date'], values['shift'], disputed.get('shift'))
+            if call:
+                values['shift'] = call[0]
+                orange.add('shift')
+                notes.append(call[1])
+                disputed.pop('shift', None)
         if rec.get('single'):
             notes.append('只认成了一遍，没能对答案')
         if rec.get('counts'):

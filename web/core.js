@@ -1,7 +1,7 @@
 // 录入僧网页版 · 认单子的核心（跟电脑版 bangong/engine.py、kb.py、tables.py 同一套规矩，改一边要改另一边）
 // 纯逻辑：不碰页面、不碰存储，浏览器和 node 测试都能跑。
 
-export const VERSION = '1.11.0';
+export const VERSION = '1.11.1';
 export const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 export const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
 export const MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro'];
@@ -663,6 +663,14 @@ export function kbSummary(db) {
 }
 
 const CAT_FIELDS = ['machine', 'part_number', 'description'];
+const SHIFT_NEAR = 8;                                      // 猜班次看这个人离单子最近的几回
+const SHIFT_NAME = { D: '白班', N: '夜班' };
+export function dayNum(v) {                                // 日期换成第几天（比远近用）：{y,m,d}、Date、「2026-10-30」都认，认不出 null
+  if (v && typeof v === 'object' && 'm' in v) return Math.round(Date.UTC(v.y, v.m - 1, v.d) / 86400000);
+  if (v instanceof Date) return Math.round(Date.UTC(v.getFullYear(), v.getMonth(), v.getDate()) / 86400000);
+  const m = String(v ?? '').match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  return m ? Math.round(Date.UTC(+m[1], +m[2] - 1, +m[3]) / 86400000) : null;
+}
 const SHORT_RE = /^([A-Z]{1,3})(\d+(?:\.\d*)?)$/;          // 公司表里刀具描述的简写：EM3、DR2.5、M4
 const CODE_RE = /^Φ?([0-9A-Z]{1,8})-M([0-9O.]{4,8})/;      // 刀具编码：4FEM-M0300C-0080-04（直径 03.00）
 const PHI_RE = /^Φ(\d+(?:\.\d+)?)([A-Z]{2,6})$/;           // 手写的 Φ1.5 FEM
@@ -745,6 +753,45 @@ export class Snapshot {                     // 拿数据库当准绳
     }
     this.descTypes = new Set([...tc.keys()].filter((t) => t.length >= 2));
     this.shortDesc = total >= 5 && shorts >= 0.6 * total;
+    // 班次：每个调试员以前上的白班还是夜班（公司表里一个人基本固定一个班：Song 2026-11-01「用资料库这个人以前是N还是D去猜」）
+    this.shiftHist = new Map();               // 工号 -> [[第几天, 'D' / 'N'], …]
+    for (const r of records) {
+      const m = String(r.setter || '').match(/^\s*(\d{2,6})(?!\d)/);
+      const s = normShift(r.shift || '');
+      if (!m || (s !== 'D' && s !== 'N')) continue;
+      if (!this.shiftHist.has(m[1])) this.shiftHist.set(m[1], []);
+      this.shiftHist.get(m[1]).push([dayNum(r.date), s]);
+    }
+  }
+  // ---------------------------------------------------------------- 班次
+  shiftGuess(setter, date = null) {
+    // 这个人离这张单子最近的 8 回上的什么班：-> {id, v: 'D' / 'N', k: 几回是它, n: 一共几回}，没记录 null
+    const m = String(setter || '').match(/^\s*(\d{2,6})(?!\d)/);
+    const hist = m && this.shiftHist.get(m[1]);
+    if (!hist || !hist.length) return null;
+    const at = dayNum(date);
+    const far = (x) => (x === null ? Infinity : at === null ? -x : Math.abs(x - at));   // 不知道单子哪天：最近记的排前面
+    const near = [...hist].sort((a, b) => far(a[0]) - far(b[0]) || (b[0] ?? -Infinity) - (a[0] ?? -Infinity) || cmpStr(a[1], b[1]))
+      .slice(0, SHIFT_NEAR);
+    const d = near.filter(([, s]) => s === 'D').length;
+    const v = d * 2 >= near.length ? 'D' : 'N';
+    return { id: m[1], v, k: v === 'D' ? d : near.length - d, n: near.length };
+  }
+  shiftCall(setter, date, cur, reads = null) {
+    // 班次照这个人以前的班次猜（Song 2026-11-01：没写就猜，不让人一张张填）。-> {v, why} 或 null（不动）
+    // 单子上没写：猜（这个人最近几回四分之三以上是一个班）；几遍认得不一样：哪个跟他一向的班一样就是哪个（也要四分之三以上，
+    // 不然照旧红着让人看照片：一半一半的人，单子上划了 Day、模型认成 N 的时候，猜反而把它盖过去）；
+    // 认得一致却跟他一向的班对不上（单子上没圈、模型自己编了一个）：他一向的班够稳（最近 5 回以上、85% 以上）就改过来。都标橙
+    const g = this.shiftGuess(setter, date);
+    if (!g) return null;
+    const weak = g.n >= 2 && g.k * 4 >= g.n * 3, strong = g.n >= 5 && g.k >= 0.85 * g.n;
+    const how = g.k === g.n ? `${g.id} 最近 ${g.n} 回都是${SHIFT_NAME[g.v]}` : `${g.id} 最近 ${g.n} 回有 ${g.k} 回是${SHIFT_NAME[g.v]}`;
+    const seen = reads && reads.length > 1 ? uniq(reads.map((x) => (x === '空' ? '空' : normShift(x)))) : null;
+    if (seen) return weak && seen.includes(g.v) ? { v: g.v, why: `SHIFT 几遍认得不一样：${seen.join(' / ')}，${how}，就是 ${g.v}` } : null;
+    const now = normShift(cur || '');
+    if (!now) return weak ? { v: g.v, why: `SHIFT 空→${g.v}（单子上没写班次，${how}）` } : null;
+    if ((now === 'D' || now === 'N') && now !== g.v && strong) return { v: g.v, why: `SHIFT ${now}→${g.v}（${how}；单子上真圈了 ${now} 就改回来）` };
+    return null;
   }
   roster() { return [...this.people]; }
   hints(maxParts = 200) {
@@ -1057,6 +1104,11 @@ export function assessRecord(rec, { snapshot = null, names = [], today = new Dat
   }
   // 换刀调试单上没有 BTMP：照公司那本的规矩抄 TOTAL SCREENED（那本里这两格每行都一样，Song 定的）
   if (values.btmp === '' && Number.isInteger(values.total_screened)) values.btmp = values.total_screened;
+  // 班次：单子上没写、几遍不一样、跟这个人一向的班对不上——照他以前的班次猜（橙）。工号还红着（认不出是谁）就先不猜
+  if (snapshot && values.setter && !red.has('setter') && !red.has('shift')) {
+    const call = snapshot.shiftCall(values.setter, values.date, values.shift, disputed.shift || null);
+    if (call) { values.shift = call.v; orange.add('shift'); notes.push(call.why); delete disputed.shift; }
+  }
   if (rec.single) notes.push('只认成了一遍，没能对答案');
   if (rec.counts) notes.push('几遍认出的条数不一样（' + rec.counts.join(' / ') + ' 条），按多数定');
   for (const f of FIELDS) {                 // 几遍认出来的不同写法：核对时点一下就填上
@@ -1079,7 +1131,7 @@ export function assessRecord(rec, { snapshot = null, names = [], today = new Dat
 
 // 一批里的单子互相看一眼（Song 2026-11-01），原地改 rows（人动过的那条不碰）：
 // 机台公司没有、又没法按长相猜准的：这批同一个 MO（其次同一个零件）的单子写的是哪台，就是哪台；
-// 日期认不成的：列出这批别的单子写的日期；工号名单上没有的：同一个 MO 的单子是谁，排在候选最前面
+// 日期认不成的：列出这批别的单子写的日期；工号名单上没有的：同一个 MO、其次同一个零件的单子是谁，排在候选最前面
 export function settle(rows) {
   const recs = rows.filter((r) => r && r.kind === 'rec' && r.values);
   if (!recs.some((r) => r.ctx && Object.keys(r.ctx).length && !(r.human || []).length)) return rows;
@@ -1140,9 +1192,12 @@ export function settle(rows) {
       if (dateCands.length) r.alts.date = dateCands;
     }
     if (ctx.setter) {
-      const mates = recs.filter((r2) => r2 !== r && moOf(r) && moOf(r2) === moOf(r) && r2.values.setter
-        && !(r2.ctx && r2.ctx.setter) && !has(r2.red, 'setter')).map((r2) => r2.values.setter);
-      const cands = uniq([...mates, ...ctx.setter.cands]).slice(0, 4);
+      // 同一个 MO 的单子是谁排最前，其次同一个零件的（Song 2026-11-01 3A：MO 本身认错了，还能靠零件对上人）
+      const sure = (r2) => r2 !== r && r2.values.setter && !(r2.ctx && r2.ctx.setter) && !has(r2.red, 'setter');
+      const partOf = (x) => skel(x.values.part_number || '');
+      const byMoMates = recs.filter((r2) => sure(r2) && moOf(r) && moOf(r2) === moOf(r)).map((r2) => r2.values.setter);
+      const byPartMates = recs.filter((r2) => sure(r2) && partOf(r) && partOf(r2) === partOf(r)).map((r2) => r2.values.setter);
+      const cands = uniq([...byMoMates, ...byPartMates, ...ctx.setter.cands]).slice(0, 4);
       put('SETTER ', ctx.setter.base + say(cands));
       delete r.alts.setter;
       if (cands.length) r.alts.setter = cands;
@@ -1575,7 +1630,7 @@ function typedProblem(key, v) {
 
 // 核对一格：给了 text 就改成它，没给就是「对的」（照原样，只把红去掉）。改过的格子记进 human，表里染成淡绿。
 // 这一格的核对提示跟着删；红格子全处理完，提示换成「✓ 人核过」。
-export function checkCell(row, key, { text = undefined, cat = BUILTIN, today = new Date(), roster = [] } = {}) {
+export function checkCell(row, key, { text = undefined, cat = BUILTIN, today = new Date(), roster = [], snapshot = null } = {}) {
   const builtin = cat === BUILTIN;
   const keys = builtin ? FIELDS : uniq([...Object.keys(row.values || {}), key]);
   const name = (k) => (builtin ? k.toUpperCase() : k);
@@ -1604,6 +1659,20 @@ export function checkCell(row, key, { text = undefined, cat = BUILTIN, today = n
         row.red = uniq([...row.red, ...SUM.filter((k) => !row.human.includes(k))]);
         notes.push(`PASSED ${p} + FAILED ${f} ≠ TOTAL ${t}`);
       }
+    }
+  }
+  // 核对里把调试员改对了：班次照这个人以前的班次再看一遍（班次人没动过、工号也不红了才看；认的时候工号认不出是谁，没法猜）
+  if (builtin && key === 'setter' && snapshot && !row.red.includes('setter') && !row.human.includes('shift')) {
+    const cur = row.values.shift || '';
+    const reads = row.red.includes('shift') ? uniq([cur || '空', ...altsOf(row, 'shift')]) : null;
+    const call = snapshot.shiftCall(row.values.setter, row.values.date, cur, reads);
+    if (call) {
+      row.values.shift = call.v;
+      row.red = row.red.filter((f) => f !== 'shift');
+      row.orange = uniq([...(row.orange || []), 'shift']);
+      notes = notes.filter((n) => noteOwner(n, names) !== 'SHIFT');
+      notes.push(call.why);
+      if (row.alts) delete row.alts.shift;
     }
   }
   row.notes = row.red.length ? notes.join('；') : HUMAN_NOTE;

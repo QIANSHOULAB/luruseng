@@ -13,11 +13,28 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 
 from . import sheets
-from .engine import FIELDS, SHIFT_WORDS, to_int
+from .engine import FIELDS, SHIFT_WORDS, norm_shift, to_int
 
 DB_FILE = '数据库.sqlite'
 FEED_DIR = '投喂'
 CAT_FIELDS = ['machine', 'part_number', 'description']          # 来回就那几个值的字段
+SHIFT_NEAR = 8                                          # 猜班次看这个人离单子最近的几回
+SHIFT_NAME = {'D': '白班', 'N': '夜班'}
+
+
+def day_num(v) -> int | None:
+    """日期换成第几天（比远近用）：datetime、date、「2026-10-30」都认，认不出 None。"""
+    if isinstance(v, datetime):
+        return v.date().toordinal()
+    if isinstance(v, date):
+        return v.toordinal()
+    m = re.match(r'^(\d{4})-(\d{1,2})-(\d{1,2})', str(v or ''))
+    if not m:
+        return None
+    try:
+        return date(int(m.group(1)), int(m.group(2)), int(m.group(3))).toordinal()
+    except ValueError:
+        return None
 # 名字页上的清单列（公司那本 NAME 页：MACHINE、OPERATION 各一列）：拿来当准绳，里面的字不当人名
 LIST_KEYS = {'MACHINE': 'machine', 'MACHINES': 'machine', 'M/C': 'machine', 'MACHINENO': 'machine',
              'OPERATION': 'opr_no', 'OPERATIONS': 'opr_no', 'OPR': 'opr_no', 'OPRNO': 'opr_no', 'OP': 'opr_no',
@@ -487,6 +504,50 @@ class Snapshot:
         total = sum(self.count['description'].values())
         self.desc_types = {t for t in tc if len(t) >= 2}
         self.short_desc = total >= 5 and sum(tc.values()) >= 0.6 * total
+        # 班次：每个调试员以前上的白班还是夜班（公司表里一个人基本固定一个班：Song 2026-11-01「用资料库这个人以前是N还是D去猜」）
+        self.shift_hist: dict[str, list[tuple[int | None, str]]] = defaultdict(list)   # 工号 -> [(第几天, 'D' / 'N'), …]
+        for r in records:
+            m = re.match(r'\s*(\d{2,6})(?!\d)', r.get('setter') or '')
+            sh = norm_shift(r.get('shift') or '')
+            if m and sh in ('D', 'N'):
+                self.shift_hist[m.group(1)].append((day_num(r.get('date')), sh))
+
+    # ---------------------------------------------------------------- 班次
+    def shift_guess(self, setter, when=None):
+        """这个人离这张单子最近的 8 回上的什么班：-> (工号, 'D' / 'N', 几回是它, 一共几回)，没记录 None。"""
+        m = re.match(r'\s*(\d{2,6})(?!\d)', str(setter or ''))
+        hist = self.shift_hist.get(m.group(1)) if m else None
+        if not hist:
+            return None
+        at = day_num(when)
+
+        def far(x):                                     # 不知道单子哪天：最近记的排前面
+            return float('inf') if x is None else (-x if at is None else abs(x - at))
+        near = sorted(hist, key=lambda e: (far(e[0]), -(e[0] if e[0] is not None else float('-inf')), e[1]))[:SHIFT_NEAR]
+        d = sum(1 for _, sh in near if sh == 'D')
+        v = 'D' if d * 2 >= len(near) else 'N'
+        return m.group(1), v, (d if v == 'D' else len(near) - d), len(near)
+
+    def shift_call(self, setter, when, cur, reads=None):
+        """班次照这个人以前的班次猜（Song 2026-11-01：没写就猜，不让人一张张填）。-> (班次, 核对提示) 或 None（不动）。
+        单子上没写：猜（这个人最近几回四分之三以上是一个班）；几遍认得不一样：哪个跟他一向的班一样就是哪个（也要四分之三以上，
+        不然照旧红着让人看照片：一半一半的人，单子上划了 Day、模型认成 N 的时候，猜反而把它盖过去）；
+        认得一致却跟他一向的班对不上（单子上没圈、模型自己编了一个）：他一向的班够稳（最近 5 回以上、85% 以上）就改过来。都标橙。"""
+        g = self.shift_guess(setter, when)
+        if not g:
+            return None
+        sid, v, k, n = g
+        weak, strong = n >= 2 and k * 4 >= n * 3, n >= 5 and k >= 0.85 * n
+        how = f'{sid} 最近 {n} 回都是{SHIFT_NAME[v]}' if k == n else f'{sid} 最近 {n} 回有 {k} 回是{SHIFT_NAME[v]}'
+        if reads and len(reads) > 1:
+            seen = uniq(['空' if x == '空' else norm_shift(x) for x in reads])
+            return (v, f'SHIFT 几遍认得不一样：{" / ".join(seen)}，{how}，就是 {v}') if weak and v in seen else None
+        now = norm_shift(cur or '')
+        if not now:
+            return (v, f'SHIFT 空→{v}（单子上没写班次，{how}）') if weak else None
+        if now in ('D', 'N') and now != v and strong:
+            return v, f'SHIFT {now}→{v}（{how}；单子上真圈了 {now} 就改回来）'
+        return None
 
     def roster(self) -> list[tuple[str, str]]:
         return list(self.people)

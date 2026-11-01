@@ -204,3 +204,84 @@ def test_no_company_data_no_new_flags(tmp_path):
     r = viewer.load_rows(book.path)[1][0]
     f = engine.FIELDS.index
     assert r['red'] == {f('date')} and r['values'][f('setter')] == '9441' and r['note'] == 'DATE 13-51 认不成日期'
+
+
+# ---------------------------------------------------------------- 班次照这个人以前的班次猜（Song 2026-11-01：1B「用资料库这个人以前是N还是D去猜」）、3A
+D2 = datetime(2026, 10, 27)
+SHIFT_ROWS = [  # 9556 一向夜班；9471 一向白班
+    *[(datetime(2026, 10, d), 'QM-14', 'PX-333-444-01-A', 90004004, 150, 'T7', 'DR2.5', 1, 1, 1, 0, 'N', '9556/HOO PENG') for d in (21, 22, 23, 24, 25, 26)],
+    *[(datetime(2026, 10, d), 'QM-07', 'PX-101202-5', 90001001, 150, 'T4', 'EM2.5', 1, 1, 1, 0, 'D', '9471') for d in (21, 22, 23, 24)],
+]
+
+
+def shift_snap(tmp_path):
+    db = kb.KnowledgeBase(str(tmp_path / 'db.sqlite'))
+    assert not db.feed(str(company_book(tmp_path / 'TOOL BROKEN RECORD 2026.xlsx', rows=ROWS + SHIFT_ROWS))).error
+    return db.load()
+
+
+def test_shift_guessed_from_the_setters_own_history(tmp_path):
+    s = shift_snap(tmp_path)
+    assert s.shift_guess('9556/HOO PENG', datetime(2026, 10, 30)) == ('9556', 'N', 7, 7)
+    assert s.shift_guess('9471', datetime(2026, 10, 30)) == ('9471', 'D', 5, 5)
+    assert s.shift_guess('9495', None) == ('9495', 'D', 1, 2)           # 一回白一回夜：不够猜
+    assert s.shift_guess('9441', None) is None
+    book = engine.RecordBook(str(tmp_path / 'r.xlsx'), today=datetime(2026, 11, 1).date(), names=s.roster(), kb=s)
+    book.add(1, [rec(setter='9556', shift='')])                          # 单子上没写：猜
+    book.add(2, [rec(setter='9556', shift='D')])                         # 认得一致却跟他一向的班对不上：改过来
+    book.add(3, [rec(setter='9556', shift='D', disputed={'shift': ['D', 'N']})])   # 几遍不一样：跟他一向的班一样的那个
+    book.add(4, [rec(setter='9556', shift='N')])                         # 对得上：不动、不标
+    book.add(5, [rec(setter='9495', shift='', disputed={'shift': ['空', 'N']})])   # 他的班不稳：照旧红
+    book.add(6, [rec(setter='9441', shift='')])                          # 认不出是谁：先不猜
+    book.add(7, [rec(setter='9471', shift='')])
+    book.save()
+    rows = viewer.load_rows(book.path)
+    f = engine.FIELDS.index
+    sh = f('shift')
+    got = {no: (rows[no][0]['values'][sh], 'fixed' if sh in rows[no][0]['fixed'] else 'red' if sh in rows[no][0]['red'] else '')
+           for no in rows}
+    assert got == {1: ('N', 'fixed'), 2: ('N', 'fixed'), 3: ('N', 'fixed'), 4: ('N', ''), 5: ('', 'red'), 6: ('', ''), 7: ('D', 'fixed')}, got
+    assert 'SHIFT 空→N（单子上没写班次，9556 最近 7 回都是夜班）' in rows[1][0]['note']
+    assert 'SHIFT D→N（9556 最近 7 回都是夜班；单子上真圈了 D 就改回来）' in rows[2][0]['note']
+    assert 'SHIFT 几遍认得不一样：D / N，9556 最近 7 回都是夜班，就是 N' in rows[3][0]['note']
+    assert 'SHIFT 空→D（单子上没写班次，9471 最近 5 回都是白班）' in rows[7][0]['note']
+    assert f('setter') in rows[6][0]['red']
+
+
+def test_fixing_the_setter_in_review_guesses_the_shift(tmp_path):
+    s = shift_snap(tmp_path)
+    book = engine.RecordBook(str(tmp_path / 'r.xlsx'), today=datetime(2026, 11, 1).date(), names=s.roster(), kb=s)
+    book.add(1, [rec(setter='9551', shift='', disputed={'shift': ['空', 'N']})])   # 工号认错了：班次没法猜，红着
+    book.add(2, [rec(setter='9551', shift='D')])                                    # 模型编了个 D
+    book.add(3, [rec(setter='9551', shift='')])
+    book.save()
+    rows = viewer.load_rows(book.path)
+    f = engine.FIELDS.index
+    assert f('shift') in rows[1][0]['red'] and f('setter') in rows[1][0]['red']
+    out = viewer.edit_cell(book.path, rows[1][0]['row'], f('setter'), '9556', roster=s.roster(), kb=s)
+    assert out['value'] == '9556/HOO PENG' and out['also'] == 'N' and out['checked']
+    out = viewer.edit_cell(book.path, rows[2][0]['row'], f('setter'), '9556', roster=s.roster(), kb=s)
+    assert out['also'] == 'N'
+    out = viewer.edit_cell(book.path, rows[3][0]['row'], f('setter'), '9556', roster=s.roster())   # 没给样板资料：不猜
+    assert out['also'] == ''
+    rows = viewer.load_rows(book.path)
+    sh = f('shift')
+    assert rows[1][0]['values'][sh] == 'N' and sh in rows[1][0]['fixed'] and not rows[1][0]['red']
+    assert rows[2][0]['values'][sh] == 'N' and sh in rows[2][0]['fixed']
+    assert rows[3][0]['values'][sh] == '' and sh not in rows[3][0]['fixed']
+    # 人自己改过班次的：再改调试员也不动它
+    out = viewer.edit_cell(book.path, rows[2][0]['row'], sh, 'D')
+    out = viewer.edit_cell(book.path, rows[2][0]['row'], f('setter'), '9556', roster=s.roster(), kb=s)
+    assert out['also'] == '' and viewer.load_rows(book.path)[2][0]['values'][sh] == 'D'
+
+
+def test_setter_candidates_put_the_same_part_first(tmp_path):
+    """3A：MO 认错了（跟别的单子对不上），同一个零件的单子是谁，也排在候选前面。"""
+    s = shift_snap(tmp_path)
+    book = engine.RecordBook(str(tmp_path / 'r.xlsx'), today=datetime(2026, 11, 1).date(), names=s.roster(), kb=s)
+    book.add(1, [rec(part_number='KB-7104562B', mo='90002002', setter='9491')])
+    book.add(2, [rec(part_number='KB-7104562B', mo='90002092', setter='9441')])      # MO 认错了一位
+    book.save()
+    r2 = viewer.load_rows(book.path)[2][0]
+    f = engine.FIELDS.index
+    assert r2['alts'][f('setter')][0] == '9491/GOH KIM SENG', r2['alts'][f('setter')]

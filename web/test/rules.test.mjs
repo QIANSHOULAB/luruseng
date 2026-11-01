@@ -21,7 +21,7 @@ const ROWS = [
   [D, 'QM-12', 'PX-101202-5', 90001001, 130, 'T9', 'EM6', 1, 1, 1, 0, 'N', '9231'],
 ];
 
-function companyBook() {                    // 跟公司那本一个样：记录页 + NAME 页（工号/名字、MACHINE、OPERATION、TOOL、SHIFT，中间隔着空列）
+function companyBook(rows = ROWS) {         // 跟公司那本一个样：记录页 + NAME 页（工号/名字、MACHINE、OPERATION、TOOL、SHIFT，中间隔着空列）
   const heads = ['DATE', 'MACHINE', 'PART NUMBER', 'MO', 'OPR NO.', 'TOOL', null, 'BTMP', 'CONTAINMENT/SCREENING DETAIL', null, null, 'SHIFT', 'SETTER'];
   const subs = [null, null, null, null, null, 'T NO.', 'DESCRIPTION', null, 'TOTAL SCREENED', 'PASSED', 'FAILED', null, null];
   const name = [['Employee Name / ID', null, 'MACHINE', null, 'OPERATION', null, 'TOOL', null, 'SHIFT']];
@@ -29,7 +29,7 @@ function companyBook() {                    // 跟公司那本一个样：记录
     name.push([i < PEOPLE.length ? `${PEOPLE[i][0]}/${PEOPLE[i][1]}` : null, null, MACHINES[i] ?? null, null, OPS[i] ?? null, null, null, null,
       ['DAY', 'NIGHT'][i] ?? null]);
   }
-  return [['OCT', [['TOOL BROKEN RECORD'], heads, subs, ...ROWS]], ['NAME', name]];
+  return [['OCT', [['TOOL BROKEN RECORD'], heads, subs, ...rows]], ['NAME', name]];
 }
 function snap() {
   const db = { records: [], people: [] };
@@ -190,4 +190,68 @@ test('备份带上机台表、工序表，恢复时合并', async () => {
   mem.set('kv/kb', { records: [], people: [], lists: { machine: ['QM-8'] } });
   await importBackup(st, data);
   assert.deepEqual(mem.get('kv/kb').lists, { machine: ['QM-8', 'QM-7'], opr_no: ['110'] });
+});
+
+// ---------------------------------------------------------------- 班次照这个人以前的班次猜（Song 2026-11-01：1B「用资料库这个人以前是N还是D去猜」）、3A
+const SHIFT_ROWS = [   // 9556 一向夜班；9471 一向白班
+  ...[21, 22, 23, 24, 25, 26].map((d) => [new Date(2026, 9, d), 'QM-14', 'PX-333-444-01-A', 90004004, 150, 'T7', 'DR2.5', 1, 1, 1, 0, 'N', '9556/HOO PENG']),
+  ...[21, 22, 23, 24].map((d) => [new Date(2026, 9, d), 'QM-07', 'PX-101202-5', 90001001, 150, 'T4', 'EM2.5', 1, 1, 1, 0, 'D', '9471']),
+];
+function shiftSnap() {
+  const db = { records: [], people: [] };
+  assert.equal(C.feedKb(db, companyBook([...ROWS, ...SHIFT_ROWS]), 'TOOL BROKEN RECORD 2026.xlsx').error, '');
+  return new C.Snapshot(db.records, db.people, db.lists);
+}
+const assess = (s, kw) => C.assessRecord({ ...rec(kw), unsure: [], disputed: kw.disputed || {} }, { snapshot: s, names: s.roster(), today: T });
+
+test('班次照这个人以前的班次猜：没写就猜、几遍不一样挑跟他一样的、编出来对不上的改过来（跟电脑版一样）', () => {
+  const s = shiftSnap();
+  assert.deepEqual(s.shiftGuess('9556/HOO PENG', { y: 2026, m: 10, d: 30 }), { id: '9556', v: 'N', k: 7, n: 7 });
+  assert.deepEqual(s.shiftGuess('9471', { y: 2026, m: 10, d: 30 }), { id: '9471', v: 'D', k: 5, n: 5 });
+  assert.deepEqual(s.shiftGuess('9495', null), { id: '9495', v: 'D', k: 1, n: 2 });
+  assert.equal(s.shiftGuess('9441', null), null);
+  const look = (a) => [a.values.shift, a.orange.includes('shift') ? 'fixed' : a.red.includes('shift') ? 'red' : ''];
+  const a1 = assess(s, { setter: '9556', shift: '' });
+  const a2 = assess(s, { setter: '9556', shift: 'D' });
+  const a3 = assess(s, { setter: '9556', shift: 'D', disputed: { shift: ['D', 'N'] } });
+  const a4 = assess(s, { setter: '9556', shift: 'N' });
+  const a5 = assess(s, { setter: '9495', shift: '', disputed: { shift: ['空', 'N'] } });
+  const a6 = assess(s, { setter: '9441', shift: '' });
+  const a7 = assess(s, { setter: '9471', shift: '' });
+  assert.deepEqual([a1, a2, a3, a4, a5, a6, a7].map(look),
+    [['N', 'fixed'], ['N', 'fixed'], ['N', 'fixed'], ['N', ''], ['', 'red'], ['', ''], ['D', 'fixed']]);
+  assert.ok(a1.notes.includes('SHIFT 空→N（单子上没写班次，9556 最近 7 回都是夜班）'), a1.notes);
+  assert.ok(a2.notes.includes('SHIFT D→N（9556 最近 7 回都是夜班；单子上真圈了 D 就改回来）'));
+  assert.ok(a3.notes.includes('SHIFT 几遍认得不一样：D / N，9556 最近 7 回都是夜班，就是 N'));
+  assert.ok(a7.notes.includes('SHIFT 空→D（单子上没写班次，9471 最近 5 回都是白班）'));
+  assert.ok(a6.red.includes('setter'));
+});
+
+test('核对里把调试员改对了：班次照这个人以前的班次再猜一遍；人改过的班次不动', () => {
+  const s = shiftSnap();
+  const names = s.roster();
+  const r1 = { no: 1, kind: 'rec', ...assess(s, { setter: '9551', shift: '', disputed: { shift: ['空', 'N'] } }) };
+  const r2 = { no: 2, kind: 'rec', ...assess(s, { setter: '9551', shift: 'D' }) };
+  const r3 = { no: 3, kind: 'rec', ...assess(s, { setter: '9551', shift: '' }) };
+  assert.ok(r1.red.includes('shift') && r1.red.includes('setter'));
+  C.checkCell(r1, 'setter', { text: '9556', today: T, roster: names, snapshot: s });
+  assert.equal(r1.values.setter, '9556/HOO PENG'); assert.equal(r1.values.shift, 'N');
+  assert.ok(r1.orange.includes('shift') && !r1.red.length); assert.equal(r1.notes, C.HUMAN_NOTE);
+  C.checkCell(r2, 'setter', { text: '9556', today: T, roster: names, snapshot: s });
+  assert.equal(r2.values.shift, 'N'); assert.ok(r2.orange.includes('shift'));
+  C.checkCell(r3, 'setter', { text: '9556', today: T, roster: names });          // 没给样板资料：不猜
+  assert.equal(r3.values.shift, ''); assert.ok(!r3.orange.includes('shift'));
+  C.checkCell(r2, 'shift', { text: 'D', today: T });                             // 人自己改了班次
+  C.checkCell(r2, 'setter', { text: '9556', today: T, roster: names, snapshot: s });
+  assert.equal(r2.values.shift, 'D');
+});
+
+test('3A：MO 认错了一位，同一个零件的单子是谁也排在候选前面', () => {
+  const s = shiftSnap();
+  const rows = [
+    assess(s, { part_number: 'KB-7104562B', mo: '90002002', setter: '9491' }),
+    assess(s, { part_number: 'KB-7104562B', mo: '90002092', setter: '9441' }),
+  ].map((a, i) => ({ no: i + 1, kind: 'rec', ...a }));
+  C.settle(rows);
+  assert.equal(rows[1].alts.setter[0], '9491/GOH KIM SENG', rows[1].alts.setter);
 });
