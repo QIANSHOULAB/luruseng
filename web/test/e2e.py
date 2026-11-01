@@ -885,6 +885,15 @@ def main():
                 b.wait_for_function('() => document.querySelector("#pcstate").textContent.includes("电脑在线")', timeout=15000)
                 a.wait_for_selector('#dlg-phone:not([open])', state='attached', timeout=15000)   # 手机一连上，二维码自己收起来，不用人点
                 assert '📱 手机连上了，二维码收起来了' in logs_of(a), logs_of(a)
+                assert not b.is_visible('#tipwait')                                # 不是 iPhone：不提相册会愣
+                ip = browser.new_context(viewport={'width': 390, 'height': 844}, is_mobile=True, has_touch=True,
+                                         user_agent='Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 '
+                                                    '(KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1')
+                ip.add_init_script(init)
+                c = opened(ip, link, wait_log=False)
+                c.wait_for_selector('#tipwait', state='visible')                  # iPhone：先说相册点完「添加」会愣一会儿，不是死机
+                assert '不是死机' in c.inner_text('#tipwait')
+                ip.close()
                 b.set_input_files('#files', make_images(os.path.join(WORK, 'ph'), 3, start=170))
                 b.wait_for_function('() => document.querySelector("#st").textContent.includes("电脑收齐 3 张")', timeout=30000)
                 a.wait_for_function('() => document.querySelector("#status").textContent.startsWith("干完")', timeout=60000)

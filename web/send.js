@@ -131,6 +131,8 @@ function boot() {
   if (!p) { $('#nopair').hidden = false; return; }
   $('#paired').hidden = false;
   if (matchMedia('(display-mode: standalone)').matches || navigator.standalone) $('#home').hidden = true;
+  // iPhone 的相册点完「添加」要先把照片一张张备好（苹果自己的毛病，一张一两秒），这时候页面在相册底下，给不了进度：先说一声
+  if (/iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) $('#tipwait').hidden = false;
   pcState(null);
   T.line = new P.Line(p, 'phone', {
     onMessage: (m) => onMessage(m, p),
