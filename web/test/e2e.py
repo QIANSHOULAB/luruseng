@@ -3,6 +3,7 @@
 跑：python web/test/e2e.py [截图放哪]
 要：playwright（chromium）、openpyxl、Pillow、xlwt；可选 pillow-heif（测 HEIC）
 """
+import base64
 import functools
 import http.server
 import io
@@ -17,6 +18,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 import urllib.error
 import urllib.request
 import zipfile
@@ -231,6 +233,33 @@ def main():
             d.value.save_as(path)
             return path
 
+        BYTES_B64 = 'buf => { let s = ""; for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode(...buf.subarray(i, i + 0x8000)); return btoa(s); }'
+
+        def marked_book(name='标了颜色的.xlsx'):   # 带编号、颜色、核对提示的那本（跟电脑版一样）：「下载」给的是干净的，对照电脑版用这本
+            b64 = page.evaluate('''async () => {
+                const [B, S] = await Promise.all([import('./book.js'), import('./store.js')]);
+                const run = await (await S.openStore()).get('runs', document.querySelector('#vruns').value);
+                return (%s)(new Uint8Array(await (await B.xlsx(run)).arrayBuffer()));
+            }''' % BYTES_B64)
+            path = os.path.join(WORK, name)
+            with open(path, 'wb') as f:
+                f.write(base64.b64decode(b64))
+            return path
+
+        def clean_matches(clean, marked):     # 「下载」：只有公司那 13 列，没编号、没颜色、没核对提示，认失败的空行也没有
+            c, m = load_workbook(clean).worksheets[0], load_workbook(marked).worksheets[0]
+            assert c['A1'].value == 'TOOL BROKEN RECORD' and c.max_column == 13, (c['A1'].value, c.max_column)
+            heads = [c.cell(row=2, column=k).value for k in (1, 2, 3, 4, 5, 6, 8, 9, 12, 13)]
+            assert heads == ['DATE', 'MACHINE', 'PART NUMBER', 'MO', 'OPR NO.', 'TOOL', 'BTMP', 'CONTAINMENT/SCREENING DETAIL', 'SHIFT', 'SETTER'], heads
+            want = [[m.cell(row=r, column=k).value for k in range(2, 15)] for r in range(4, m.max_row + 1)]
+            want = [w for w in want if any(v not in (None, '') for v in w)]
+            got = [[c.cell(row=r, column=k).value for k in range(1, 14)] for r in range(4, c.max_row + 1)]
+            assert got == want, (got[:2], want[:2])
+            for row in c.iter_rows():
+                for cell in row:
+                    assert cell.fill.fill_type is None and cell.comment is None, cell.coordinate
+            return got
+
         def wait_viewer():                    # 核对窗口开了、这批也读出来了
             page.wait_for_selector('#dlg-view[open]')
             page.wait_for_function('() => !!document.querySelector("#vpanel h3") || !document.querySelector("#vempty").hidden')
@@ -260,6 +289,7 @@ def main():
             assert page.inner_text('#status').replace('\n', '') == '待识别 0 张'
 
         imgs = make_images(os.path.join(WORK, 'a'), 12)
+        runs = {}
 
         @step
         def twelve_photos_match_desktop_book():
@@ -278,16 +308,19 @@ def main():
             page.wait_for_function('() => document.querySelector("#vinfo").textContent.includes("第 2 张")')
             page.keyboard.press('ArrowLeft')
             page.wait_for_function('() => document.querySelector("#vinfo").textContent.includes("第 1 张")')
-            js = download('#vxlsx')
-            assert os.path.basename(js).startswith('识别结果_') and js.endswith('.xlsx')
+            js = marked_book('识别结果_对照电脑版.xlsx')
             same_book(js, python_book(imgs))
+            clean = download('#vxlsx')                                         # 「下载」：干净的，贴进公司表就行
+            assert os.path.basename(clean).startswith('识别结果_') and clean.endswith('.xlsx')
+            assert len(clean_matches(clean, js)) == 12
+            runs['twelve'] = page.input_value('#vruns')
             assert len(mock_server.STATE['log']) >= 12 * 2 * 2      # 网页 24 次 + 电脑版 24 次
 
         @step
         def viewer_pages_rotates_copies_zips():
             page.keyboard.press('ArrowRight')
             page.wait_for_function('() => document.querySelector("#vinfo").textContent.includes("第 2 张")')
-            assert '801' in page.inner_text('#vpanel')
+            page.wait_for_function('() => document.querySelector("#vpanel").textContent.includes("801")')   # 右边那栏比顶上那行晚一拍画好
             w0 = page.eval_on_selector('#vphoto img', 'i => [i.naturalWidth, i.naturalHeight]')
             page.click('#vcw')
             page.wait_for_function('w => { const i = document.querySelector("#vphoto img"); return i && i.naturalWidth === w[1] && i.naturalHeight === w[0]; }', arg=w0)
@@ -417,7 +450,7 @@ def main():
             kb = idb('kv', 'kb')
             mine = [r for r in kb['records'] if r['source'].startswith('核对 ')]
             assert len(mine) == 1 and mine[0]['machine'] == 'VM-02' and mine[0]['sheet'] == '核对', mine
-            js = download('#vxlsx')
+            js = marked_book()
             ws = load_workbook(js).worksheets[0]
             assert ws['C4'].value == 'VM-02' and ws['C4'].fill.fgColor.rgb.endswith('E2EFDA'), (ws['C4'].value, ws['C4'].fill.fgColor.rgb)
             assert ws['C4'].font.color.rgb.endswith('375623') and ws['O4'].value == '✓ 人核过', ws['O4'].value
@@ -471,7 +504,8 @@ def main():
             hs = page.evaluate("""() => Object.fromEntries([...document.querySelectorAll('#vpanel dt')]
                 .map(d => [d.textContent, Math.round(d.getBoundingClientRect().height)]))""")
             assert hs['TOTAL SCREENED'] == hs['MACHINE'], hs                  # 一行，不折成两行
-            ws = load_workbook(download('#vxlsx')).worksheets[0]
+            runs['btmp'] = page.input_value('#vruns')
+            ws = load_workbook(marked_book()).worksheets[0]
             assert ws['I2'].value == 'BTMP' and ws['I4'].value == 1 == ws['J4'].value   # 表里 BTMP 抄 TOTAL SCREENED，贴进公司表就齐了
             assert (ws['I4'].fill.fgColor.rgb or '').endswith('FFE699')
             page.click('#vpanel dd[data-f="total_screened"]')              # 核对里改 TOTAL：BTMP 跟着变
@@ -479,7 +513,7 @@ def main():
             page.press('#vpanel .cell-ed input', 'Enter')
             vinfo_has('TOTAL_SCREENED 改成 3'.replace('_', ' '))
             assert page.query_selector('#vpanel dd[data-f="btmp"]') is None
-            ws = load_workbook(download('#vxlsx')).worksheets[0]
+            ws = load_workbook(marked_book()).worksheets[0]
             assert ws['I4'].value == 3 == ws['J4'].value, (ws['I4'].value, ws['J4'].value)
             close_viewer()
 
@@ -491,6 +525,179 @@ def main():
             wait_log('✓ 名单存好了：2 人')
             total = int(re.fullmatch(r'名单：(\d+) 人', page.inner_text('#nhead')).group(1))   # 名单文本 2 人 + 样板资料里认识的
             assert total > 2 and page.inner_text('#npath') == f'其中 {total - 2} 人是样板资料里认识的', page.inner_text('#npath')
+
+        @step
+        def fill_into_company_book():                   # Song 2026-11-01：核完一点「填进公司表」，接着公司表最后一条往下写
+            co = os.path.join(WORK, 'co')
+            os.makedirs(co, exist_ok=True)
+            book = company_book(os.path.join(co, 'TOOL BROKEN RECORD.xlsx'))   # OCT 页 8 条：第 4–11 行
+            with open(book, 'rb') as f:
+                original = f.read()
+            # 选文件的窗口换成假的：交出浏览器自己那块地方（OPFS）里的一本，跟真文件一样能读能写
+            page.evaluate('''async (b64) => {
+                const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+                const root = await navigator.storage.getDirectory();
+                const h = await root.getFileHandle('TOOL BROKEN RECORD.xlsx', { create: true });
+                const w = await h.createWritable(); await w.write(bytes); await w.close();
+                window.__picks = 0;
+                window.showOpenFilePicker = async () => { window.__picks++; return [h]; };
+            }''', base64.b64encode(original).decode())
+
+            def company(name):
+                b64 = page.evaluate('''async () => {
+                    const root = await navigator.storage.getDirectory();
+                    const f = await (await root.getFileHandle('TOOL BROKEN RECORD.xlsx')).getFile();
+                    return (%s)(new Uint8Array(await f.arrayBuffer()));
+                }''' % BYTES_B64)
+                path = os.path.join(co, name)
+                with open(path, 'wb') as f:
+                    f.write(base64.b64decode(b64))
+                return path
+
+            def fill(expect, ask=None):
+                page.evaluate('() => { document.querySelector("#vinfo").textContent = ""; }')
+                page.click('#vfill')
+                if ask:
+                    page.wait_for_selector('#dlg-ask[open]')
+                    text = page.inner_text('#dlg-ask')
+                    assert ask in text and '没核对完，你确定要写入吗？看来阁下摸鱼心切啊' in text, text
+                    page.click('#dlg-ask [data-close]' if expect is None else '#askok')
+                    if expect is None:
+                        return
+                vinfo_has(expect)
+
+            page.click('#check')
+            wait_viewer()
+            page.select_option('#vruns', runs['twelve'])
+            vinfo_has('共 12 张')
+            assert page.is_visible('#vfill') and 'primary' in page.get_attribute('#vfill', 'class')   # 没红的：按钮是蓝的
+            clean = clean_matches(download('#vxlsx'), marked_book())
+            fill('✓ 填进 TOOL BROKEN RECORD.xlsx：OCT 第 12–23 行（12 条）')
+            assert page.evaluate('window.__picks') == 1
+            first = company('填了一回.xlsx')
+            wb = load_workbook(first)
+            ws, old = wb['OCT'], load_workbook(book)['OCT']
+            assert ws.max_row == 23 and [[ws.cell(row=r, column=k).value for k in range(1, 14)] for r in range(12, 24)] == clean
+            for r in range(1, 12):                                               # 原来那几行一格不动
+                assert [ws.cell(row=r, column=k).value for k in range(1, 14)] == [old.cell(row=r, column=k).value for k in range(1, 14)], r
+            assert ws['A12'].number_format == ws['A11'].number_format and wb.sheetnames == ['SEPT', 'OCT', 'NAME']
+            assert all(ws.cell(row=r, column=k).fill.fill_type is None for r in range(12, 24) for k in range(1, 14))   # 不标颜色
+            fill('这批都已经在 TOOL BROKEN RECORD.xlsx 里了：一条没填')               # 再点一下：不重复填，也不再问选哪本
+            assert page.evaluate('window.__picks') == 1
+            page.fill('#vnum', '1')
+            page.press('#vnum', 'Enter')
+            vinfo_has('第 1 张')
+            failed = cell_of('failed')[1]
+            page.click('#vpanel dd[data-f="failed"]')                            # 弄出一格红的：提醒一句，点「取消」一条不写
+            page.fill('#vpanel .cell-ed input', '1o')
+            page.press('#vpanel .cell-ed input', 'Enter')
+            vinfo_has('还不对')
+            assert 'secondary' not in (page.get_attribute('#vfill', 'class') or '') and 'primary' not in page.get_attribute('#vfill', 'class')
+            fill(None, ask='还有 1 格红的没核')
+            with open(company('取消.xlsx'), 'rb') as f, open(first, 'rb') as g:
+                assert f.read() == g.read()
+            fill('✓ 填进 TOOL BROKEN RECORD.xlsx：上回填的改了 1 条（OCT 第 12 行）', ask='还有 1 格红的没核')   # 「写入」：照样填，红的那格照原样写
+            assert load_workbook(company('摸鱼心切.xlsx'))['OCT']['K12'].value == '1o'
+            page.click('#vpanel dd[data-f="failed"]')                            # 核完了再点：上回填的那一行就地改，不另起一行
+            page.fill('#vpanel .cell-ed input', failed)
+            page.press('#vpanel .cell-ed input', 'Enter')
+            vinfo_has(f'FAILED 改成 {failed}')
+            page.click('#vpanel dd[data-f="setter"]')
+            assert cell_of('setter')[1] != '232/Tan Mei Ling'
+            page.fill('#vpanel .cell-ed input', '232')                            # 只写工号：名字自己补上
+            page.press('#vpanel .cell-ed input', 'Enter')
+            page.wait_for_function('() => document.querySelector(\'#vpanel dd[data-f="setter"]\').textContent === "232/Tan Mei Ling"')
+            fill('✓ 填进 TOOL BROKEN RECORD.xlsx：上回填的改了 1 条（OCT 第 12 行）')
+            ws = load_workbook(company('核完再填.xlsx'))['OCT']
+            assert ws.max_row == 23 and ws['M12'].value == '232/Tan Mei Ling' and ws['K12'].value == int(failed), (ws['M12'].value, ws['K12'].value)
+            assert '填进过 TOOL BROKEN RECORD.xlsx' in page.get_attribute('#vfill', 'title')
+            close_viewer()
+            page.click('#gear')                                                  # ⚙ 里：记着哪本、能退回上一版
+            page.wait_for_selector('#dlg-set[open]')
+            assert page.is_visible('#corow') and 'TOOL BROKEN RECORD.xlsx' in page.inner_text('#coname')
+            assert page.inner_text('#copick') == '换一本' and page.is_visible('#coundo')
+            page.click('#coundo')
+            page.wait_for_selector('#dlg-ask[open]')
+            assert '退回上一版' in page.inner_text('#dlg-ask')
+            page.click('#askok')
+            page.wait_for_function('() => document.querySelector("#setnote").textContent.includes("填之前的样子了")')
+            ws = load_workbook(company('退回.xlsx'))['OCT']
+            assert ws['M12'].value != '232/Tan Mei Ling' and ws['K12'].value == '1o', (ws['M12'].value, ws['K12'].value)   # 退回到「核完再填」之前
+            page.click('#dlg-set [data-close]')
+            page.click('#check')                                                 # 退回以后再点：照样认得上回填的那一行，就地改回来
+            wait_viewer()
+            page.select_option('#vruns', runs['twelve'])
+            vinfo_has('共 12 张')
+            fill('✓ 填进 TOOL BROKEN RECORD.xlsx：上回填的改了 1 条（OCT 第 12 行）')
+            ws = load_workbook(company('退回再填.xlsx'))['OCT']
+            assert ws.max_row == 23 and ws['M12'].value == '232/Tan Mei Ling'
+            page.screenshot(path=os.path.join(SHOTS, '5-填进公司表.png'))
+            # 手机那种不能直接改文件的：先选表，填好的那本下载下来（这批没填过：照样接着往下填）
+            page.select_option('#vruns', runs['btmp'])
+            vinfo_has('共 1 张')
+            page.evaluate('() => { delete window.showOpenFilePicker; window.showOpenFilePicker = undefined; }')
+            reds = 'primary' not in page.get_attribute('#vfill', 'class')           # 这批还有红的：照样先问一声
+            with page.expect_download() as d:
+                with page.expect_file_chooser() as fc:
+                    page.click('#vfill')
+                fc.value.set_files(book)
+                if reds:
+                    page.wait_for_selector('#dlg-ask[open]')
+                    page.click('#askok')
+            assert d.value.suggested_filename == 'TOOL BROKEN RECORD.xlsx'
+            phone = os.path.join(co, '手机填的.xlsx')
+            d.value.save_as(phone)
+            vinfo_has('填好的 TOOL BROKEN RECORD.xlsx 下载了，拿它换掉原来那本。OCT 第 12 行（1 条）')
+            ws = load_workbook(phone)['OCT']
+            assert ws.max_row == 12 and ws['C12'].value is not None
+            close_viewer()
+
+        @step
+        def fill_after_reopening():                     # 选一回、以后点一下：关了页面再开，还记得是哪本（真浏览器的普通窗口那样）
+            # Playwright 默认的浏览器环境跟无痕窗口一样，从浏览器存储里取回「选过的那本」会把整个浏览器弄崩；普通窗口没事，这里就开个普通的
+            prof = tempfile.mkdtemp(prefix='luruseng-prof-')
+            k = pw.chromium.launch_persistent_context(prof, viewport={'width': 1280, 'height': 860}, accept_downloads=True, locale='zh-CN')
+            try:
+                pg = k.new_page()
+                pg.on('pageerror', lambda e: errors.append(f'reopen pageerror: {e}'))
+                offline(pg)
+                pg.goto(base)
+                pg.wait_for_function('() => document.querySelectorAll("#log p").length >= 1')
+                pg.fill('#key1', K1)
+                pg.set_input_files('#files', make_images(os.path.join(WORK, 'reopen'), 1, start=170))
+                pg.click('#start')
+                pg.wait_for_selector('#dlg-view[open]', timeout=60000)
+                book = company_book(os.path.join(WORK, 'reopen-co.xlsx'))
+                with open(book, 'rb') as f:
+                    b64 = base64.b64encode(f.read()).decode()
+                pg.evaluate('''async (b64) => {                 // 当成昨天选过：那本的「把手」存在浏览器里
+                    const S = await import('./store.js');
+                    const st = await S.openStore();
+                    const root = await navigator.storage.getDirectory();
+                    const h = await root.getFileHandle('TOOL BROKEN RECORD.xlsx', { create: true });
+                    const w = await h.createWritable(); await w.write(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))); await w.close();
+                    await st.put('kv', 'cohandle', h); await st.put('kv', 'coname', h.name);
+                }''', b64)
+                pg.reload()
+                pg.wait_for_function('() => document.querySelectorAll("#log p").length >= 1')
+                pg.evaluate('() => { window.__picks = 0; window.showOpenFilePicker = async () => { window.__picks++; throw new DOMException("no", "AbortError"); }; }')
+                pg.click('#check')
+                pg.wait_for_selector('#dlg-view[open]')
+                pg.wait_for_function('() => document.querySelector("#vinfo").textContent.includes("共 1 张")')
+                pg.click('#vfill')
+                pg.wait_for_function('() => document.querySelector("#vinfo").textContent.includes("✓ 填进 TOOL BROKEN RECORD.xlsx：OCT 第 12 行（1 条）")')
+                assert pg.evaluate('window.__picks') == 0                      # 没再问选哪本
+                out = pg.evaluate('''async () => {
+                    const f = await (await (await navigator.storage.getDirectory()).getFileHandle('TOOL BROKEN RECORD.xlsx')).getFile();
+                    return (%s)(new Uint8Array(await f.arrayBuffer()));
+                }''' % BYTES_B64)
+                path = os.path.join(WORK, 'reopen-filled.xlsx')
+                with open(path, 'wb') as f:
+                    f.write(base64.b64decode(out))
+                ws = load_workbook(path)['OCT']
+                assert ws.max_row == 12 and ws['B12'].value, (ws.max_row, ws['B12'].value)
+            finally:
+                k.close()
 
         cat_imgs = make_images(os.path.join(WORK, 'q'), 2, start=30)
 
@@ -585,7 +792,7 @@ def main():
                 print('    （没装 pillow-heif，HEIC 不测）')
             out = run_and_wait(paths, f'成功 {len(paths)} 张', timeout=120000)
             wait_viewer()
-            js = download('#vxlsx')
+            js = marked_book()
             ws = load_workbook(js).worksheets[0]
             widths = sorted(ws.cell(row=r, column=6).value for r in range(4, 4 + len(paths)))
             want = sorted([2048, 600] + ([1000] if len(paths) == 3 else []))
@@ -624,7 +831,7 @@ def main():
             page.click('#gear')
             page.wait_for_selector('#dlg-set[open]')
             assert '录入僧网页版 v' in page.inner_text('#setver') and '千手院方丈释手' in page.inner_text('#setver')
-            assert '数据库 24 条' in page.inner_text('#usage'), page.inner_text('#usage')   # 22 条放进去的 + 核对里核完的 2 条
+            assert '数据库 25 条' in page.inner_text('#usage'), page.inner_text('#usage')   # 22 条放进去的 + 核对里核完的 3 条（改格子那步 2 条、填公司表那步 1 条）
             page.screenshot(path=os.path.join(SHOTS, '4-设置.png'))
             assert page.get_attribute('#hub', 'href') == 'https://qianshoulab.github.io/'
             assert page.inner_text('#setcontact') == ('要什么新功能、有修改建议，或洽谈商业合作请直接找方丈飞鸽传书：oilsongchengmin@gmail.com\n'
@@ -640,7 +847,7 @@ def main():
             assert page.get_attribute('#mail', 'title').startswith('oilsongchengmin@')
             path = download('#backup')
             data = json.load(open(path, encoding='utf-8'))
-            assert data['app'] == 'luruseng-web' and len(data['kb']['records']) == 24 and '质检单' in data['cats']
+            assert data['app'] == 'luruseng-web' and len(data['kb']['records']) == 25 and '质检单' in data['cats']
             assert K1 not in json.dumps(data)                                     # 钥匙不进备份
             page.set_input_files('#restorefile', path)
             wait_log('✓ 恢复好了（合并进来，原来的一条没删）：数据库新增 0 条')
@@ -803,10 +1010,10 @@ def main():
                 assert d.value.suggested_filename == run['xlsx']
                 path = os.path.join(WORK, 'kill-' + d.value.suggested_filename)
                 d.value.save_as(path)
-                ws = load_workbook(path).worksheets[0]
-                assert [ws.cell(row=r, column=1).value for r in range(4, 12)] == list(range(1, 9))
-                assert [int(ws.cell(row=r, column=6).value) for r in range(4, 12)] == [940 + i for i in range(8)], \
-                    [ws.cell(row=r, column=6).value for r in range(4, 12)]          # 照片和编号对得上
+                ws = load_workbook(path).worksheets[0]                          # 「下载」是干净的那本：没编号，OPR 在第 5 列
+                assert ws.max_row == 11 and ws.max_column == 13, (ws.max_row, ws.max_column)
+                assert [int(ws.cell(row=r, column=5).value) for r in range(4, 12)] == [940 + i for i in range(8)], \
+                    [ws.cell(row=r, column=5).value for r in range(4, 12)]          # 照片和编号对得上，一条不少
                 p.click('#vclose')
                 p.screenshot(path=os.path.join(SHOTS, '9-诈尸干完.png'))
 
@@ -972,7 +1179,8 @@ def main():
 
         for fn in (opens_clean, no_key_no_start, twelve_photos_match_desktop_book, viewer_pages_rotates_copies_zips,
                    same_photos_again_are_skipped, result_button_downloads_latest, feed_database_xlsx_xls_csv_html,
-                   database_fixes_confusable_letters, edit_cells_in_viewer, btmp_copies_total, names_dialog, own_category_matches_desktop_book,
+                   database_fixes_confusable_letters, edit_cells_in_viewer, btmp_copies_total, names_dialog, fill_into_company_book, fill_after_reopening,
+                   own_category_matches_desktop_book,
                    bad_key_stops_and_keeps_photos, stop_button_marks_unfinished, photos_of_all_kinds,
                    title_on_the_right_turns_upright_number_in_top_right, settings_backup_restore_and_forget_keys, delete_a_batch, progress_counts_up_and_says_go_slack,
                    killed_midway_comes_back_and_finishes, phone_sends_and_pc_starts_by_itself, phone_layout):
@@ -982,8 +1190,12 @@ def main():
                 fn()
             except Exception:
                 print(f'  ✗ {fn.__name__}', flush=True)
-                print(last_logs(12))
-                page.screenshot(path=os.path.join(SHOTS, f'失败-{fn.__name__}.png'))
+                traceback.print_exc()                 # 先把真正的错印出来：页面要是已经崩了，下面两句也会挂
+                try:
+                    print(last_logs(12))
+                    page.screenshot(path=os.path.join(SHOTS, f'失败-{fn.__name__}.png'))
+                except Exception as e2:
+                    print(f'  （页面已经没了：{e2.__class__.__name__}）')
                 raise
         page.screenshot(path=os.path.join(SHOTS, '8-最后.png'))
         browser.close()

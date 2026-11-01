@@ -173,6 +173,51 @@ function tableBook(ExcelJS, run) {
   return wb;
 }
 
+// 下载（Song 2026-11-01 定的 3A）：跟公司那本一个样，只有那 13 列——不要 No.、不要颜色、不要核对提示，认失败的空行也不要
+function cleanBook(ExcelJS, run) {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(sheetName(run), { views: [{ state: 'frozen', ySplit: 3 }] });
+  ws.mergeCells(1, 1, 1, 13);
+  const t = put(ws, 1, 1, 'TOOL BROKEN RECORD');
+  t.font = { name: 'Calibri', size: 26 };
+  t.alignment = CENTER;
+  ws.getRow(1).height = 34.5;
+  for (const [c, name] of [[1, 'DATE'], [2, 'MACHINE'], [3, 'PART NUMBER'], [4, 'MO'], [5, 'OPR NO.'], [8, 'BTMP'], [12, 'SHIFT'], [13, 'SETTER']]) {
+    ws.mergeCells(2, c, 3, c);
+    put(ws, 2, c, name);
+  }
+  ws.mergeCells(2, 6, 2, 7);
+  put(ws, 2, 6, 'TOOL'); put(ws, 3, 6, 'T NO.'); put(ws, 3, 7, 'DESCRIPTION');
+  ws.mergeCells(2, 9, 2, 11);
+  put(ws, 2, 9, 'CONTAINMENT/SCREENING DETAIL');
+  put(ws, 3, 9, 'TOTAL SCREENED'); put(ws, 3, 10, 'PASSED'); put(ws, 3, 11, 'FAILED');
+  for (const r of [2, 3]) {
+    for (let c = 1; c <= 13; c++) { const cell = ws.getCell(r, c); cell.font = BOLD; cell.alignment = CENTER; cell.border = BOX; }
+  }
+  WIDTHS.slice(1, 14).forEach((w, i) => { ws.getColumn(i + 1).width = w === 9 ? 9.000001 : w; });
+  let r = 3;
+  for (const row of run.rows) {
+    if (row.kind !== 'rec') continue;
+    r++;
+    FIELDS.forEach((f, i) => {
+      const cell = put(ws, r, 1 + i, row.values[f]);
+      cell.border = BOX;
+      cell.font = BASE_FONT;
+      cell.alignment = LEFT_FIELDS.has(f) ? LEFT : CENTER;
+      if (f === 'date' && cell.value instanceof Date) cell.numFmt = 'd-mmm';
+    });
+  }
+  landscape(ws, '1:3');
+  ws.pageSetup.printArea = `A1:M${Math.max(r, 4)}`;
+  return wb;
+}
+
+export async function cleanXlsx(run, ExcelJS = null) {   // -> Blob（刀单）
+  const X = ExcelJS || await loadScript(EXCELJS, 'ExcelJS');
+  const buf = await cleanBook(X, run).xlsx.writeBuffer();
+  return new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+
 export async function xlsx(run, ExcelJS = null) {      // -> Blob
   const X = ExcelJS || await loadScript(EXCELJS, 'ExcelJS');
   const wb = run.cat === '刀单' ? recordBook(X, run) : tableBook(X, run);

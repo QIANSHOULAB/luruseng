@@ -237,6 +237,8 @@
     .vbar .w { display: none; }
     .vbar .n { display: inline; }
     .vbar .info { width: 100%; margin: 0; white-space: normal; }
+    .vbar .acts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }   /* 手机上六个按钮排两行，一样宽 */
+    .vbar .acts .pill { justify-content: center; padding: 0 6px; }
     .dcard { padding: 16px; }
     .dcard .foot2 .left { flex-basis: 100%; }
     .dcard .snote { text-align: left; }
@@ -367,6 +369,10 @@
     <button type="button" class="pill" id="backup">备份</button><button type="button" class="pill" id="restore" style="margin-left:-10px">恢复</button>
     <input type="file" id="restorefile" accept=".json,application/json" hidden>
   </div>
+  <div class="srow" id="corow" style="border-top:1px solid var(--line)">
+    <div class="t">公司表<div class="d" id="coname"></div></div>
+    <button type="button" class="pill" id="copick">换一本</button><button type="button" class="pill" id="coundo" style="margin-left:-10px">退回上一版</button>
+  </div>
   <div class="err" id="seterr" style="min-height:0"></div>
   <div class="contact" id="setcontact"></div>
   <div class="foot2"><div class="left" id="setver"></div>
@@ -388,7 +394,9 @@
       <span class="info" id="vinfo"></span>
     </div>
     <div class="g acts">
-      <button type="button" class="pill" id="vxlsx"><svg class="i"><use href="#i-down"/></svg>Excel</button>
+      <button type="button" class="pill" id="vxlsx"><svg class="i"><use href="#i-down"/></svg>下载</button>
+      <button type="button" class="pill" id="vfill"><span class="w">填进公司表</span><span class="n">填表</span></button>
+      <input type="file" id="cofile" accept=".xlsx,.xlsm" hidden>
       <button type="button" class="pill" id="vzip">编号照片</button>
       <button type="button" class="pill" id="vcopy"><span class="w">复制整批</span><span class="n">复制</span></button>
       <button type="button" class="pill" id="vdel"><span class="w">删掉这批</span><span class="n">删掉</span></button>
@@ -424,7 +432,7 @@
   // 不然刚更新那十分钟，浏览器会拿新页面配缓存里的旧代码（按钮在、点了没反应）。
   (() => {
     const v = Date.parse(document.lastModified) || Date.now();
-    const mods = ['app', 'core', 'sheets', 'store', 'image', 'book', 'engine', 'pair', 'inbox'];
+    const mods = ['app', 'core', 'sheets', 'store', 'image', 'book', 'engine', 'pair', 'inbox', 'fill'];
     const map = document.createElement('script');
     map.type = 'importmap';
     map.textContent = JSON.stringify({ imports: Object.fromEntries(mods.map((m) => [`./${m}.js`, `./${m}.js?v=${v}`])) });

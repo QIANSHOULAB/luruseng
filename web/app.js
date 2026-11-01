@@ -4,6 +4,7 @@ import * as SH from './sheets.js';
 import * as ST from './store.js';
 import * as I from './image.js';
 import * as B from './book.js';
+import * as F from './fill.js';
 import { Engine } from './engine.js';
 import * as PR from './pair.js';
 import { Inbox } from './inbox.js';
@@ -23,9 +24,14 @@ const S = {
   st: null, cfg: { ...DEFAULTS }, cats: [], queue: [], seen: new Set(), eng: null, busy: false,
   fresh: 0, feeding: false, run: null,                    // run：正在干的这批（核对里看它，改的格子才不会被盖掉）
   pair: null, inbox: null, phoneWaiting: false,           // 手机传图：配对、收图的长连接、手机传齐了等着开工
+  cohandle: null, filling: false,                         // 填进公司表：选过的那本（这回开着页面先用手上这个）、正在填
 };
 const two = (n) => String(n).padStart(2, '0');
 const nowIso = () => new Date().toISOString().slice(0, 19);
+const localWhen = (iso) => {                       // nowIso 存的是世界时：给人看换成本地的「11-01 12:15」
+  const d = new Date(`${iso}Z`);
+  return Number.isNaN(d.getTime()) ? String(iso) : `${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`;
+};
 const TOUCH = matchMedia('(pointer: coarse)').matches;      // 手机、平板：没得拖，左右滑翻页
 const EMPTY = TOUCH ? '还没选照片' : '把照片拖进来，或点右边「选照片」';
 
@@ -656,7 +662,7 @@ async function latestRun() {
 
 async function downloadXlsx(run) {
   try {
-    save(await B.xlsx(run), run.xlsx);
+    save(await (run.cat === C.BUILTIN ? B.cleanXlsx(run) : B.xlsx(run)), run.xlsx);   // 刀单下载干净的：只有公司那 13 列
     return true;
   } catch (e) {
     log(`✗ 表格出不来：${e.message}`);
@@ -816,6 +822,7 @@ function setupSettings() {
     const kb = await kbDb();
     $('#usage').textContent = `数据库 ${kb.records.length} 条` + (u ? ` · 这个浏览器里一共存了 ${mb(u[0])}` : '') +
       '。换电脑、清浏览器之前先备份一份。';
+    await companyRow();
     dlg.showModal();
   };
   $('#backup').onclick = async () => {
@@ -860,7 +867,7 @@ async function openViewer(id = null) {
   const has = ids.length > 0;
   $('#vbody').hidden = !has;
   $('#vempty').hidden = has;
-  for (const b of ['#vprev', '#vnum', '#vgo', '#vnext', '#vccw', '#vcw', '#vxlsx', '#vzip', '#vcopy', '#vdel', '#vruns']) $(b).disabled = !has;
+  for (const b of ['#vprev', '#vnum', '#vgo', '#vnext', '#vccw', '#vcw', '#vxlsx', '#vfill', '#vzip', '#vcopy', '#vdel', '#vruns']) $(b).disabled = !has;
   for (const rid of ids) {
     const r = await S.st.get('runs', rid);
     sel.add(new Option(r ? runLabel(r) : rid, rid));
@@ -877,6 +884,7 @@ async function loadRun(id, start = null) {
   V.rowsByNo = new Map();
   for (const r of V.run.rows) { if (!V.rowsByNo.has(r.no)) V.rowsByNo.set(r.no, []); V.rowsByNo.get(r.no).push(r); }
   V.nos = [...new Set([...V.run.photos, ...V.rowsByNo.keys()])].sort((a, b) => a - b);
+  fillState();
   if (!V.nos.length) {                             // 刚开工，一张还没认完
     V.cur = null;
     $('#vnum').value = '';
@@ -1007,7 +1015,8 @@ async function saveCell(rec, k, f, label, text) {
     : text === undefined || after === before ? `${label} 核过了` : `${label} 改成 ${after || '空'}`;
   try { if (await feedRow(rec, k)) msg += '，这条核完进了样板资料'; } catch (e) { /* 样板资料存不下，不耽误改表 */ }
   fillPanel(rec.no);
-  $('#vinfo').textContent = msg + (still ? '' : '，表跟着改了');
+  const done = V.run.cat === C.BUILTIN && !fillState();     // 最后一个红格子核完：「填进公司表」变蓝，说一声
+  $('#vinfo').textContent = msg + (still ? '' : '，表跟着改了') + (done && !still ? '。全核完了：点「下载」或者「填进公司表」' : '');
 }
 
 // 核完的那条（没有红格子、人动过）当样板放进这个类别的数据库；同一条再改，换掉上次那份；又改红了就拿掉
@@ -1041,6 +1050,186 @@ async function ask(title, text, ok) {
     dlg.onclose = () => resolve(false);
     dlg.querySelector('[data-close]').onclick = () => done(false);
   });
+}
+
+// ---------------------------------------------------------------- 填进公司表（Song 2026-11-01：1A 直接写进原来那本；没核完提醒一句照样让填；不要标记）
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const BOOK_TYPES = [{ description: '公司那本表', accept: { [XLSX_MIME]: ['.xlsx'], 'application/vnd.ms-excel.sheet.macroEnabled.12': ['.xlsm'] } }];
+const canWrite = () => typeof window.showOpenFilePicker === 'function' && window.isSecureContext;
+const redCount = (run) => run.rows.reduce((n, r) => n + (r.kind === 'rec' ? (r.red || []).length : 0), 0);
+
+function fillState() {                             // 只有刀单有「填进公司表」；全核完了它变成蓝的。返回还有几格红的
+  const run = V.run, btn = $('#vfill');
+  btn.hidden = !run || run.cat !== C.BUILTIN;
+  const reds = run ? redCount(run) : 0;
+  btn.classList.toggle('primary', !!run && !reds && run.rows.some((r) => r.kind === 'rec'));
+  const f = run && run.filled;
+  btn.title = f ? `${localWhen(f.at)} 填进过 ${f.file}；再点一下：核对里改过的就地改，不另起一行` : '';
+  return reds;
+}
+
+async function pickCompany() {                     // 选一回公司那本、记住它：以后点一下就填
+  const [h] = await window.showOpenFilePicker({ id: 'company-book', types: BOOK_TYPES, multiple: false });
+  S.cohandle = h;
+  await S.st.put('kv', 'cohandle', h);
+  await S.st.put('kv', 'coname', h.name);
+  return h;
+}
+
+async function companyHandle() {                   // 选过的那本：页面开着就用手上这个，关了再开从浏览器里取
+  if (!S.cohandle) S.cohandle = await S.st.get('kv', 'cohandle').catch(() => null);
+  return S.cohandle;
+}
+
+async function forgetCompany() {
+  S.cohandle = null;
+  await S.st.del('kv', 'cohandle').catch(() => {});
+  await S.st.del('kv', 'coname').catch(() => {});
+}
+
+async function writable(h) {                       // 跟浏览器要「能改这本」：每次开浏览器头一回它会问一声
+  if ((await h.queryPermission({ mode: 'readwrite' })) === 'granted') return true;
+  return (await h.requestPermission({ mode: 'readwrite' })) === 'granted';
+}
+
+// 写之前留一份原表，写坏了能退回去（留最近 3 份）；这批填之前记着的样子也留着，退回的时候一起退
+async function keepBackup(name, bytes, run) {
+  const list = ((await S.st.get('kv', 'cobackups')) || []).slice(0, 2);
+  list.unshift({ name, at: nowIso(), bytes, run: run.id, filled: run.filled ? JSON.parse(JSON.stringify(run.filled)) : null });
+  await S.st.put('kv', 'cobackups', list);
+}
+
+const filledLine = (name, res) => `✓ 填进 ${name}：${F.fillLine(res)}`;
+const nothingLine = (name, res) => (res.kept.length ? `${name} 一条没动：${F.fillLine(res)}` : `这批都已经在 ${name} 里了：一条没填`);
+
+// 这批上回填进同一本时记下的那几行：再填就地改它们，不另起一行（换了一本就当没填过）
+function fillMemo(run, name) {
+  const f = run.filled;
+  return f && f.file === name && Array.isArray(f.placed) ? { before: f.placed, sure: !f.download } : {};
+}
+
+async function rememberFill(run, name, res, download) {
+  run.filled = { file: name, at: nowIso(), report: res.report, placed: res.placed, download };
+  await S.st.put('runs', run.id, run).catch(() => {});
+}
+
+async function sureToFill(run) {                   // 没核完：提醒一句，照样让填
+  const reds = redCount(run);
+  return !reds || ask(`还有 ${reds} 格红的没核`, '没核对完，你确定要写入吗？看来阁下摸鱼心切啊', '写入');
+}
+
+// 能不能改这本。刚选完表那一下，浏览器可能不让接着问「能改吗」（要再点一下才算人点的）：请他再点一下
+async function allowed(h, info) {
+  try {
+    if (await writable(h)) return true;
+    info('没给它改这本表的权限：一条没填');
+  } catch (e) {
+    if (e.name !== 'SecurityError' && e.name !== 'NotAllowedError') throw e;
+    info(`选好了 ${h.name}。再点一下「填进公司表」就填：浏览器会问一声能不能改这本，点「允许」`);
+  }
+  return false;
+}
+
+async function fillCompany(run) {
+  if (S.filling) return;
+  const info = (t) => { $('#vinfo').textContent = t; };
+  if (!run.rows.some((r) => r.kind === 'rec')) { info('这批没有认出来的记录'); return; }
+  if (!(await sureToFill(run))) return;
+  S.filling = true;
+  $('#vfill').disabled = true;
+  try {
+    let h = await companyHandle();
+    if (!h) { info('选一下公司那本表：只选这一回，以后点一下就填'); h = await pickCompany(); }
+    if (!(await allowed(h, info))) return;
+    let bytes;
+    try { bytes = await (await h.getFile()).arrayBuffer(); } catch (e) {
+      if (e.name === 'NotFoundError') {             // 挪了地方、改了名：忘掉它，下回点的时候重新选
+        await forgetCompany();
+        info(`上回选的 ${h.name} 找不到了（挪了地方还是改了名？）：再点一下「填进公司表」，重新选一回`);
+      } else info(`✗ 读不了 ${h.name}，一条没动：多半在 Excel 里开着，关掉 Excel 再点「填进公司表」（${e.name}）`);
+      return;
+    }
+    const JSZip = await I.loadScript(JSZIP_LIB, 'JSZip');
+    const res = await F.fillBook(bytes, run.rows, { JSZip, ...fillMemo(run, h.name) });
+    if (!res.bytes) { info(nothingLine(h.name, res)); return; }
+    await keepBackup(h.name, bytes, run);
+    try {
+      const w = await h.createWritable();
+      await w.write(res.bytes);
+      await w.close();
+    } catch (e) {
+      info(`✗ ${h.name} 写不进去，一条没动：多半在 Excel 里开着，关掉 Excel 再点「填进公司表」（${e.name}）`);
+      return;
+    }
+    await rememberFill(run, h.name, res, false);
+    info(filledLine(h.name, res));
+    log(`${filledLine(h.name, res)}（${runLabel(run)}）`);
+  } catch (e) {
+    if (e && e.name === 'AbortError') info('没选公司表：一条没填');
+    else info(`✗ 填不进去：${e.message}`);
+  } finally {
+    S.filling = false;
+    $('#vfill').disabled = false;
+    fillState();
+  }
+}
+
+async function fillByDownload(run, file) {         // 不能直接改文件的浏览器（手机）：填好的那本下载下来，拿它换掉原来那本
+  const info = (t) => { $('#vinfo').textContent = t; };
+  if (!(await sureToFill(run))) return;
+  try {
+    const JSZip = await I.loadScript(JSZIP_LIB, 'JSZip');
+    const res = await F.fillBook(await file.arrayBuffer(), run.rows, { JSZip, ...fillMemo(run, file.name) });
+    if (!res.bytes) { info(nothingLine(file.name, res)); return; }
+    save(new Blob([res.bytes], { type: XLSX_MIME }), file.name);
+    await rememberFill(run, file.name, res, true);
+    info(`这个浏览器不能直接改文件：填好的 ${file.name} 下载了，拿它换掉原来那本。${F.fillLine(res)}`);
+    log(`${filledLine(file.name, res)}（下载的，${runLabel(run)}）`);
+  } catch (e) {
+    info(`✗ 填不进去：${e.message}`);
+  }
+}
+
+async function companyRow() {                      // ⚙ 里「公司表」那一行
+  const name = await S.st.get('kv', 'coname').catch(() => null);
+  const backups = (await S.st.get('kv', 'cobackups').catch(() => null)) || [];
+  $('#corow').hidden = !canWrite();
+  $('#coname').textContent = name ? `${name}：核对里点「填进公司表」就填进这本` : '还没选：核对里第一次点「填进公司表」时选一回，以后点一下就填';
+  $('#copick').textContent = name ? '换一本' : '选一本';
+  $('#coundo').hidden = !backups.length;
+}
+
+function setupCompany() {
+  $('#copick').onclick = async () => {
+    try { await pickCompany(); } catch (e) { if (e.name !== 'AbortError') $('#seterr').textContent = `✗ ${e.message}`; }
+    companyRow();
+  };
+  $('#coundo').onclick = async () => {
+    const [last] = (await S.st.get('kv', 'cobackups')) || [];
+    const h = await companyHandle();
+    if (!last || !h) return;
+    const when = localWhen(last.at);
+    if (!(await ask('退回上一版？', `${last.name} 退回到 ${when} 填之前的样子。那之后在 Excel 里改过的也一起没了。`, '退回'))) return;
+    try {
+      if (!(await writable(h))) { $('#seterr').textContent = '没给它改这本表的权限：没退回'; return; }
+      const w = await h.createWritable();
+      await w.write(last.bytes);
+      await w.close();
+      const rest = ((await S.st.get('kv', 'cobackups')) || []).slice(1);
+      await S.st.put('kv', 'cobackups', rest);
+      const r = last.run && await S.st.get('runs', last.run).catch(() => null);
+      if (r) {                                       // 那批记着的「填在哪几行」也退回填之前：再点「填进公司表」照常填
+        if (last.filled) r.filled = last.filled; else delete r.filled;
+        await S.st.put('runs', r.id, r);
+        if (V.run && V.run.id === r.id) { V.run.filled = r.filled; fillState(); }
+      }
+      log(`✓ ${last.name} 退回到 ${when} 填之前的样子了`);
+      $('#setnote').textContent = `✓ ${last.name} 退回到 ${when} 填之前的样子了`;
+    } catch (e) {
+      $('#seterr').textContent = `✗ 退回不了：多半在 Excel 里开着，关掉再点（${e.name}）`;
+    }
+    companyRow();
+  };
 }
 
 function setupViewer() {
@@ -1090,6 +1279,11 @@ function setupViewer() {
   $('#vccw').onclick = () => turn(false);
   $('#vcw').onclick = () => turn(true);
   $('#vxlsx').onclick = () => downloadXlsx(V.run);
+  $('#vfill').onclick = () => {
+    if (!canWrite()) { $('#cofile').value = ''; $('#cofile').click(); return; }   // 手机这类不能直接改文件的：先选表，填好下载
+    fillCompany(V.run);
+  };
+  $('#cofile').onchange = (e) => { const f = e.target.files[0]; if (f) fillByDownload(V.run, f); };
   $('#vcopy').onclick = async () => {
     const [text, n] = B.tsv(V.run);
     if (!n) { $('#vinfo').textContent = '这批没有认出来的记录'; return; }
@@ -1243,6 +1437,7 @@ async function boot() {
   setupNames();
   setupSettings();
   setupViewer();
+  setupCompany();
   window.addEventListener('beforeunload', (e) => { if (S.busy) { e.preventDefault(); e.returnValue = ''; } });
   document.addEventListener('visibilitychange', () => { if (S.busy) keepAwake(true); });
   refreshQueue();
