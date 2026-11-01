@@ -201,7 +201,8 @@ def test_window_flow(tmp_path, monkeypatch):
         assert len(out) == 1 and a.last_run.get('ok') == 2
         a.do_feed('质检单', [str(photos / engine.OUT_DIR / out[0])])
         wait(lambda: not a.feeding)
-        assert '4 列' in a.cat_hint.get() and '2 条记录' in a.cat_hint.get()
+        tail = a.text.get('1.0', 'end')[-1500:]                  # 挂了的话，运行页上直接看得到日志最后几行
+        assert '4 列' in a.cat_hint.get() and '2 条记录' in a.cat_hint.get(), (a.feeding, a.cat_hint.get(), tail)
         assert app.load_config()['category'] == '质检单'
     finally:
         root.destroy()
