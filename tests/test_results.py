@@ -72,6 +72,11 @@ def test_window_names_latest_all_and_this_batch(tmp_path, monkeypatch):
         a.edit_names()
         assert '232/Tan Mei Ling' in a.dialog.box.get()                      # 再打开：上次写的都在
         a.dialog.destroy()
+        from bangong.kb import KnowledgeBase                                  # 放了样板资料：名单那行把里面认识的人也算上
+        from test_rules import company_book
+        assert not KnowledgeBase(app.kb_path()).feed(str(company_book(tmp_path / 'c.xlsx'))).error
+        a.refresh_category()
+        assert a.names_head.get() == '名单：8 人' and a.names_path.get() == '其中 6 人是样板资料里认识的'
         # 最新结果：直接开最新那本
         a.open_latest()
         assert opened[-1] == os.path.join(od, '识别结果_20261030_171733.xlsx')

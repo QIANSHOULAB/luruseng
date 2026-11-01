@@ -355,6 +355,10 @@ def main():
             assert '✓ 吃进 系统导出.xls：读到 1 行记录，新增 1 行' in out, out
             assert '✗ 坏表.xls：这本表坏了' in out and '✗ scan.pdf：只认' in out, out
             assert '数据库：22 条记录' in out, out
+            page.reload()                                         # 关掉页面再打开：样板资料还在，左边名单那行一眼看得出
+            page.wait_for_function('() => [...document.querySelectorAll("#log p")].some(p => p.textContent.startsWith("数据库：22 条记录"))')
+            assert re.fullmatch(r'名单：\d+ 人', page.inner_text('#nhead')), page.inner_text('#nhead')
+            assert '样板资料里认识的' in page.inner_text('#npath'), page.inner_text('#npath')
 
         @step
         def database_fixes_confusable_letters():
@@ -485,7 +489,8 @@ def main():
             page.fill('#namestxt', '639/Lee Ah Kow\n# 注释\n232/Tan Mei Ling')
             page.click('#namesok')
             wait_log('✓ 名单存好了：2 人')
-            assert page.inner_text('#nhead') == '名单：2 人'
+            total = int(re.fullmatch(r'名单：(\d+) 人', page.inner_text('#nhead')).group(1))   # 名单文本 2 人 + 样板资料里认识的
+            assert total > 2 and page.inner_text('#npath') == f'其中 {total - 2} 人是样板资料里认识的', page.inner_text('#npath')
 
         cat_imgs = make_images(os.path.join(WORK, 'q'), 2, start=30)
 

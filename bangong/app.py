@@ -646,9 +646,11 @@ class App:
             if cat == tables.BUILTIN:
                 from .kb import KnowledgeBase
                 n = len(engine.load_names(names_path()))
+                total = len(self.roster())                   # 名单.txt + 样板资料里认识的人
                 self.cat_hint.set('内置 · 专属优化')
-                self.names_head.set(f'名单：{n} 人' if n else '没有名单')
-                self.names_path.set('' if n else '没有也能用，SETTER 就照单子抄')
+                self.names_head.set(f'名单：{total} 人' if total else '没有名单')
+                self.names_path.set('没有也能用，SETTER 就照单子抄' if not total else
+                                    f'其中 {total - n} 人是样板资料里认识的' if n < total else '')
                 if not self.names_btn.winfo_manager():
                     self.names_btn.pack(anchor='w', pady=(10, 0))
                 line = KnowledgeBase(kb_path()).summary() + f'（也可以把表丢进：{feed_dir()}）'

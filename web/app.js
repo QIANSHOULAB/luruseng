@@ -152,9 +152,10 @@ async function refreshCategory(announce = false) {
   let line;
   if (cat === C.BUILTIN) {
     const n = C.parseNames(await namesText()).length;
+    const all = (await roster()).length;           // 名单文本 + 样板资料里认识的人：关掉页面再打开，一眼看得出样板资料还在
     $('#cathint').textContent = '内置 · 专属优化';
-    $('#nhead').textContent = n ? `名单：${n} 人` : '没有名单';
-    $('#npath').textContent = n ? '' : '没有也能用，SETTER 就照单子抄';
+    $('#nhead').textContent = all ? `名单：${all} 人` : '没有名单';
+    $('#npath').textContent = !all ? '没有也能用，SETTER 就照单子抄' : n < all ? `其中 ${all - n} 人是样板资料里认识的` : '';
     $('#names').hidden = false;
     line = C.kbSummary(await kbDb());
   } else {
