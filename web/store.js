@@ -1,6 +1,8 @@
 // 存东西：全在这台电脑的浏览器里（IndexedDB），不往别处传。
 // 浏览器不让存（无痕窗口、关了网站数据）就退回到内存里：这次能用，关掉页面就没了。
 
+import './strings.js';
+
 const NAME = 'luruseng-web';
 const VER = 1;
 export const STORES = ['kv', 'cats', 'ledger', 'runs', 'photos'];
@@ -15,7 +17,7 @@ function finished(t) {                         // 写的东西真落了盘才算
   return new Promise((ok, bad) => {
     t.oncomplete = () => ok();
     t.onerror = () => bad(t.error);
-    t.onabort = () => bad(t.error || new Error('没写进去'));
+    t.onabort = () => bad(t.error || new Error(globalThis.LURU_I18N.t('store.notWritten')));
   });
 }
 // 连接被掐了：iPhone 切到后台久了，Safari 会说「Connection to Indexed Database server lost」
@@ -129,7 +131,7 @@ export async function exportBackup(st, extra = {}) {
 
 // 导入：合并进现有的，不覆盖、不删（同一条记录只留一份）
 export async function importBackup(st, data) {
-  if (!data || data.app !== 'luruseng-web' || !data.kb) throw new Error('这不是录入僧网页版的备份文件');
+  if (!data || data.app !== 'luruseng-web' || !data.kb) throw new Error(globalThis.LURU_I18N.t('store.notBackup'));
   const out = { records: 0, people: 0, cats: 0, catRecords: 0, ledger: 0, names: 0 };
   const kb = (await st.get('kv', 'kb')) || { records: [], people: [] };
   const have = new Set(kb.records.map((r) => r.key));

@@ -1,5 +1,6 @@
 // 拿公司表当规矩把关（Song 2026-11-01 拍板：1A 2A 3A 4A，机台看起来像的就猜）。跟电脑版 tests/test_rules.py 对着写，规矩得一样。
 // 名字是编的，机台、零件、工号也都是编的：同事和公司的数据不进 GitHub。
+import './zh.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as C from '../core.js';

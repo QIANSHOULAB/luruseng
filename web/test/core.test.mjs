@@ -1,5 +1,6 @@
 // 网页版核心的测试：跟电脑版 tests/test_engine.py、test_accuracy.py、test_kb.py、test_tables.py 对着写，规矩得一样。
 // 跑法：node --test web/test/
+import './zh.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as C from '../core.js';

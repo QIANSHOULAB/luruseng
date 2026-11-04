@@ -4,6 +4,7 @@
 
 把一个文件夹里的刀具破损记录照片（照片、扫描件、HEIC 都行）送给 Gemini，认出每一条 TOOL BROKEN RECORD，边干边写进一本跟公司那本长得一样的 Excel。
 
+- 中英两套（v1.11.3 起）：英文名 Luru · Photo Typist，英文副标题 Snap the forms. Skip the typing.。默认英文；网站、网页版、手机传图页右上角 EN / 中文，电脑版在 ⚙ 里切，选过就记住。用过录入僧的电脑（升级前有设置）、用过网页版的浏览器没选过的照旧中文。界面上的字全在 `web/strings.js`（网站、网页版）和 `bangong/strings.py`（电脑版），一行一条中英成对；中英清单导出在 `docs/strings-bi/`（`node web/test/export_strings.cjs`）。写进表里的核对提示（O 列）、提示词、文件夹名照旧中文，英文界面显示核对提示时照句式换成英文。英文的更新说明在 `changes.en.md`。
 - 网站（下载、怎么用）：https://qianshoulab.github.io/luruseng/
 - 网页版（不用装，电脑、手机都行）：https://qianshoulab.github.io/luruseng/web/ 。功能跟电脑版一样，东西存在那个浏览器里（⚙ 里能备份）。代码在 `web/`：`core.js` 跟 `engine.py`、`kb.py`、`tables.py` 是同一套规矩，改一边要改另一边；`web/test/e2e.py` 让两边拿同样的照片各出一本表，一格一格对。
 - 联系制作人（修改建议、想要的功能）：oilsongchengmin@gmail.com（程序里 ⚙ →「联系制作人」）

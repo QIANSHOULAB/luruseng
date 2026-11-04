@@ -1,5 +1,8 @@
 // 照片：读进来、缩小、第二遍拉对比度锐化、算指纹、按标题转正、印编号（跟电脑版 engine.prepare_image / stamp_number 一个意思）
 import { MAX_SIDE, JPEG_Q, exifTime } from './core.js';
+import './strings.js';
+
+const t = (k, v) => globalThis.LURU_I18N.t(k, v);
 
 export const STAMP_SIDE = 2560;            // 编号照片最长边（够放大看手写）
 export const IMG_RE = /\.(jpe?g|png|webp|heic|heif|bmp|gif|tiff?|avif)$/i;
@@ -21,8 +24,8 @@ export function loadScript(src, global) {
     libs[src] = new Promise((ok, bad) => {
       const s = document.createElement('script');
       s.src = src;
-      s.onload = () => (globalThis[global] ? ok(globalThis[global]) : bad(new Error(`${global} 没加载上`)));
-      s.onerror = () => { delete libs[src]; bad(new Error(`${src.split('/').pop()} 没加载上（网络断了？）`)); };
+      s.onload = () => (globalThis[global] ? ok(globalThis[global]) : bad(new Error(t('img.libMissing', { g: global }))));
+      s.onerror = () => { delete libs[src]; bad(new Error(t('img.libOffline', { f: src.split('/').pop() }))); };
       document.head.appendChild(s);
     });
   }
@@ -34,7 +37,7 @@ async function imgFrom(blob) {
   try {
     const img = new Image();
     img.decoding = 'async';
-    const loaded = new Promise((ok, bad) => { img.onload = () => ok(); img.onerror = () => bad(new Error('这张照片打不开')); });
+    const loaded = new Promise((ok, bad) => { img.onload = () => ok(); img.onerror = () => bad(new Error(t('img.cantOpen'))); });
     img.src = url;
     // 页面看不见的时候（锁屏、窗口最小化、切到后台）decode() 可能一直不回来：等到 load 就行，画的时候浏览器自己会解码
     const decoded = img.decode();
@@ -52,11 +55,11 @@ export async function openImage(file) {
     return await imgFrom(file);
   } catch (e) {
     const head = new Uint8Array(await file.slice(0, 16).arrayBuffer());
-    if (!looksHeic(file, head)) throw new Error('这张照片打不开（坏了，或者不是照片）');
+    if (!looksHeic(file, head)) throw new Error(t('img.notPhoto'));
     let heic2any;
-    try { heic2any = await loadScript(HEIC_LIB, 'heic2any'); } catch (err) { throw new Error('HEIC 照片要先加载解码器，没加载上：网络好了再试，或者在手机相册里另存为 JPG'); }
+    try { heic2any = await loadScript(HEIC_LIB, 'heic2any'); } catch (err) { throw new Error(t('img.heicLib')); }
     let out;
-    try { out = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.95 }); } catch (err) { throw new Error('这张 HEIC 照片解不开：在手机相册里另存为 JPG 再放'); }
+    try { out = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.95 }); } catch (err) { throw new Error(t('img.heicBad')); }
     return imgFrom(Array.isArray(out) ? out[0] : out);
   }
 }
@@ -86,7 +89,7 @@ export function draw(img, side) {           // 缩到最长边 side，透明的�
 
 export async function toBlob(c, q) {
   if (c.convertToBlob) return c.convertToBlob({ type: 'image/jpeg', quality: q });
-  return new Promise((ok, bad) => c.toBlob((b) => (b ? ok(b) : bad(new Error('照片存不了'))), 'image/jpeg', q));
+  return new Promise((ok, bad) => c.toBlob((b) => (b ? ok(b) : bad(new Error(t('img.cantSave')))), 'image/jpeg', q));
 }
 
 export function b64(blob) {

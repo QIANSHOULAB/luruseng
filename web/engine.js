@@ -1,5 +1,8 @@
 // 干活的那一套：一批 5 张同时认，每张认两遍对答案，对不上认第三遍；钥匙额度用完自己换、自己等（跟电脑版 engine.Engine 一样）
+import './strings.js';
 import * as C from './core.js';
+
+const t = (k, v) => globalThis.LURU_I18N.t(k, v);
 
 export class Result {
   constructor() { Object.assign(this, { ok: 0, records: 0, failed: 0, requests: 0, stopped: '', errors: [] }); }
@@ -53,8 +56,9 @@ export class Engine {
 
   async waitUntil(ts, why) {
     const secs = Math.max(0, (ts - this.clock()) / 1000);
-    if (secs > 90) this.log(`⏸ ${why}，等到 ${when(ts)} 额度刷新后接着干（约 ${(secs / 3600).toFixed(1)} 小时，这个页面别关）`);
-    else if (secs >= 1) this.log(`⏸ ${why}，等 ${Math.floor(secs)} 秒`);
+    // 第二个参数给页面用（右边那句「等到几点」「等几秒」），不用从日志的字里抠
+    if (secs > 90) this.log(t('eng.waitLong', { why, when: when(ts), h: (secs / 3600).toFixed(1) }), { when: when(ts) });
+    else if (secs >= 1) this.log(t('eng.wait', { why, s: Math.floor(secs) }), { secs: Math.floor(secs) });
     await this.wait(secs);
   }
 
@@ -69,7 +73,7 @@ export class Engine {
       if (this.stopped) throw this.fatal ? new C.Fatal(this.fatal) : new C.Stopped('stopped');
       const [i, key] = this.keys.pick();
       if (i === null) {
-        await this.waitUntil(key, key - this.clock() > 120e3 ? '所有钥匙额度都用完了' : '每分钟次数到顶');
+        await this.waitUntil(key, t(key - this.clock() > 120e3 ? 'eng.allKeys' : 'eng.perMinute'));
         continue;
       }
       try {
@@ -81,10 +85,10 @@ export class Engine {
         if (!(e instanceof C.ApiError)) throw e;
         if (e.status === 429) {
           const kind = C.classify429(e);
-          if (kind === 'prepay') throw new C.Fatal(`钥匙${i + 1} · ${e.raw()}（账单账户预付余额用完，等也没用）`);
+          if (kind === 'prepay') throw new C.Fatal(t('eng.prepay', { i: i + 1, raw: e.raw() }));
           if (kind === 'day') {
             this.keys.park(i, C.nextPacificMidnight(this.clock()));
-            this.log(`钥匙${i + 1} 今天的额度用完了 · ${e.raw()}`);
+            this.log(t('eng.dayOut', { i: i + 1, raw: e.raw() }));
           } else {
             minuteHits++;
             if (minuteHits > C.MAX_MINUTE_WAITS) throw e;
@@ -97,18 +101,18 @@ export class Engine {
         if (e.status === 400 && /schema/i.test(e.message)) {
           if (this.useSchema) {
             this.useSchema = false;
-            this.log(`模型不认结构化输出格式，改用纯 JSON 提示重试 · ${e.raw()}`);
+            this.log(t('eng.schema', { raw: e.raw() }));
           }
           if (body.generationConfig.responseSchema) { body = this.body(b64, false); continue; }
         }
         if ([400, 401, 403].includes(e.status) && /API key|API_KEY|permission|PERMISSION/.test(`${e.message} ${e.detail}`)) {
-          throw new C.Fatal(`钥匙${i + 1} · ${e.raw()}`);
+          throw new C.Fatal(t('eng.keyBad', { i: i + 1, raw: e.raw() }));
         }
         if (e.status === 404) throw new C.Fatal(`${this.model} · ${e.raw()}`);
         if (e.status === 0 || e.status >= 500) {
           if (netTries < C.RETRY_WAITS.length) {
             const w = C.RETRY_WAITS[netTries++];
-            this.log(`${name} · ${e.raw()} · ${w} 秒后重试`);
+            this.log(t('eng.retry', { name, raw: e.raw(), w }));
             await this.wait(w);
             continue;
           }
@@ -131,7 +135,7 @@ export class Engine {
   }
 
   async _recognize(file) {
-    const name = file.name || '照片';
+    const name = file.name || t('eng.photo');
     const clean = this.spec ? (r) => this.spec.clean(r) : C.cleanRecord;
     const agree = this.spec ? (a, b) => this.spec.agree(a, b) : (a, b) => C.recordsAgree(a, b);
     const vote = this.spec ? (r) => this.spec.vote(r) : (r) => C.vote(r);
@@ -177,7 +181,7 @@ export class Engine {
         return { recs: null, err: e instanceof C.ApiError ? e.raw() : `${e.name || 'Error'}：${e.message}` };
       }
       if (this.stampIt) {                      // 认完了才印编号：送去认的永远是原图
-        try { stamped = await this.stampIt(it.file, it.no, side); } catch (e) { this.log(`${two(it.no)} 编号照片没印成：${e.message}`); }
+        try { stamped = await this.stampIt(it.file, it.no, side); } catch (e) { this.log(t('eng.stampErr', { tag: two(it.no), e: e.message })); }
       }
       return { recs, side, err, stamped };
     };
@@ -186,7 +190,7 @@ export class Engine {
       const settled = await Promise.allSettled(batch.map(async (it) => {
         const { recs, side, err, stamped } = await one(it);
         if (recs) { res.ok++; res.records += recs.length; } else { res.failed++; res.errors.push([it.file.name, err]); }
-        try { await onPhoto(it, recs, err, side, stamped); } catch (e) { this.log(`✗ ${two(it.no)} 结果没存上：${e.message}`); }
+        try { await onPhoto(it, recs, err, side, stamped); } catch (e) { this.log(t('eng.saveErr', { tag: two(it.no), e: e.message })); }
         progress(++done, items.length);        // 认完一张就报一声，别等一整批（3 张照片也能看见 1、2、3 往上跳）
       }));
       let halt = null;
@@ -201,12 +205,12 @@ export class Engine {
       progress(done, items.length);
       if (halt) {
         if (halt instanceof C.Fatal || this.fatal) res.stopped = this.fatal || halt.message;
-        else res.stopped = '手动停止';
+        else res.stopped = C.MANUAL_STOP;
         break;
       }
     }
     return res;
   }
 
-  usedLine() { return this.keys.used.map((n, i) => (n ? `钥匙${i + 1}×${n}` : '')).filter(Boolean).join(' · '); }
+  usedLine() { return this.keys.used.map((n, i) => (n ? t('eng.used', { i: i + 1, n }) : '')).filter(Boolean).join(' · '); }
 }

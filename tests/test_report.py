@@ -17,6 +17,7 @@ from PIL import Image
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bangong import engine, report, settings  # noqa: E402
+from bangong.strings import T  # noqa: E402
 import mock_server  # noqa: E402
 
 K1 = 'AIzaKEY1_mock'
@@ -314,7 +315,7 @@ def test_machine_name_is_stable(monkeypatch):
 
 
 def test_switch_is_last_row_and_off_by_default():
-    assert settings.ROWS[-1][:2] == ('report', '发数据给方丈')
+    assert settings.ROWS[-1][:2] == ('report', 'row.report') and T('row.report') == '发数据给方丈'
     assert settings.NEW['report'] is False and settings.OLD['report'] is False
 
 

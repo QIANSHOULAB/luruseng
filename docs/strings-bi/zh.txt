@@ -1,0 +1,678 @@
+web.name	录入僧
+web.fullName	录入僧
+web.sub	施主去玩，贫僧填表
+web.builtin	刀单
+web.list.sep	、
+web.empty	空
+web.lang.label	语言
+web.site.title	录入僧 · 施主去玩，贫僧填表
+web.site.desc	刀具破损记录拍照丢进去，Excel 表自己出来。电脑版、网页版都有，免费。
+web.site.h1	录入僧
+web.site.lead	刀具破损记录拍照丢进文件夹，Excel 表自己出来。照片印上编号，跟表里一行一行对着核；拿不准的格子标<span class="red">红</span>，只看红的就行。别的单子也能教：建个类别，放几本改对的表进去。
+web.site.phone	手机上用 <a href="web/"><b>网页版</b></a>，不用装。要电脑版：把这个网址发到电脑上再下载。
+web.site.copy	复制网址
+web.site.copied	已复制
+web.site.copyPrompt	复制这个网址
+web.site.dl	下载 Windows 版
+web.site.web	用网页版
+web.site.webSmall	不用装，手机也行
+web.site.meta	Windows 10 / 11 · 约 30 MB · 免费
+web.site.updated	{d} 更新
+web.site.versions	所有版本
+web.site.shot	screenshot.png
+web.site.shotAlt	录入僧的窗口：左边填文件夹和钥匙，右边是任务状态，下面是日志
+web.site.stepsH	三步，然后施主去玩
+web.site.s1h	下载，双击
+web.site.s1p	点上面的蓝按钮。最好先建个文件夹放进去，比如 <span class="path">D:\录入僧</span>。
+web.site.s1hint	直接在「下载」里双击也行：它会在旁边自己建一个「录入僧」文件夹搬进去，照片、表格、数据库都在那里面，不撒一地。
+web.site.s2h	填钥匙
+web.site.s2p	去 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> 用谷歌账号登录，点 <span class="btnlike">Create API key</span>，复制，贴进「钥匙 1」。完全免费，老衲不打诳语。
+web.site.s2hint	第一次弄？看<a href="key.html">领钥匙教程</a>。打死别绑卡，就不会花钱。
+web.site.s3h	丢照片，点开始
+web.site.s3p	点「选照片…」挑照片（复制进「待识别」，原照片不动），点「开始工作」。干完自动打开核对窗口：照片和表里那一行并排，点格子就改，表跟着改。
+web.site.s3hint	不是刀单？先在「类别」里选好（或者「＋ 新建类别」）再开始。勾上「来图就干」，以后照片一放进去它就自己开工。
+web.site.gatesH	第一次打开，会遇到两道门
+web.site.gatesSmall	只有第一次
+web.site.g1h	浏览器说「不常下载」
+web.site.g1a	Chrome：点 <span class="btnlike">保留</span>
+web.site.g1b	Edge：点 <span class="btnlike">…</span> → <span class="btnlike">保留</span> → <span class="btnlike">仍然保留</span>
+web.site.g2h	Windows 蓝框「已保护你的电脑」
+web.site.g2a	点 <span class="btnlike">更多信息</span> → <span class="btnlike">仍要运行</span>
+web.site.g2b	没花钱买签名证书，Windows 不认识它，就这么回事。
+web.site.factsH	几句实话
+web.site.f1	<b>照片会发给谷歌 Gemini 去认</b>，用的是你自己的钥匙和额度。免费额度用完了，它会自己等额度恢复再接着干。
+web.site.f2	<b>表格、名单、数据库、照片都只在你自己电脑上</b>，不往别处传。钥匙也只存在你电脑上；公用电脑可以在右上角 ⚙ 里关掉「记住钥匙」。
+web.site.f3	<b>越用越准</b>：点「放入样板资料」把改对的刀单表放进去，名字、刀具、机床它就认得越来越熟。
+web.site.f4	<b>不只刀单</b>：点「＋ 新建类别」起个名字（比如质检单），它先把单子上的内容全认出来；改对了「放入样板资料」，表头就定成它的列。每个类别一个数据库，互不串味。
+web.site.f5	<b>有新版会告诉你</b>：每 6 小时查一次，出了新版就弹出来告诉你更新了啥，点「现在更新」它自己下载、自己换上，设置和数据都不动。嫌麻烦就点「以后都自动更新」，以后空闲时自己换。
+web.site.f6	<b>不留原图也行</b>：⚙ 里关掉「保留原图」，认完的原片扔进回收站，省一半硬盘。
+web.site.foot	录入僧 · 施主去玩，贫僧填表
+web.site.contact	要什么新功能、有修改建议，或洽谈商业合作请直接找方丈飞鸽传书：
+web.site.hub	千手院总舵：
+web.site.source	源码
+web.site.mailSubject	录入僧 建议
+web.key.title	免费领取钥匙 · 录入僧
+web.key.desc	白嫖谷歌手艺，老衲只指路，不收香油钱：四步领到录入僧的钥匙（Gemini API Key）。
+web.key.back	‹ 录入僧
+web.key.h1	免费领取钥匙
+web.key.h1tag	老衲不打诳语
+web.key.tagline	白嫖谷歌手艺，老衲只指路，不收香油钱。
+web.key.lead	所谓的「钥匙（API Key）」，就是一串长得像猫咪踩键盘踩出来的乱码暗号。去谷歌领一串塞进「钥匙 1」，这尊赛博苦力就能立刻给你干活。
+web.key.cta	去谷歌领暗号
+web.key.stepsH	四步把锁撬开
+web.key.s1h	刷脸进门
+web.key.s1p	点上面蓝按钮，用 Gmail 账号登录，遇到霸王条款闭眼点同意就行。
+web.key.s2h	伸手摸钥
+web.key.s2p	进门找 <span class="btnlike">Create API key</span> 戳一下（新号通常进门就塞给你一把现成的）。
+web.key.s3h	整串顺走
+web.key.s3p	把那串 <code>AQ.</code> 或 <code>AIza</code> 开头的神秘咒语全选复制，漏一个字母它就装死给你看。
+web.key.s4h	对孔插锁
+web.key.s4p	贴进录入僧的「钥匙 1」，点「开始工作」，施主可以去喝茶了。
+web.key.rulesH	三条铁律
+web.key.rulesSmall	看完少走十年弯路
+web.key.r1	<b>护驾铁律</b>：<em>打死别绑银行卡！</em>只要你不手欠往里塞卡号，谷歌就算破产也顺不走你一分钱。
+web.key.r2	<b>化缘胃口</b>：<b>1 分钟 15 次，1 天 500 次。</b>免费的驴不能往死里抽，刷太猛谷歌会装死；放心，程序全自动卡点，自己去蹲点继续干活。
+web.key.r3	<b>钥匙 2 是备胎（平时空着）</b>：1 号钥匙今天把 500 次刷爆了，程序会自动换第二把，不用你动手。一个 Google 邮箱一把。
+web.key.home	首页
+web.app.title	录入僧网页版 · 施主去玩，贫僧填表
+web.app.desc	刀具破损记录拍照丢进来，Excel 表自己出来。网页版，不用装，电脑、手机都能用。
+web.app.tag	网页版
+web.app.cat	类别
+web.app.newcat	新建类别
+web.app.photos	照片
+web.app.pickAria	选照片
+web.app.dropEmpty	把照片拖进来，或点右边「选照片」
+web.app.dropEmptyTouch	还没选照片
+web.app.queue	{n} 张：{names}{more}
+web.app.clear	清空
+web.app.pick	选照片…
+web.app.phone	手机
+web.app.phoneBtn	手机传图
+web.app.key1	钥匙 1
+web.app.key2	钥匙 2（可空）
+web.app.paste	贴进来
+web.app.getKey	免费领钥匙
+web.app.getKey2	再领一把
+web.app.model	模型
+web.app.auto	来图就干
+web.app.autoHint	（选好照片就自己开工）
+web.app.start	开始工作
+web.app.stop	停止
+web.app.result	下载结果
+web.app.check	核对
+web.app.feed	放入样板资料
+web.app.statusHead	任务状态
+web.app.gear	设置
+web.app.names	编辑名单
+web.app.foot	照片只发给谷歌认；表格、数据库都存在这个浏览器里
+web.app.footLink	录入僧电脑版
+web.st.queue	待识别 {n} 张
+web.st.pages	{d}/{t} 张
+web.st.saving	存照片 {d}/{t} 张
+web.st.dedupe	查重…
+web.st.stopping	正在停…（等手上这几张回来）
+web.st.done	干完：成功 {ok} · 失败 {bad}
+web.slogan.fish	你可以去摸鱼了，剩下的交给老衲。
+web.slogan.done	干完你核对就好了。
+web.slogan.woke	页面被关了一回，老衲诈尸接着干，你接着摸鱼。
+web.slogan.day	今天的免费额度用完了，老衲蹲点等到 {when} 接着干，这个页面别关。
+web.slogan.sec	谷歌喘口气，老衲蹲点等 {s} 秒，你接着摸。
+web.cat.hint.builtin	内置 · 专属优化
+web.cat.hint.cols	自建 · {c} 列 · {n} 条记录
+web.cat.hint.empty	自建 · 还没放过表
+web.names.head	名单：{n} 人
+web.names.none	没有名单
+web.names.noneHint	没有也能用，SETTER 就照单子抄
+web.names.fromKb	其中 {n} 人是样板资料里认识的
+web.names.cat	「{cat}」数据库：{n} 条
+web.names.catEmpty	「{cat}」还没放过表
+web.names.cols	列：{cols}
+web.names.catEmptyHint	先认全部内容，改对了点「放入样板资料」，表头就定成它的列
+web.new.title	新建类别
+web.new.name	名字
+web.new.para	比如「质检单」「送货单」。它有自己的数据库，跟刀单互不串味。
+web.new.ok	建好
+web.cancel	取消
+web.feed.title	放入样板资料
+web.feed.into	放进
+web.feed.drop	表格也可以直接拖到这里
+web.feed.go	选表放进去
+web.feed.desc.builtin	改对的刀单表，人工录的、录入僧认完改好的都行，一次能塞好几本。\nExcel（.xlsx、.xls）、CSV 都行。\n不像刀单的表（没有 DATE、MACHINE 表头）一条都不吃，免得别的单子串进来。
+web.feed.desc.cat	认完、改对了的「{cat}」结果表（录入僧出的那本就行），可以一次选好几本。\nExcel（.xlsx、.xls）、CSV 都行。\n
+web.feed.desc.cols	现在的列：{cols}。表里多出来的列会接在后面。
+web.feed.desc.first	第一本的表头会定成「{cat}」的列。
+web.names.title	名单
+web.names.para	一行一个「工号/名字」。单子上只写了工号的，贫僧照这个把名字补上。没有也能用。
+web.names.load	读 名单.txt
+web.save	存好
+web.set.title	设置
+web.set.backupT	数据备份
+web.set.backupD	数据库、名单、干过的照片都存在这个浏览器里。换电脑、清浏览器之前先备份一份。
+web.set.usage	数据库 {n} 条
+web.set.usageSize	 · 这个浏览器里一共存了 {size}
+web.set.usageTail	。换电脑、清浏览器之前先备份一份。
+web.set.backup	备份
+web.set.restore	恢复
+web.set.coT	公司表
+web.set.coChange	换一本
+web.set.coPick	选一本
+web.set.coUndo	退回上一版
+web.set.coName	{name}：核对里点「填进公司表」就填进这本
+web.set.coNone	还没选：核对里第一次点「填进公司表」时选一回，以后点一下就填
+web.set.hub	千手院总舵
+web.set.mail	方丈邮箱
+web.set.done	完成
+web.set.ver	录入僧网页版 v{v}
+web.set.sign	千手院方丈释手
+web.set.contact	要什么新功能、有修改建议，或洽谈商业合作请直接找方丈飞鸽传书：{mail}
+web.set.hubLine	千手院总舵：
+web.set.copied	{mail}　已复制，粘进邮箱找方丈算账
+web.set.mailShow	方丈邮箱：{mail}
+web.set.private	这个浏览器不让存东西（无痕窗口？）：关掉页面数据就没了，记得备份
+web.set.restoreErr	✗ 恢复不了：{e}
+web.set.undoNoPerm	没给它改这本表的权限：没退回
+web.set.undoErr	✗ 退回不了：多半在 Excel 里开着，关掉再点（{e}）
+web.row.auto_open	干完自动打开核对
+web.row.auto_open.d	手动点「开始工作」干完后，自动打开核对，点格子就能改
+web.row.remember_keys	记住钥匙
+web.row.remember_keys.d	钥匙存在这个浏览器里，下次不用再填；公用电脑就关掉
+web.row.redo	干过的照片也重干
+web.row.redo.d	测试用：以前认过的照片再放进来照样认一遍，钥匙次数照扣；平时关着，干过的自动跳过
+web.view.prev	◀ 上一张
+web.view.prevAria	上一张
+web.view.next	下一张 ▶
+web.view.nextAria	下一张
+web.view.numAria	编号
+web.view.go	看
+web.view.ccw	逆时针转 90°
+web.view.ccwAria	逆时针转
+web.view.cw	顺时针转 90°
+web.view.cwAria	顺时针转
+web.view.xlsx	下载
+web.view.fill	填进公司表
+web.view.fillShort	填表
+web.view.zip	编号照片
+web.view.copy	复制整批
+web.view.copyShort	复制
+web.view.del	删掉这批
+web.view.delShort	删掉
+web.view.close	关
+web.view.empty	还没有结果：先选照片，点「开始工作」干一批。
+web.view.run	{when} 这批（{n} 张）
+web.view.fresh	这批刚开工，一张还没认完：待会儿再来看
+web.view.pos	第 {no} 张 / 共 {n} 张
+web.view.posTouch	 · 左右滑翻页，点照片看原尺寸
+web.view.alt	第 {no} 张
+web.view.noPhoto	这一张没有编号照片（没认成）
+web.view.noRec	表里没有这一号的记录。
+web.view.recN	　第 {k} 条
+web.view.editTip	点一下改
+web.view.editAria	改 {label}
+web.view.right	对的
+web.view.save	改好了
+web.view.saveErr	✗ 存不下：{e}
+web.view.still	{label} {v} 还不对：{why}
+web.view.checked	{label} 核过了
+web.view.changed	{label} 改成 {v}
+web.view.shiftToo	，SHIFT 跟着猜成 {s}（照 {id} 以前的班次）
+web.view.fedRow	，这条核完进了样板资料
+web.view.sheetToo	，表跟着改了
+web.view.allDone	。全核完了：点「下载」或者「填进公司表」
+web.view.noSuch	没有第 {t} 张（这批是 {a}–{b}）
+web.view.typeNo	先输入编号
+web.view.photoTip	点一下看原尺寸；←→ 翻页
+web.view.rotErr	转不了：{e}
+web.view.noRecs	这批没有认出来的记录
+web.view.copied	复制好了：{n} 行（认失败的不算）。到公司的表里点第一个空格子，粘贴
+web.view.zipping	正在打包…
+web.view.zipped	打包好了：编号照片 {n} 张 + 表格
+web.view.zipErr	✗ 打包不了：{e}
+web.view.busy	这批还在干：干完（或者点「停止」）再删
+web.ask.del.title	删掉这批？
+web.ask.del.text	{run}：表格和编号照片从这个浏览器里删掉，找不回来。要留着的话先点「编号照片」打包下载。\n干过的记录还在，这批照片以后再放进来还是会跳过。
+web.ask.del.ok	删掉
+web.ask.fill.title	还有 {n} 格红的没核
+web.ask.fill.text	没核对完，你确定要写入吗？看来阁下摸鱼心切啊
+web.ask.fill.ok	写入
+web.ask.undo.title	退回上一版？
+web.ask.undo.text	{name} 退回到 {when} 填之前的样子。那之后在 Excel 里改过的也一起没了。
+web.ask.undo.ok	退回
+web.ask.qr.title	换个二维码？
+web.ask.qr.text	换了以后，以前扫过的手机就传不过来了，得重新扫一下。
+web.ask.qr.ok	换
+web.fill.title	{when} 填进过 {file}；再点一下：核对里改过的就地改，不另起一行
+web.fill.noPerm	没给它改这本表的权限：一条没填
+web.fill.again	选好了 {name}。再点一下「填进公司表」就填：浏览器会问一声能不能改这本，点「允许」
+web.fill.pickOnce	选一下公司那本表：只选这一回，以后点一下就填
+web.fill.gone	上回选的 {name} 找不到了（挪了地方还是改了名？）：再点一下「填进公司表」，重新选一回
+web.fill.cantRead	✗ 读不了 {name}，一条没动：多半在 Excel 里开着，关掉 Excel 再点「填进公司表」（{e}）
+web.fill.cantWrite	✗ {name} 写不进去，一条没动：多半在 Excel 里开着，关掉 Excel 再点「填进公司表」（{e}）
+web.fill.done	✓ 填进 {name}：{detail}
+web.fill.untouched	{name} 一条没动：{detail}
+web.fill.allThere	这批都已经在 {name} 里了：一条没填
+web.fill.noPick	没选公司表：一条没填
+web.fill.err	✗ 填不进去：{e}
+web.fill.downloaded	这个浏览器不能直接改文件：填好的 {name} 下载了，拿它换掉原来那本。{detail}
+web.fill.logRun	（{run}）
+web.fill.logDl	（下载的，{run}）
+web.fill.rows	{sheet}{created} 第 {from}{to} 行（{n} 条）
+web.fill.created	（新建的一页）
+web.fill.updated	上回填的改了 {n} 条（{where}）
+web.fill.where	{sheet} 第 {rows} 行
+web.fill.dup	{n} 条表里本来就有，没重复填
+web.fill.kept	第 {nos} 张上回填过，表里那行后来有人改过或删了，没动它
+web.fill.twins	第 {nos} 张一模一样，都填了，看一眼是不是同一张拍了两回
+web.fill.sep	；
+web.fill.sep2	，
+web.fill.bookType	公司那本表
+web.fill.errNs	这本表的格式认不得（带命名空间前缀的 XML）
+web.fill.errNoData	页里没有 sheetData
+web.fill.errNoRow	表里有一行没写行号，认不得
+web.fill.errNotXlsx	这不像 Excel 表（.xlsx）
+web.fill.errNoMonth	这本表里找不到按月份分页、带 DATE 和 MACHINE 表头的页：选的是公司那本 TOOL BROKEN RECORD 吗？
+web.fill.errClash	已经有一页叫「{name}」，可它不像记录页
+web.phone.title	手机传图
+web.phone.para	用手机相机扫一下，手机一连上这个框自己关。拍完全选一传，这边收齐自己开工，你去摸鱼。\n扫过一次就记住了：手机上把那一页「添加到主屏幕」，以后点图标就传。
+web.phone.new	换个码
+web.phone.ok	好
+web.phone.qrAlt	手机传图二维码
+web.phone.qrErr	二维码出不来：{e}
+web.phone.idle	手机扫个码，拍完一传，这边收齐自己开工
+web.phone.on	已配对：手机一传，这边就收
+web.phone.connecting	正在连中转站…
+web.phone.off	中转站连不上（断网了，或者公司网拦了），过一会儿自己再连
+web.say.start	开工了 {d}/{t}
+web.say.tick	干着呢 {d}/{t}
+web.say.stopped	停了，有人在电脑上点了停止
+web.say.halt	停工了，{why}
+web.say.done	干完了，成功 {ok} · 失败 {bad}，回电脑核对就好
+web.log.notStashed	⚠ 照片没存进浏览器（{e}）：干完之前别关这页，被关了得重选
+web.log.backLeft	上回留下的 {n} 张照片还在列表里，点「开始工作」就干
+web.log.wokeNoKey	⚠ 上回干到一半页面被关了：填好钥匙点「开始工作」，老衲接着干
+web.log.wokeStuck	⚠ 诈尸 3 回都没干动（一开工页面就被关）：点「开始工作」再试，还不行就清空、少放几张
+web.log.sheets	✗ {n} 本表格没放进照片里：表格要从「放入样板资料」放
+web.log.notPhotos	✗ 跳过 {n} 个不是照片的文件
+web.log.more	又来了 {n} 张：这批干完再干
+web.log.unreadable	✗ {name} 读不了：{e}
+web.log.doneBefore	↷ {name} 以前干过（{xlsx} 第 {no} 张），跳过
+web.log.samePhoto	↷ {name} 跟 {other} 是同一张，跳过
+web.log.redoing	↻ {n} 张以前干过，⚙ 开着「干过的照片也重干」，这回照样认（钥匙次数照扣）：{names}
+web.log.what.builtin	，类别「刀单」
+web.log.what.names	，名单 {n} 人
+web.log.what.noNames	，没有名单
+web.log.what.cat	，类别「{cat}」
+web.log.what.open	（还没定列：认全部内容）
+web.log.what.cols	（{n} 列）
+web.log.noKey	✗ 先填钥匙。还没有？点钥匙框后面的「免费领钥匙」，两分钟的事，一分钱不花
+web.log.sameKey	✗ 两个钥匙填的是同一把（额度按项目算，同一把没意义）
+web.log.otherTab	⚠ 另一个窗口正在干活：这边先不干，等那边干完
+web.log.lostBefore	⚠ 这 {n} 张还没存进浏览器页面就被关了，得重选：{names}{more}
+web.log.noPhotos	还没选照片：点「选照片…」，或者把照片拖进来
+web.log.wokeRestart	▶ 上回刚开工页面就被关了，老衲诈尸重新开工
+web.log.autoGo	▶ 来图就干：照片来了，自己开工
+web.log.nothingNew	列表里没有新照片，收工。
+web.log.start	▶ 开工（录入僧网页版 v{v}）：{n} 张，按拍摄顺序编号 1–{n}，每批 {batch} 张，模型 {model}{twice}{what}
+web.log.twice	，每张认两遍对答案
+web.log.resume	▶ {why}：还剩 {n} 张，接着写进 {xlsx}，编号不变（模型 {model}{what}）
+web.log.resumeWoke	上回干到一半页面被关了，老衲诈尸接着干
+web.log.resumePrev	上回那批没干完，先接着干
+web.log.cantSave	✗ 结果存不下：{e}
+web.log.stampSave	{tag} 编号照片存不下：{e}
+web.log.ledgerSave	{tag} 干过的记录存不下：{e}
+web.log.ok	✓ {tag} {name} · {n} 条
+web.log.stopped	■ 已停止，没干完的下次接着干
+web.log.halted	■ 停工：{why}
+web.log.lostLeft	⚠ 上回那批剩下的 {n} 张照片没存住（页面被关之前没来得及存）：重新选它们再干
+web.log.wasDone	✓ 上回那批其实干完了：{xlsx}（点「下载结果」，或者「核对」里下载）
+web.log.sum	{mark} 成功 {ok} 张（{rec} 条记录）· 失败 {bad} 张 · {req} 次请求{used}
+web.log.sumXlsx	\n结果：{xlsx}（点「下载结果」，或者「核对」里下载）
+web.log.crash	✗ 程序出错：{e}
+web.log.next	▶ 上回那批干完了，接着干列表里别的照片（另开一本表）
+web.log.xlsxErr	✗ 表格出不来：{e}
+web.log.feedStart	开始把 {n} 本表放进「{cat}」的数据库…
+web.log.feedErr	✗ 放入样板资料出错：{e}
+web.log.namesSaved	✓ 名单存好了：{n} 人
+web.log.namesEmpty	名单是空的：没有也能用，SETTER 就照单子抄
+web.log.redoOn	↻ 干过的照片也重干：开了。以前认过的照片再放进来，照样认一遍（钥匙次数照扣），测完记得关
+web.log.redoOff	干过的照片也重干：关了，以前干过的照旧自动跳过
+web.log.backup	✓ 备份下载好了：数据库 {n} 条、自建类别 {c} 个（钥匙不在里面）
+web.log.backupFile	录入僧备份_{id}.json
+web.file.xlsx	识别结果_{id}{cat}.xlsx
+web.log.restored	✓ 恢复好了（合并进来，原来的一条没删）：数据库新增 {r} 条、{p} 人，自建类别新增 {c} 个、{cr} 条，干过的照片 {l} 张，名单 {nm} 行
+web.log.undone	✓ {name} 退回到 {when} 填之前的样子了
+web.log.deleted	删掉了 {run}
+web.log.phoneGot	📱 手机传来第 {i}/{n} 张：{name}
+web.log.phoneAll	📱 手机传来 {n} 张，收齐了，开工
+web.log.phonePart	📱 手机这趟只到了 {got}/{n} 张，两分钟没动静，先干收到的
+web.log.phoneJoined	📱 手机连上了，二维码收起来了：拍完一传，这边收齐自己开工
+web.log.qrNew	换了个手机传图的二维码：以前扫过的手机得重新扫
+web.log.private	⚠ 这个浏览器不让存东西（无痕窗口？）：这次能用，关掉页面数据库、结果就没了
+web.log.first	第一次用：先填钥匙（点「免费领钥匙」看怎么领），再选照片，点「开始工作」。
+web.log.noResult	还没有结果：先选照片，点「开始工作」干一批
+web.log.downloaded	✓ 下载了 {xlsx}（{run}）。别的批次在「核对」里下载
+web.log.bootErr	✗ 打不开：{e}
+web.log.phoneTakeErr	✗ 手机传来的一张没取到：{e}
+web.log.phoneBad	✗ 手机传来的一张解不开（二维码换过了？让手机重新扫一下），扔掉了
+web.eng.waitLong	⏸ {why}，等到 {when} 额度刷新后接着干（约 {h} 小时，这个页面别关）
+web.eng.wait	⏸ {why}，等 {s} 秒
+web.eng.allKeys	所有钥匙额度都用完了
+web.eng.perMinute	每分钟次数到顶
+web.eng.dayOut	钥匙{i} 今天的额度用完了 · {raw}
+web.eng.prepay	钥匙{i} · {raw}（账单账户预付余额用完，等也没用）
+web.eng.keyBad	钥匙{i} · {raw}
+web.eng.schema	模型不认结构化输出格式，改用纯 JSON 提示重试 · {raw}
+web.eng.retry	{name} · {raw} · {w} 秒后重试
+web.eng.stampErr	{tag} 编号照片没印成：{e}
+web.eng.saveErr	✗ {tag} 结果没存上：{e}
+web.eng.used	钥匙{i}×{n}
+web.eng.photo	照片
+web.kb.empty	数据库还是空的：点「放入样板资料」喂几本改对的刀单表，喂得越多它越不瞎
+web.kb.sum	数据库：{n} 条记录 · 机台 {m} 台 · 零件 {p} 种 · 刀具描述 {d} 种 · 认识 {people} 人
+web.kb.fedTable	✓ 放进去 {src}：读到 {rows} 行，新增 {added} 行（其余以前放过）
+web.kb.newCols	，新列：{cols}
+web.kb.fed	✓ 吃进 {src}：读到 {rows} 行记录，新增 {added} 行（其余以前吃过）
+web.kb.people	，新认识 {n} 人
+web.kb.lists	，认得{got}
+web.kb.list.machine	机台表 {n} 台
+web.kb.list.opr_no	工序表 {n} 道
+web.kb.sheets	（{s}）
+web.kb.bad	✗ {src}：{why}
+web.kb.notTool	这本不像刀单：没找到 DATE、MACHINE 那样的表头，一条没吃。是别的单子的话，放进它自己的类别
+web.kb.noHead	没找到表头和记录（表头要在前 15 行，至少两列）
+web.tbl.empty	「{name}」还没放过表：先认全部内容，改对了点「放入样板资料」，表头就定成这个类别的列
+web.tbl.sum	「{name}」数据库：{n} 条记录 · {c} 列（{cols}{more}）
+web.name.empty	名字不能空着
+web.name.long	名字太长了（最多 {max} 个字）
+web.name.chars	名字里不能有 \ / : * ? " < > | 这些符号
+web.name.taken	已经有「{n}」了
+web.sheet.unsupported	只认 .xlsx、.xlsm、.xls 和 .csv（照片、PDF、Word 不吃：数据库只认人核对过的表）
+web.sheet.notExcel	不是 Excel 文件，打不开：用 Excel 打开看看，能打开就另存为 .xlsx 再放
+web.sheet.locked	这本表加了密码，打不开：用 Excel 打开、去掉密码另存一份再放
+web.sheet.broken	这本表坏了，打不开：用 Excel 打开看看，能打开就另存为 .xlsx 再放
+web.sheet.cant	读不了：{e}
+web.img.libMissing	{g} 没加载上
+web.img.libOffline	{f} 没加载上（网络断了？）
+web.img.cantOpen	这张照片打不开
+web.img.notPhoto	这张照片打不开（坏了，或者不是照片）
+web.img.heicLib	HEIC 照片要先加载解码器，没加载上：网络好了再试，或者在手机相册里另存为 JPG
+web.img.heicBad	这张 HEIC 照片解不开：在手机相册里另存为 JPG 再放
+web.img.cantSave	照片存不了
+web.store.notBackup	这不是录入僧网页版的备份文件
+web.store.notWritten	没写进去
+web.relay.http	中转站 HTTP {s}
+web.send.title	传图给电脑 · 录入僧
+web.send.appTitle	传图
+web.send.h1	传图给电脑
+web.send.sub	录入僧 · 施主去玩，贫僧填表
+web.send.unpaired	还没配对
+web.send.unpairedTip	电脑上打开录入僧网页版，点「手机传图」，用手机相机扫那个二维码。
+web.send.connecting	正在连中转站…
+web.send.pcOn	电脑在线：送到就开工
+web.send.pcOff	电脑没开：照片先存着，电脑一打开录入僧就干
+web.send.pick	拍照 / 选照片
+web.send.tip	拍完全选，点一下送过去。电脑收齐自己开工，你去摸鱼。
+web.send.tipWait	点完「添加」，相册会愣一会儿：iPhone 在给照片打包，张数多要等十几秒。不是死机，别狂点。
+web.send.home	在 Safari 里点「分享」→「添加到主屏幕」，以后点图标直接传，不用再扫。
+web.send.foot	照片在手机上加密了才发出去，中转站只存加密过的数据，电脑取走就删。
+web.send.all	电脑收齐 {n} 张
+web.send.progress	送出 {sent}/{n} · 电脑收到 {got}/{n}
+web.send.tooBig	这张太大，压不下去
+web.send.item	第 {i} 张（{name}）：{e}
+web.send.failed	✗ 有 {n} 张没送出去：电脑等两分钟收不齐，就先干收到的。再选一次这几张就行：\n
+web.send.waiting	照片在中转站等着，电脑一打开录入僧网页版就收、就干（放 3 天）。
+web.send.pc	电脑：{text}
+pc.name	录入僧
+pc.sub	施主去玩，贫僧填表
+pc.title	入我千手院，凡事尽释手；千僧替牛马，施主自风流。
+pc.builtin	刀单
+pc.list.sep	、
+pc.empty	空
+pc.lnk.desc	刀具破损记录照片识别成 Excel
+pc.ft.photos	照片
+pc.ft.sheets	表格（Excel、CSV）
+pc.ft.all	所有文件
+pc.app.cat	类别
+pc.app.newcat	＋ 新建类别
+pc.app.folder	图片文件夹
+pc.app.pick	选照片…
+pc.app.key1	钥匙 1
+pc.app.key2	钥匙 2（可空）
+pc.app.getKey	免费领钥匙
+pc.app.getKey2	再领一把
+pc.app.model	模型
+pc.app.auto	来图就干
+pc.app.autoHint	（文件夹里一有新照片就自己开工）
+pc.app.start	开始工作
+pc.app.stop	停止
+pc.app.latest	最新结果
+pc.app.all	所有结果
+pc.app.check	核对
+pc.app.feed	放入样板资料
+pc.app.statusHead	任务状态
+pc.app.update	新版本
+pc.app.updateV	新版本 v{v}
+pc.app.names	编辑名单
+pc.st.queue	待识别 {n} 张
+pc.st.pages	{d}/{t} 张
+pc.st.copying	正在复制…
+pc.st.stopping	正在停…（等手上这几张回来）
+pc.st.done	干完：成功 {ok} · 失败 {bad}
+pc.cat.hint.builtin	内置 · 专属优化
+pc.cat.hint.cols	自建 · {c} 列 · {n} 条记录
+pc.cat.hint.empty	自建 · 还没放过表
+pc.names.head	名单：{n} 人
+pc.names.none	没有名单
+pc.names.noneHint	没有也能用，SETTER 就照单子抄
+pc.names.fromKb	其中 {n} 人是样板资料里认识的
+pc.names.cat	「{cat}」数据库：{n} 条
+pc.names.catEmpty	「{cat}」还没放过表
+pc.names.cols	列：{cols}
+pc.names.catEmptyHint	先认全部内容，改对了点「放入样板资料」，表头就定成它的列
+pc.pick.title	选照片（可以多选）
+pc.feed.pickTitle	选要放进「{cat}」的表（可以多选）
+pc.log.copied	✓ 复制了 {n} 张进「{folder}」，原照片还在老地方。点「开始工作」
+pc.log.copiedRedo	↻ 其中 {n} 张以前干过，⚙ 开着「干过的照片也重干」，照样复制进去了
+pc.log.copiedHad	↷ {n} 张「{folder}」里已经有了，没再复制
+pc.log.copiedDone	↷ {n} 张以前干过，没再复制：{names}
+pc.log.copyBad	✗ {name}：{why}
+pc.log.copyMore	✗ 还有 {n} 个也没复制
+pc.copy.notPhoto	不是照片
+pc.copy.cant	复制不了：{e}
+pc.log.copyFail	✗ 复制不进 {folder}：{e}
+pc.log.moved	搬过来：{x}
+pc.log.oldMoved	旧文件夹挪到：{d}
+pc.log.oldStuck	旧文件夹没搬完：{e}
+pc.log.updated	✓ 换上新版 v{v}
+pc.log.autoOn	来图就干：开着。往文件夹里放照片，30 秒内放完它就自己开工。
+pc.log.noKey	✗ 先填钥匙。还没有？点钥匙框后面的「免费领钥匙」，两分钟的事，一分钱不花
+pc.log.sameKey	✗ 两个钥匙填的是同一把（额度按项目算，同一把没意义）
+pc.log.autoGo	▶ 来图就干：发现新照片，自己开工
+pc.log.crash	✗ 程序出错：{e}
+pc.log.noResult	还没有结果：先点「选照片…」，再点「开始工作」干一批
+pc.log.feedStart	开始把 {n} 本表放进「{cat}」的数据库…
+pc.log.newCols	「{cat}」多了这些列：{cols}
+pc.log.feedErr	✗ 放入样板资料出错：{e}
+pc.log.dropHere	（也可以把表丢进：{dir}）
+pc.log.dbErr	「{cat}」的数据库打不开：{e}
+pc.log.checkedErr	✗ 核完的那条放不进样板资料：{e}
+pc.log.hidden	窗口收起来了，后台照样盯着文件夹。真要退出：去掉「来图就干」的勾再点 ×（或者在右上角 ⚙ 里关掉「点 × 只收起」）。
+pc.log.bgErr	后台出错：{e}
+pc.log.refused	方丈网盘暂时不收（{why}），东西先攒在本机，过一阵自己再发
+pc.log.refusedFull	今天收满了
+pc.log.refusedToken	接口换了，等新版
+pc.rep.status	发给方丈：这次开着送出去 {n} 份，
+pc.rep.left	还有 {n} 份在路上
+pc.rep.none	没有欠账
+pc.log.badNew	✗ 新版 {name} 打不开，没换
+pc.log.swapping	发现新版 v{v}，换上后自己重开
+pc.upd.dev	网站上最新是 v{v}（这是开发版，不下载）
+pc.upd.downloaded	新版 v{v} 下载好了，空闲时自己换上
+pc.upd.latest	已经是最新版 v{v}
+pc.upd.available	有新版本 v{v}
+pc.upd.err	查不到新版：{e}
+pc.upd.found	发现新版 v{v}，正在下载…
+pc.upd.downloading	正在下载…
+pc.upd.progress	正在下载… {n} / {t} MB
+pc.upd.now	新版 v{v} 下载好了，马上换上（正在干活的话干完这批再换）
+pc.upd.fail	下载失败：{e}（过一会儿再点一次）
+pc.upd.devNo	这是开发版，不下载
+pc.log.redoOn	↻ 干过的照片也重干：开了。以前认过的照片再放进待识别，照样认一遍（钥匙次数照扣），测完记得关
+pc.log.redoOff	干过的照片也重干：关了，以前干过的照旧自动跳过
+pc.log.reportOn	✓ 发数据给方丈：开了。每批认完，照片和认的过程自己送去方丈网盘；在表里改完存个盘，改过的格子也一起送去
+pc.log.reportOff	发数据给方丈：关了，一个字都不往外送了
+pc.log.pingOk	✓ 方丈网盘连上了
+pc.log.pingBad	现在连不上方丈网盘（{why}）。东西先攒在本机，连上了自己发
+pc.log.queued	↗ 这批的照片和认的过程排好队了，闲下来就送去方丈网盘（⚙ 里能关）
+pc.log.namesSaved	✓ 名单存好了：{n} 人
+pc.log.namesEmpty	名单是空的：没有也能用，SETTER 就照单子抄
+pc.log.autoUpdOn	自动更新打开了：以后有新版自己下载、空闲时换上（⚙ 里可以关）
+pc.log.langBusy	正在干活：干完这批再换语言
+pc.eng.waitLong	⏸ {why}，等到 {when} 额度刷新后接着干（约 {h} 小时）
+pc.eng.wait	⏸ {why}，等 {s} 秒
+pc.eng.allKeys	所有钥匙额度都用完了
+pc.eng.perMinute	每分钟次数到顶
+pc.eng.dayOut	钥匙{i} 今天的额度用完了 · {raw}
+pc.eng.prepay	钥匙{i} · {raw}（账单账户预付余额用完，等也没用）
+pc.eng.keyBad	钥匙{i} · {raw}
+pc.eng.schema	模型不认结构化输出格式，改用纯 JSON 提示重试 · {raw}
+pc.eng.retry	{name} · {raw} · {w} 秒后重试
+pc.eng.noKey	✗ 没填钥匙
+pc.eng.dbErr	数据库打不开，这次不用它：{e}
+pc.eng.tableDbErr	「{name}」的数据库打不开，这次不用它：{e}
+pc.eng.dup	↷ {name} 以前干过（{xlsx} 第 {no} 张），挪进 已识别\{dup}
+pc.eng.redoing	↻ {n} 张以前干过，⚙ 开着「干过的照片也重干」，这回照样认（钥匙次数照扣）：{names}
+pc.eng.nothing	文件夹里没有新图片，收工。
+pc.eng.what.builtin	，类别「刀单」
+pc.eng.what.names	，名单 {n} 人
+pc.eng.what.noNames	，没找到名单
+pc.eng.what.cat	，类别「{cat}」
+pc.eng.what.open	（还没定列：认全部内容）
+pc.eng.what.cols	（{n} 列）
+pc.eng.start	▶ 开工（录入僧 v{v}）：{n} 张，按拍摄顺序编号 1–{n}，每批 {batch} 张，模型 {model}{twice}{what}
+pc.eng.twice	，每张认两遍对答案
+pc.eng.stampErr	{tag} 编号照片没印成：{e}
+pc.eng.ok	✓ {tag} {name} · {n} 条
+pc.eng.halted	■ 停工：{why}
+pc.eng.stopped	■ 已停止，没干完的下次接着干
+pc.eng.reportErr	给方丈的记录没写成（不耽误干活）：{e}
+pc.eng.used	钥匙{i}×{n}
+pc.eng.sum	{mark} 成功 {ok} 张（{rec} 条记录）· 失败 {bad} 张 · {req} 次请求{used}
+pc.eng.sumXlsx	\n结果：{xlsx}
+pc.kb.empty	数据库还是空的：点「放入样板资料」喂几本改对的刀单表，喂得越多它越不瞎
+pc.kb.sum	数据库：{n} 条记录 · 机台 {m} 台 · 零件 {p} 种 · 刀具描述 {d} 种 · 认识 {people} 人
+pc.kb.fed	✓ 吃进 {src}：读到 {rows} 行记录，新增 {added} 行（其余以前吃过）
+pc.kb.people	，新认识 {n} 人
+pc.kb.lists	，认得{got}
+pc.kb.list.machine	机台表 {n} 台
+pc.kb.list.opr_no	工序表 {n} 道
+pc.kb.sheets	（{s}）
+pc.kb.bad	✗ {src}：{why}
+pc.kb.notTool	这本不像刀单：没找到 DATE、MACHINE 那样的表头，一条没吃。是别的单子的话，放进它自己的类别
+pc.kb.noHead	没找到表头和记录（表头要在前 15 行，至少两列）
+pc.tbl.empty	「{name}」还没放过表：先认全部内容，改对了点「放入样板资料」，表头就定成这个类别的列
+pc.tbl.sum	「{name}」数据库：{n} 条记录 · {c} 列（{cols}{more}）
+pc.name.empty	名字不能空着
+pc.name.long	名字太长了（最多 {max} 个字）
+pc.name.chars	名字里不能有 \ / : * ? " < > | 这些符号
+pc.name.reserved	Windows 不让用这个名字
+pc.name.taken	已经有「{n}」了
+pc.sheet.unsupported	只认 .xlsx、.xlsm、.xls 和 .csv（照片、PDF、Word 不吃：数据库只认人核对过的表）
+pc.sheet.notExcel	不是 Excel 文件，打不开：用 Excel 打开看看，能打开就另存为 .xlsx 再放
+pc.sheet.web	这个文件其实是网页导出的（HTML/XML），不是真 Excel：用 Excel 打开，另存为 .xlsx 再放
+pc.sheet.locked	这本表加了密码，打不开：用 Excel 打开、去掉密码另存一份再放
+pc.sheet.broken	这本表坏了，打不开：用 Excel 打开看看，能打开就另存为 .xlsx 再放
+pc.sheet.cant	读不了：{e}
+pc.set.title	设置
+pc.set.lang	语言
+pc.set.langD	换了马上生效；正在干活的话等这批干完
+pc.set.ver	录入僧 v{v}
+pc.set.sign	千手院方丈释手
+pc.set.contact	要什么新功能、有修改建议，或洽谈商业合作请直接找方丈飞鸽传书：{mail}
+pc.set.hubLine	千手院总舵：
+pc.set.copied	{mail}　已复制，粘进邮箱找方丈算账
+pc.set.done	完成
+pc.set.check	检查新版
+pc.set.mail	方丈邮箱
+pc.set.hub	千手院总舵
+pc.set.checking	正在查…
+pc.row.startup	开机自动启动
+pc.row.startup.d	开机后在后台挂着（收在任务栏），「来图就干」不用等你打开
+pc.row.hide_on_close	点 × 只收起
+pc.row.hide_on_close.d	开着「来图就干」时，点 × 收进任务栏，后台照样盯着文件夹
+pc.row.auto_open	干完自动打开
+pc.row.auto_open.d	手动点「开始工作」干完后，自动打开核对窗口，点格子就能改
+pc.row.keep_originals	保留原图
+pc.row.keep_originals.d	原片留在「已识别 › 批次 › 原图」；关掉就扔进回收站，省一半硬盘
+pc.row.auto_update	自动更新
+pc.row.auto_update.d	开着：有新版自己下载、空闲时换上。关着：只提醒你有新版、更新了啥，你点了才换
+pc.row.remember_keys	记住钥匙
+pc.row.remember_keys.d	钥匙存在这台电脑上，下次不用再填；公用电脑就关掉
+pc.row.shortcuts	桌面和开始菜单图标
+pc.row.shortcuts.d	在桌面和开始菜单放「录入僧」的图标
+pc.row.redo	干过的照片也重干
+pc.row.redo.d	测试用：以前认过的照片再放进来照样认一遍，钥匙次数照扣；平时关着，干过的自动跳过
+pc.row.report	发数据给方丈
+pc.row.report.d	每批认完，照片、认的过程、你改过的格子都送去方丈网盘，方丈闭关对答案，下回少认错几个字
+pc.cancel	取消
+pc.save	存好
+pc.done	完成
+pc.new.title	新建类别
+pc.new.name	名字
+pc.new.para	比如「质检单」「送货单」。建好会多一个文件夹 {root}\<名字>，它自己的数据库和投喂文件夹都在里面，跟刀单互不串味。
+pc.new.ok	建好
+pc.new.err	建不了：{e}
+pc.names.title	名单
+pc.names.para	一行一个「工号/名字」，比如 639/Lee Ah Kow。单子上只写了工号的，贫僧照这个把名字补上。没有也能用。
+pc.names.err	存不了：{e}
+pc.res.title	所有结果
+pc.res.empty	还没有结果：先点「选照片…」，再点「开始工作」干一批。
+pc.res.tag	{cat} · {n} 张
+pc.res.latest	　最新
+pc.res.check	核对
+pc.res.open	打开表
+pc.res.older	更早的 {n} 批在结果文件夹里。
+pc.res.folder	打开结果文件夹
+pc.feed.title	放入样板资料
+pc.feed.into	放进
+pc.feed.go	选表放进去
+pc.feed.desc.builtin	改对的刀单表，人工录的、录入僧认完改好的都行，一次能塞好几本。\nExcel（.xlsx、.xls）、CSV 都行。\n不像刀单的表（没有 DATE、MACHINE 表头）一条都不吃，免得别的单子串进来。\n
+pc.feed.desc.cat	认完、改对了的「{cat}」结果表（录入僧出的那本就行），可以一次选好几本。\nExcel（.xlsx、.xls）、CSV 都行。\n
+pc.feed.desc.cols	现在的列：{cols}。表里多出来的列会接在后面。\n
+pc.feed.desc.first	第一本的表头会定成「{cat}」的列。\n
+pc.feed.desc.drop	也可以把表直接丢进 {dir}，每次开工前自动吃。
+pc.upd.title	录入僧 v{v} 搞出来了
+pc.upd.old	（你那 v{v} 该淘汰了）
+pc.upd.what	这次弄了点啥：
+pc.upd.fetching	正在拿更新说明…
+pc.upd.calm	放心，换版本不会动你的设置、数据库和照片。更新完自己重启一下。\n如果想要什么新花样，或者觉得哪里反人类，直接发邮件找我算账：
+pc.upd.btnNow	现在更新
+pc.upd.btnAlways	以后都自动更新
+pc.upd.btnLater	以后再说
+pc.upd.noNotes	这次没写更新说明。
+pc.view.title	核对
+pc.view.titleN	核对 · 第 {no} 张 / 共 {n} 张
+pc.view.none	还没有编号照片：先点「开始工作」干一批。
+pc.view.run	{when} 这批（{n} 张）
+pc.view.prev	◀ 上一张
+pc.view.go	看
+pc.view.next	下一张 ▶
+pc.view.open	打开表
+pc.view.gone	这批的表找不到了（挪走或者删了？）
+pc.view.noSuch	没有第 {t} 张（这批是 {a}–{b}）
+pc.view.typeNo	先输入编号
+pc.view.pos	第 {no} 张 / 共 {n} 张　←→ 翻页，双击看大图，点格子改
+pc.view.cantOpen	第 {no} 张打不开：{e}
+pc.view.rotErr	转不了：{e}
+pc.view.noRec	表里没有这一号的记录。
+pc.view.recN	　第 {k} 条
+pc.view.busy	这批还在干：干完再改（干完存盘会把这本表整本重写）
+pc.view.save	改好了
+pc.view.right	对的
+pc.view.locked	✗ 表在 Excel 里开着，写不进去：关掉 Excel 再点「改好了」
+pc.view.err	✗ 改不了：{e}
+pc.view.still	{label} {v} 还不对：{why}
+pc.view.checked	{label} 核过了
+pc.view.changed	{label} 改成 {v}
+pc.view.shiftToo	，SHIFT 跟着猜成 {s}（照 {id} 以前的班次）
+pc.view.fedRow	，这条核完进了样板资料
+pc.view.sheetToo	，表跟着改了

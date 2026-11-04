@@ -8,18 +8,9 @@ from __future__ import annotations
 
 SETTINGS_VER = 1
 
-# (键, 标题, 说明)；顺序就是设置卡片里的顺序
-ROWS = [
-    ('startup', '开机自动启动', '开机后在后台挂着（收在任务栏），「来图就干」不用等你打开'),
-    ('hide_on_close', '点 × 只收起', '开着「来图就干」时，点 × 收进任务栏，后台照样盯着文件夹'),
-    ('auto_open', '干完自动打开', '手动点「开始工作」干完后，自动打开核对窗口，点格子就能改'),
-    ('keep_originals', '保留原图', '原片留在「已识别 › 批次 › 原图」；关掉就扔进回收站，省一半硬盘'),
-    ('auto_update', '自动更新', '开着：有新版自己下载、空闲时换上。关着：只提醒你有新版、更新了啥，你点了才换'),
-    ('remember_keys', '记住钥匙', '钥匙存在这台电脑上，下次不用再填；公用电脑建议关掉'),
-    ('shortcuts', '桌面和开始菜单图标', '在桌面和开始菜单放「录入僧」的图标'),
-    ('redo', '干过的照片也重干', '测试用：以前认过的照片再放进来照样认一遍，钥匙次数照扣；平时关着，干过的自动跳过'),
-    ('report', '发数据给方丈', '每批认完，照片、认的过程、你改过的格子都送去方丈网盘，方丈闭关对答案，下回少认错几个字'),
-]
+# (键, 标题的字, 说明的字)；字在 strings.py（row.<键>、row.<键>.d），顺序就是设置卡片里的顺序
+ROWS = [(k, f'row.{k}', f'row.{k}.d') for k in
+        ('startup', 'hide_on_close', 'auto_open', 'keep_originals', 'auto_update', 'remember_keys', 'shortcuts', 'redo', 'report')]
 
 NEW = {                     # 新装的电脑
     'auto': False,          # 来图就干：先手动点「开始工作」用熟了再开
@@ -41,7 +32,10 @@ OLD['redo'] = False           # ……和重干：测试用，平时干过的照
 
 
 def upgrade(cfg: dict, existed: bool) -> dict:
-    """补齐开关。existed = 这台电脑之前有设置文件（老用户）。原来就有的值一律不动。"""
+    """补齐开关。existed = 这台电脑之前有设置文件（老用户）。原来就有的值一律不动。
+    语言（lang）：新装的英文；老电脑没选过的照旧中文（Song 的、同事的电脑升级后不突然变英文）。"""
+    if cfg.get('lang') not in ('en', 'zh'):
+        cfg['lang'] = 'zh' if existed else 'en'
     if cfg.get('settings_ver') != SETTINGS_VER:
         for k, v in (OLD if existed else NEW).items():
             cfg.setdefault(k, v)

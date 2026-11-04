@@ -38,6 +38,7 @@ from test_kb import company_book  # noqa: E402
 from test_formats import to_xls  # noqa: E402
 
 K1, K2 = 'AIzaKEY1_mock', 'AIzaKEY2_mock'
+E2E_LANG = 'zh'                       # 界面语言：断言都是对着中文写的
 RELAY_DIR = os.environ.get('RELAY_DIR') or os.path.join(os.path.dirname(ROOT), 'luruseng-relay')   # 中转站代码（QIANSHOULAB/luruseng-relay）
 SHOTS = sys.argv[1] if len(sys.argv) > 1 else tempfile.mkdtemp(prefix='luruseng-shots-')
 os.makedirs(SHOTS, exist_ok=True)
@@ -193,6 +194,21 @@ def main():
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
+        # 界面默认英文；这份测试对着中文的字写：每个浏览器环境一开就把语言拨成中文（英文那套在 web/test/bilingual.cjs）
+        pin = f"try {{ localStorage.setItem('luruseng.lang', '{E2E_LANG}') }} catch (e) {{}}"
+        _new_context, _persistent = browser.new_context, pw.chromium.launch_persistent_context
+
+        def new_context(**kw):
+            c = _new_context(**kw)
+            c.add_init_script(pin)
+            return c
+
+        def launch_persistent_context(*a, **kw):
+            c = _persistent(*a, **kw)
+            c.add_init_script(pin)
+            return c
+        browser.new_context = new_context
+        pw.chromium.launch_persistent_context = launch_persistent_context
         ctx = browser.new_context(viewport={'width': 1280, 'height': 860}, accept_downloads=True, locale='zh-CN')
         ctx.grant_permissions(['clipboard-read', 'clipboard-write'], origin=base.rsplit('/web/', 1)[0])
         page = ctx.new_page()

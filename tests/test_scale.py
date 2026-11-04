@@ -75,7 +75,7 @@ def test_at_100_percent_nothing_moves_and_settings_foot(tmp_path, monkeypatch):
         assert root.title() == engine.TITLE == '入我千手院，凡事尽释手；千僧替牛马，施主自风流。'
         a.open_settings()
         root.update()
-        foot = [w for w in a.settings_win.card.body.winfo_children() if pills(w)][0]
+        foot = [w for w in a.settings_win.card.body.winfo_children() if pills(w)][-1]   # 最上面那排是语言，落款那排在最后
         order = [p.cget('text') for p in reversed(foot.pack_slaves()) if isinstance(p, ui.Pill)]   # 都靠右排
         assert order == ['千手院总舵', '方丈邮箱', '检查新版', '完成']
         info = [lab.cget('text') for f in foot.winfo_children() if not isinstance(f, ui.Pill)

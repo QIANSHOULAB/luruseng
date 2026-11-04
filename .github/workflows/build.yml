@@ -9,7 +9,7 @@ on:
       - 'key.html'
       - 'web/**'
       - '.github/workflows/web.yml'
-      - 'screenshot.png'
+      - 'screenshot*.png'
       - '.nojekyll'
       - 'docs/**'
       - '**.md'
@@ -43,6 +43,7 @@ jobs:
           $v = python -c "from bangong import engine; print(engine.VERSION)"
           [IO.File]::WriteAllText("$PWD/dist/version.txt", $v.Trim())
           Copy-Item changes.md dist/changes.md
+          Copy-Item changes.en.md dist/changes.en.md     # 英文界面的「有新版本」卡片看这份
           "v=$($v.Trim())" >> $env:GITHUB_OUTPUT
           Write-Output "version $v"
       - name: Smoke test the exe against the mock server
@@ -166,4 +167,5 @@ jobs:
             dist/luruseng.exe
             dist/version.txt
             dist/changes.md
+            dist/changes.en.md
           make_latest: true

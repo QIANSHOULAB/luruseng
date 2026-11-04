@@ -1,4 +1,5 @@
-// 录入僧网页版：页面上的按钮、存取、开工收工（认单子的规矩全在 core.js，跟电脑版一套）
+// 录入僧网页版：页面上的按钮、存取、开工收工（认单子的规矩全在 core.js，跟电脑版一套；界面上的字全在 strings.js）
+import './strings.js';
 import * as C from './core.js';
 import * as SH from './sheets.js';
 import * as ST from './store.js';
@@ -10,15 +11,14 @@ import * as PR from './pair.js';
 import { Inbox } from './inbox.js';
 
 const $ = (s) => document.querySelector(s);
+const I18N = globalThis.LURU_I18N;
+const t = I18N.t;
+const catLabel = (c) => (c === C.BUILTIN ? t('builtin') : c);     // 刀单在英文界面叫 Tool breakage（存的还是「刀单」）
 const XLSX_LIB = new URL('./vendor/xlsx.full.min.js', import.meta.url).href;
 const JSZIP_LIB = new URL('./vendor/jszip.min.js', import.meta.url).href;
 const QR_LIB = new URL('./vendor/qrcode.js', import.meta.url).href;
 const CONTACT = ['oilsongchengmin', 'gmail.com'].join('@');
-const SETTINGS = [
-  ['auto_open', '干完自动打开核对', '手动点「开始工作」干完后，自动打开核对，点格子就能改'],
-  ['remember_keys', '记住钥匙', '钥匙存在这个浏览器里，下次不用再填；公用电脑建议关掉'],
-  ['redo', '干过的照片也重干', '测试用：以前认过的照片再放进来照样认一遍，钥匙次数照扣；平时关着，干过的自动跳过'],
-];
+const SETTINGS = ['auto_open', 'remember_keys', 'redo'];          // 字在 strings.js 的 row.<键>、row.<键>.d
 const DEFAULTS = { category: C.BUILTIN, model: C.DEFAULT_MODEL, auto: false, auto_open: true, remember_keys: true, redo: false };
 
 const S = {
@@ -26,6 +26,7 @@ const S = {
   fresh: 0, feeding: false, run: null,                    // run：正在干的这批（核对里看它，改的格子才不会被盖掉）
   pair: null, inbox: null, phoneWaiting: false,           // 手机传图：配对、收图的长连接、手机传齐了等着开工
   cohandle: null, filling: false,                         // 填进公司表：选过的那本（这回开着页面先用手上这个）、正在填
+  shown: null, said: null, finished: false,               // 右边大字、小字现在显示的是哪句（换语言时照这个重写）；finished：大字是「干完：…」
 };
 const two = (n) => String(n).padStart(2, '0');
 const nowIso = () => new Date().toISOString().slice(0, 19);
@@ -34,7 +35,7 @@ const localWhen = (iso) => {                       // nowIso 存的是世界时�
   return Number.isNaN(d.getTime()) ? String(iso) : `${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`;
 };
 const TOUCH = matchMedia('(pointer: coarse)').matches;      // 手机、平板：没得拖，左右滑翻页
-const EMPTY = TOUCH ? '还没选照片' : '把照片拖进来，或点右边「选照片」';
+const EMPTY = () => t(TOUCH ? 'app.dropEmptyTouch' : 'app.dropEmpty');
 
 // ---------------------------------------------------------------- 日志、状态
 function log(msg) {
@@ -49,7 +50,10 @@ function log(msg) {
   if (stick) box.scrollTop = box.scrollHeight;
 }
 
-function status(text) {                       // 数字（含 4/10 这种）蓝色大字
+function status(key, vars) {                  // 数字（含 4/10 这种）蓝色大字；key 是 strings.js 里的键
+  S.shown = [key, vars];
+  S.finished = key === 'st.done';
+  const text = key ? t(key, vars) : '';
   const el = $('#status');
   el.textContent = '';
   for (const part of String(text).split(/(\d+(?:\/\d+)?)/)) {
@@ -63,41 +67,38 @@ function status(text) {                       // 数字（含 4/10 这种）蓝�
 function bar(done, total) { $('#bar').style.width = total ? `${Math.round((100 * done) / total)}%` : '0'; }
 
 // 干活时的进度：认完一张跳一格；两张之间按估的时间慢慢往前爬（最多爬到下一格的九成），让人看着它在干活
-const FISH = '你可以去摸鱼了，剩下的交给老衲。';
-const DONE = '干完你核对就好了。';
-const WOKE = '页面被关了一回，老衲诈尸接着干，你接着摸鱼。';
+const FISH = 'slogan.fish', DONE = 'slogan.done', WOKE = 'slogan.woke';
 const M = { total: 0, done: 0, tLast: 0, gaps: [], timer: null };
-function slogan(text) { $('#slogan').textContent = text || ''; }
+function slogan(key, vars) { S.said = key ? [key, vars] : null; $('#slogan').textContent = key ? t(key, vars) : ''; }
 function meterDraw() { $('#bar').style.width = `${(100 * C.meterFrac(M, Date.now())).toFixed(1)}%`; }
 function meterStart(total, done = 0, line = FISH) {      // done：接着干的那批，之前已经干完几张
-  phoneSay(`开工了 ${done}/${total}`, true);
+  phoneSay(t('say.start', { d: done, t: total }), true);
   Object.assign(M, { total, done, tLast: Date.now(), gaps: [] });
   clearInterval(M.timer);
   M.timer = setInterval(meterDraw, 250);
-  status(`${done}/${total} 张`);
+  status('st.pages', { d: done, t: total });
   slogan(line);
   meterDraw();
   if (matchMedia('(max-width: 860px)').matches) {      // 窄屏（手机）：任务状态在下面，自己滚过去给人看
     $('.side').scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 }
-function meterTick(d, t) {
+function meterTick(d, total) {
   const now = Date.now();
   if (d > M.done) {                              // 真认完一张：跳一格，等额度那句话也换回摸鱼
     M.gaps.push((now - M.tLast) / (d - M.done)); M.tLast = now; M.done = d;
     slogan(FISH);
   }
-  M.total = t;
-  status(`${d}/${t} 张`);
-  phoneSay(`干着呢 ${d}/${t}`);
+  M.total = total;
+  status('st.pages', { d, t: total });
+  phoneSay(t('say.tick', { d, t: total }));
   meterDraw();
 }
 function meterStop() { clearInterval(M.timer); M.timer = null; }
-function waitLine(msg) {                      // 撞了谷歌的额度在等：告诉人它没死
-  let m = msg.match(/等到 (\S+ \S+) 额度刷新/);
-  if (m) return `今天的免费额度用完了，老衲蹲点等到 ${m[1]} 接着干，这个页面别关。`;
-  m = msg.match(/等 (\d+) 秒/);
-  return m ? `谷歌喘口气，老衲蹲点等 ${m[1]} 秒，你接着摸。` : FISH;
+function waitLine(wait) {                     // 撞了谷歌的额度在等：告诉人它没死。wait：engine 报来的 {when} 或 {secs}
+  if (wait && wait.when) return ['slogan.day', { when: wait.when }];
+  if (wait && wait.secs) return ['slogan.sec', { s: wait.secs }];
+  return [FISH];
 }
 
 function refreshQueue(keepStatus = false) {     // keepStatus：刚干完，右边大字留着「干完：…」
@@ -105,15 +106,16 @@ function refreshQueue(keepStatus = false) {     // keepStatus：刚干完，右�
   const drop = $('#drop');
   drop.classList.toggle('has', n > 0);
   $('#clear').hidden = !n || S.busy;
-  const names = S.queue.slice(0, 6).map((q) => q.file.name).join('、');
-  $('#droptxt').textContent = n ? `${n} 张：${names}${n > 6 ? '…' : ''}` : EMPTY;
-  if (!S.busy && !keepStatus) { status(`待识别 ${n} 张`); bar(0, 0); slogan(''); }
+  const names = I18N.list(S.queue.slice(0, 6).map((q) => q.file.name));
+  $('#droptxt').textContent = n ? t('app.queue', { n, names, more: n > 6 ? '…' : '' }) : EMPTY();
+  if (!S.busy && !keepStatus) { status('st.queue', { n }); bar(0, 0); slogan(''); }
 }
 
 // ---------------------------------------------------------------- 设置
-async function loadCfg() {
+async function loadCfg() {                     // -> 这个浏览器以前用过录入僧没有（存过设置）
   const saved = (await S.st.get('kv', 'cfg')) || {};
   S.cfg = { ...DEFAULTS, ...saved };
+  return Object.keys(saved).length > 0;
 }
 let saveTimer = null;
 function saveCfg(now = false) {
@@ -137,7 +139,7 @@ async function loadCats() {
 }
 function fillCats(sel, value) {
   sel.textContent = '';
-  for (const c of S.cats) sel.add(new Option(c, c));
+  for (const c of S.cats) sel.add(new Option(catLabel(c), c));
   sel.value = S.cats.includes(value) ? value : C.BUILTIN;
 }
 async function kbDb() {
@@ -160,17 +162,17 @@ async function refreshCategory(announce = false) {
   if (cat === C.BUILTIN) {
     const n = C.parseNames(await namesText()).length;
     const all = (await roster()).length;           // 名单文本 + 样板资料里认识的人：关掉页面再打开，一眼看得出样板资料还在
-    $('#cathint').textContent = '内置 · 专属优化';
-    $('#nhead').textContent = all ? `名单：${all} 人` : '没有名单';
-    $('#npath').textContent = !all ? '没有也能用，SETTER 就照单子抄' : n < all ? `其中 ${all - n} 人是样板资料里认识的` : '';
+    $('#cathint').textContent = t('cat.hint.builtin');
+    $('#nhead').textContent = all ? t('names.head', { n: all }) : t('names.none');
+    $('#npath').textContent = !all ? t('names.noneHint') : n < all ? t('names.fromKb', { n: all - n }) : '';
     $('#names').hidden = false;
     line = C.kbSummary(await kbDb());
   } else {
     const db = await catDb(cat);
     const cols = db.columns, n = db.records.length;
-    $('#cathint').textContent = cols.length ? `自建 · ${cols.length} 列 · ${n} 条记录` : '自建 · 还没放过表';
-    $('#nhead').textContent = cols.length ? `「${cat}」数据库：${n} 条` : `「${cat}」还没放过表`;
-    $('#npath').textContent = cols.length ? '列：' + cols.join('、') : '先认全部内容，改对了点「放入样板资料」，表头就定成它的列';
+    $('#cathint').textContent = cols.length ? t('cat.hint.cols', { c: cols.length, n }) : t('cat.hint.empty');
+    $('#nhead').textContent = cols.length ? t('names.cat', { cat, n }) : t('names.catEmpty', { cat });
+    $('#npath').textContent = cols.length ? t('names.cols', { cols: I18N.list(cols) }) : t('names.catEmptyHint');
     $('#names').hidden = true;
     line = C.tableSummary(db, cat);
   }
@@ -201,10 +203,10 @@ function stash(q) {                           // -> Promise：存好了（存不
       await S.st.put('photos', PEND + q.id, { blob: new Blob([buf], { type: f.type }), name: f.name, type: f.type,
         lastModified: f.lastModified, hash: q.hash, added: Date.now() });
     } catch (e) {
-      if (!P.warned) { P.warned = true; log(`⚠ 照片没存进浏览器（${e.message}）：干完之前别关这页，被关了得重选`); }
+      if (!P.warned) { P.warned = true; log(t('log.notStashed', { e: e.message })); }
     } finally {
       P.d++;
-      if (P.show) status(`存照片 ${P.d}/${P.n} 张`);
+      if (P.show) status('st.saving', { d: P.d, t: P.n });
       if (P.d >= P.n) P.n = P.d = 0;
     }
   });
@@ -213,7 +215,7 @@ function unstash(q) { if (canStash()) later(() => S.st.del('photos', PEND + q.id
 async function stashed() {                    // 开工前等照片都存好：开工以后页面被关，照片也丢不了
   if (!P.n) return;
   P.show = true;
-  status(`存照片 ${P.d}/${P.n} 张`);
+  status('st.saving', { d: P.d, t: P.n });
   try { await P.chain; } finally { P.show = false; }
 }
 
@@ -259,9 +261,9 @@ async function grab(tries = 1) {              // 一次只让一个窗口干活�
 
 async function wakeUp(back) {                  // 打开页面：上回干到一半被关了，自己接着干；留下的照片说一声
   const w = canStash() ? await S.st.get('kv', 'work').catch(() => null) : null;
-  if (!w) { if (back) log(`上回留下的 ${back} 张照片还在列表里，点「开始工作」就干`); return; }
-  if (!$('#key1').value.trim() && !$('#key2').value.trim()) { log('⚠ 上回干到一半页面被关了：填好钥匙点「开始工作」，老衲接着干'); return; }
-  if ((w.stuck || 0) >= 3) { log('⚠ 诈尸 3 回都没干动（一开工页面就被关）：点「开始工作」再试，还不行就清空、少放几张'); return; }
+  if (!w) { if (back) log(t('log.backLeft', { n: back })); return; }
+  if (!$('#key1').value.trim() && !$('#key2').value.trim()) { log(t('log.wokeNoKey')); return; }
+  if ((w.stuck || 0) >= 3) { log(t('log.wokeStuck')); return; }
   w.stuck = (w.stuck || 0) + 1;                // 接着干一回记一回；干完一张就清零（一张都干不动才是被哪张照片撑爆了）
   await S.st.put('kv', 'work', w).catch(() => {});
   start(!!w.auto, true);
@@ -299,10 +301,10 @@ function addFiles(files) {
     if (S.busy) S.fresh++;
   }
   if (added && canStash()) ST.persist();       // 跟浏览器要「别清」
-  if (sheets) log(`✗ ${sheets} 本表格没放进照片里：表格请点「放入样板资料」`);
-  if (other) log(`✗ 跳过 ${other} 个不是照片的文件`);
+  if (sheets) log(t('log.sheets', { n: sheets }));
+  if (other) log(t('log.notPhotos', { n: other }));
   refreshQueue();
-  if (added && S.busy) log(`又来了 ${added} 张：这批干完再干`);
+  if (added && S.busy) log(t('log.more', { n: added }));
   if (added && !S.busy && $('#auto').checked) start(true);
 }
 
@@ -390,7 +392,7 @@ async function freshTodo() {
   const todo = [], hashes = new Map(), again = [];
   for (const q of [...S.queue]) {
     if (!q.hash) {
-      try { q.hash = await I.sha256(q.file); } catch (e) { log(`✗ ${q.file.name} 读不了：${e.message}`); continue; }
+      try { q.hash = await I.sha256(q.file); } catch (e) { log(t('log.unreadable', { name: q.file.name, e: e.message })); continue; }
     }
     const done = await S.st.get('ledger', q.hash);
     if (done && S.cfg.redo && !hashes.has(q.hash)) {   // ⚙「干过的照片也重干」开着（测试用）：照样认
@@ -398,17 +400,17 @@ async function freshTodo() {
       hashes.set(q.hash, q.file.name);
       todo.push(q);
     } else if (done && !S.cfg.redo) {
-      log(`↷ ${q.file.name} 以前干过（${done.xlsx || ''} 第 ${done.no ?? '?'} 张），跳过`);
+      log(t('log.doneBefore', { name: q.file.name, xlsx: done.xlsx || '', no: done.no ?? '?' }));
       drop(q);
     } else if (hashes.has(q.hash)) {
-      log(`↷ ${q.file.name} 跟 ${hashes.get(q.hash)} 是同一张，跳过`);
+      log(t('log.samePhoto', { name: q.file.name, other: hashes.get(q.hash) }));
       drop(q);
     } else {
       hashes.set(q.hash, q.file.name);
       todo.push(q);
     }
   }
-  if (again.length) log(`↻ ${again.length} 张以前干过，⚙ 开着「干过的照片也重干」，这回照样认（钥匙次数照扣）：${again.slice(0, 5).join('、')}${again.length > 5 ? '…' : ''}`);
+  if (again.length) log(t('log.redoing', { n: again.length, names: I18N.list(again.slice(0, 5)) + (again.length > 5 ? '…' : '') }));
   for (const q of todo) if (q.shot === undefined) q.shot = await I.shotTime(q.file);
   todo.sort((a, b) => a.shot - b.shot || a.file.name.toLowerCase().localeCompare(b.file.name.toLowerCase()));
   return todo;
@@ -425,12 +427,12 @@ async function rules(cat) {                    // 拿数据库当准绳
       names = names.concat(snapshot.roster().filter(([n]) => !have.has(n)));
     }
     log(C.kbSummary(kb));
-    what = '，类别「刀单」' + (names.length ? `，名单 ${names.length} 人` : '，没有名单');
+    what = t('log.what.builtin') + (names.length ? t('log.what.names', { n: names.length }) : t('log.what.noNames'));
   } else {
     const db = await catDb(cat);
     spec = new C.TableSpec(cat, db);
     log(C.tableSummary(db, cat));
-    what = `，类别「${cat}」` + (spec.openMode ? '（还没定列：认全部内容）' : `（${spec.columns.length} 列）`);
+    what = t('log.what.cat', { cat }) + (spec.openMode ? t('log.what.open') : t('log.what.cols', { n: spec.columns.length }));
   }
   return { spec, snapshot, names, hints, what };
 }
@@ -441,7 +443,7 @@ async function newRun(cat, total, spec) {
   for (let i = 2; await S.st.get('runs', id); i++) id = `${base}_${i}`;
   return {
     id, cat, at: nowIso(), total, width: Math.max(2, String(total).length), photos: [], rows: [],
-    xlsx: `识别结果_${id}${cat === C.BUILTIN ? '' : '_' + cat}.xlsx`, columns: spec ? [...spec.columns] : null,
+    xlsx: t('file.xlsx', { id, cat: cat === C.BUILTIN ? '' : '_' + cat }), columns: spec ? [...spec.columns] : null,
   };
 }
 
@@ -467,28 +469,28 @@ async function reopen(run, work) {
 async function start(auto = false, woke = false) {     // woke：打开页面时发现上回干到一半被关了，自己接着干
   if (S.busy) return;
   const k1 = $('#key1').value.trim(), k2 = $('#key2').value.trim();
-  if (!k1 && !k2) { log('✗ 先填钥匙。还没有？点钥匙框后面的「免费领钥匙」，两分钟的事，一分钱不花'); return; }
-  if (k1 && k1 === k2) { log('✗ 两个钥匙填的是同一把（额度按项目算，同一把没意义）'); return; }
+  if (!k1 && !k2) { log(t('log.noKey')); return; }
+  if (k1 && k1 === k2) { log(t('log.sameKey')); return; }
   setBusy(true);                                 // 马上占住：下面要等，别让人连点两下开出两批
   S.fresh = 0;
   let release = null, mine = false, halted = true, extra = null, eng;
   try {
     release = await grab(woke ? 3 : 1);
-    if (!release) { log('⚠ 另一个窗口正在干活：这边先不干，等那边干完'); return; }
+    if (!release) { log(t('log.otherTab')); return; }
     const was = await S.st.get('kv', 'work').catch(() => null);
     const prev = was && was.run ? await S.st.get('runs', was.run).catch(() => null) : null;
     if (was && !prev && was.want) {              // 点了开始、照片还没存完页面就被关了：存住的接着干，没存住的点名
       const have = new Set(S.queue.map((q) => q.id));
       const miss = was.want.filter((qid) => !have.has(qid) && !gone.has(qid)).map((qid) => qid.split('|')[0]);
-      if (miss.length) log(`⚠ 这 ${miss.length} 张还没存进浏览器页面就被关了，得重选：${miss.slice(0, 6).join('、')}${miss.length > 6 ? ' 等' : ''}`);
+      if (miss.length) log(t('log.lostBefore', { n: miss.length, names: I18N.list(miss.slice(0, 6)), more: miss.length > 6 ? '…' : '' }));
     }
     if (!S.queue.length && !prev) {
       if (was) await S.st.del('kv', 'work').catch(() => {});
-      if (!woke) log('还没选照片：点「选照片…」，或者把照片拖进来');
+      if (!woke) log(t('log.noPhotos'));
       return;
     }
-    if (woke && !prev) log('▶ 上回刚开工页面就被关了，老衲诈尸重新开工');
-    else if (auto && !woke) log('▶ 来图就干：照片来了，自己开工');
+    if (woke && !prev) log(t('log.wokeRestart'));
+    else if (auto && !woke) log(t('log.autoGo'));
     await saveCfg(true);
     // 先记一笔「在干活」再等照片存完：存照片、查重、干活的时候页面被关了，重新打开都自己接着干
     const work = prev ? { ...was, at: Date.now(), stuck: woke ? was.stuck || 0 : 0 }
@@ -507,11 +509,11 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
       }
       ({ items, lost } = await reopen(run, work));
     } else {
-      status('查重…');
+      status('st.dedupe');
       bar(0, 0);
       S.phoneWaiting = false;                    // 手机传齐等着的照片，这一批就带上了
       todoQ = await freshTodo();
-      if (!todoQ.length) { log('列表里没有新照片，收工。'); halted = false; return; }
+      if (!todoQ.length) { log(t('log.nothingNew')); halted = false; return; }
     }
     const cat = run ? run.cat : $('#cat').value;
     const { spec, snapshot, names, hints, what } = await rules(cat);
@@ -521,18 +523,16 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
       Object.assign(work, { run: run.id, items: items.map((it) => ({ no: it.no, qid: it.q.id, hash: it.q.hash, name: it.file.name })) });
       delete work.want;                          // 编好号了：往后靠 items 认照片
       await S.st.put('kv', 'work', work).catch(() => {});
-      log(`▶ 开工（录入僧网页版 v${C.VERSION}）：${run.total} 张，按拍摄顺序编号 1–${run.total}，每批 ${C.BATCH} 张，模型 ${model}` +
-        (C.READS >= 2 ? '，每张认两遍对答案' : '') + what);
+      log(t('log.start', { v: C.VERSION, n: run.total, batch: C.BATCH, model, twice: C.READS >= 2 ? t('log.twice') : '', what }));
     } else if (items.length) {
-      log(`▶ ${woke ? '上回干到一半页面被关了，老衲诈尸接着干' : '上回那批没干完，先接着干'}：还剩 ${items.length} 张，` +
-        `接着写进 ${run.xlsx}，编号不变（模型 ${model}${what}）`);
+      log(t('log.resume', { why: t(woke ? 'log.resumeWoke' : 'log.resumePrev'), n: items.length, xlsx: run.xlsx, model, what }));
     }
     const { id, total, width } = run;
     S.run = run;
     let saveErr = '';
     const saveRun = async () => {                     // 存这批的表：认完一张存一回
       try { await S.st.put('runs', id, run); saveErr = ''; return true; } catch (e) {
-        if (saveErr !== e.message) { saveErr = e.message; log(`✗ 结果存不下：${e.message}`); }
+        if (saveErr !== e.message) { saveErr = e.message; log(t('log.cantSave', { e: e.message })); }
         return false;
       }
     };
@@ -540,7 +540,8 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
 
     const base = total - items.length;             // 接着干的：之前已经干完（或者记过）几张
     eng = S.eng = new Engine({
-      keys: [k1, k2], model, spec, names, hints, log: (m) => { log(m); if (m.startsWith('⏸')) { slogan(waitLine(m)); phoneSay(waitLine(m), true); } },
+      keys: [k1, k2], model, spec, names, hints,
+      log: (m, wait) => { log(m); if (wait) { const [k, v] = waitLine(wait); slogan(k, v); phoneSay(t(k, v), true); } },
       prepare: (file, enhance) => exclusive(async () => I.prepare(await openFor(file, !enhance), enhance)),
       stampIt: (file, no, side) => exclusive(async () => I.stamp(await openFor(file, false), no, side)),
     });
@@ -573,43 +574,44 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
             try {
               await S.st.put('photos', `${id}/${it.no}`, stamped);
               if (!run.photos.includes(it.no)) run.photos.push(it.no);
-            } catch (e) { log(`${tag} 编号照片存不下：${e.message}`); }
+            } catch (e) { log(t('log.stampSave', { tag, e: e.message })); }
           }
           if (!(await saveRun())) return;               // 表没存上：照片先留在列表里，别记成干过
           if (work.stuck) { work.stuck = 0; S.st.put('kv', 'work', work).catch(() => {}); }   // 干动了：诈尸次数清零
           if (it.q.hash) {
-            try { await S.st.put('ledger', it.q.hash, { file: name, no: it.no, xlsx: run.xlsx, at: nowIso(), ms: Date.now() }); } catch (e) { log(`${tag} 干过的记录存不下：${e.message}`); }
+            try { await S.st.put('ledger', it.q.hash, { file: name, no: it.no, xlsx: run.xlsx, at: nowIso(), ms: Date.now() }); } catch (e) { log(t('log.ledgerSave', { tag, e: e.message })); }
           }
           drop(it.q);
-          log(`✓ ${tag} ${name} · ${recs.length} 条`);
+          log(t('log.ok', { tag, name, n: recs.length }));
         },
         onBatch: saveRun,
       });
-      if (res.stopped) log(res.stopped === '手动停止' ? '■ 已停止，没干完的下次接着干' : `■ 停工：${res.stopped}`);
-      if (res.stopped) phoneSay(res.stopped === '手动停止' ? '停了，有人在电脑上点了停止' : `停工了，${res.stopped}`, true);
+      const manual = res.stopped === C.MANUAL_STOP;
+      if (res.stopped) log(manual ? t('log.stopped') : t('log.halted', { why: res.stopped }));
+      if (res.stopped) phoneSay(manual ? t('say.stopped') : t('say.halt', { why: res.stopped }), true);
     } else if (lost) {
-      log(`⚠ 上回那批剩下的 ${lost} 张照片没存住（页面被关之前没来得及存）：重新选它们再干`);
+      log(t('log.lostLeft', { n: lost }));
     } else {
-      log(`✓ 上回那批其实干完了：${run.xlsx}（点「下载结果」，或者「核对」里下载）`);
+      log(t('log.wasDone', { xlsx: run.xlsx }));
     }
     halted = !!(res && res.stopped);
-    const t = C.tally(run.rows), kept = t.ok + t.failed > 0;
+    const tl = C.tally(run.rows), kept = tl.ok + tl.failed > 0;
     if (!kept) await S.st.del('runs', id).catch(() => {});
     else { await saveRun(); S.cfg.lastRun = id; await saveCfg(true); ST.persist(); }   // 有东西了才跟浏览器要「别清」
     if (res) {
       const used = eng.usedLine();
-      log(`${!t.failed && !res.stopped ? '✓' : '⚠'} 成功 ${t.ok} 张（${t.records} 条记录）· 失败 ${t.failed} 张 · ` +
-        `${res.requests} 次请求${used ? ' · ' + used : ''}` + (kept ? `\n结果：${run.xlsx}（点「下载结果」，或者「核对」里下载）` : ''));
+      log(t('log.sum', { mark: !tl.failed && !res.stopped ? '✓' : '⚠', ok: tl.ok, rec: tl.records, bad: tl.failed, req: res.requests,
+        used: used ? ' · ' + used : '' }) + (kept ? t('log.sumXlsx', { xlsx: run.xlsx }) : ''));
     }
     meterStop();
-    bar(t.ok + t.failed, total);
-    if (kept) status(`干完：成功 ${t.ok} · 失败 ${t.failed}`);
-    slogan(t.ok && !halted ? DONE : '');
-    if (!halted && res) phoneSay(`干完了，成功 ${t.ok} · 失败 ${t.failed}，回电脑核对就好`, true);
+    bar(tl.ok + tl.failed, total);
+    if (kept) status('st.done', { ok: tl.ok, bad: tl.failed });
+    slogan(tl.ok && !halted ? DONE : '');
+    if (!halted && res) phoneSay(t('say.done', { ok: tl.ok, bad: tl.failed }), true);
     const more = extra && S.queue.some((q) => extra.has(q));
     if (kept && res && res.ok && !halted && !work.auto && !more && S.cfg.auto_open) openViewer(id);
   } catch (e) {
-    log(`✗ 程序出错：${e.name || 'Error'}：${e.message}`);
+    log(t('log.crash', { e: `${e.name || 'Error'}: ${e.message}` }));
     console.error(e);
   } finally {
     meterStop();
@@ -619,9 +621,9 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
     if (mine) await S.st.del('kv', 'work').catch(() => {});   // 这一笔了结了（干完、停了、出错了）；只有页面被关才留着
     if (release) release();
     setBusy(false);
-    refreshQueue($('#status').textContent.startsWith('干完'));
+    refreshQueue(S.finished);
     if (extra && !halted && S.queue.some((q) => extra.has(q))) {
-      log('▶ 上回那批干完了，接着干列表里别的照片（另开一本表）');
+      log(t('log.next'));
       setTimeout(() => start(auto), 500);
     } else if (((S.fresh && $('#auto').checked) || (mine && S.phoneWaiting)) && S.queue.length) setTimeout(() => start(true), 500);
   }
@@ -636,7 +638,7 @@ function drop(q) {                               // 干完了（或者不用干�
 function halt() {
   if (!S.eng) return;
   S.eng.stop();
-  status('正在停…（等手上这几张回来）');
+  status('st.stopping');
   slogan('');
 }
 
@@ -673,7 +675,7 @@ async function downloadXlsx(run) {
     save(await (run.cat === C.BUILTIN ? B.cleanXlsx(run) : B.xlsx(run)), run.xlsx);   // 刀单下载干净的：只有公司那 13 列
     return true;
   } catch (e) {
-    log(`✗ 表格出不来：${e.message}`);
+    log(t('log.xlsxErr', { e: e.message }));
     return false;
   }
 }
@@ -683,13 +685,13 @@ async function feed(cat, files) {
   if (S.feeding) return;
   S.feeding = true;
   $('#feed').disabled = true;
-  log(`开始把 ${files.length} 本表放进「${cat}」的数据库…`);
+  log(t('log.feedStart', { n: files.length, cat: catLabel(cat) }));
   try {
     const loadXLSX = () => I.loadScript(XLSX_LIB, 'XLSX');
     if (cat === C.BUILTIN) {
       const kb = await kbDb();
       for (const f of files) {
-        try { log(C.feedLine(C.feedKb(kb, await SH.readSheets(f, loadXLSX), f.name))); } catch (e) { log(`✗ ${f.name}：${SH.why(e)}`); }
+        try { log(C.feedLine(C.feedKb(kb, await SH.readSheets(f, loadXLSX), f.name))); } catch (e) { log(t('kb.bad', { src: f.name, why: SH.why(e) })); }
       }
       await S.st.put('kv', 'kb', kb);
       ST.persist();
@@ -697,14 +699,14 @@ async function feed(cat, files) {
     } else {
       const db = await catDb(cat);
       for (const f of files) {
-        try { log(C.feedLine(C.feedTable(db, await SH.readSheets(f, loadXLSX), f.name))); } catch (e) { log(`✗ ${f.name}：${SH.why(e)}`); }
+        try { log(C.feedLine(C.feedTable(db, await SH.readSheets(f, loadXLSX), f.name))); } catch (e) { log(t('kb.bad', { src: f.name, why: SH.why(e) })); }
       }
       await S.st.put('cats', cat, db);
       ST.persist();
       log(C.tableSummary(db, cat));
     }
   } catch (e) {
-    log(`✗ 放入样板资料出错：${e.name || 'Error'}：${e.message}`);
+    log(t('log.feedErr', { e: `${e.name || 'Error'}: ${e.message}` }));
   } finally {
     S.feeding = false;
     $('#feed').disabled = false;
@@ -713,13 +715,9 @@ async function feed(cat, files) {
 }
 
 function feedDesc(cat) {
-  if (cat === C.BUILTIN) {
-    return '改对的刀单表，人工录的、录入僧认完改好的都行，一次能塞好几本。\n' +
-      'Excel（.xlsx、.xls）、CSV 都行。\n不像刀单的表（没有 DATE、MACHINE 表头）一条都不吃，免得别的单子串进来。';
-  }
-  return catDb(cat).then((db) => `认完、改对了的「${cat}」结果表（录入僧出的那本就行），可以一次选好几本。\n` +
-    `Excel（.xlsx、.xls）、CSV 都行。\n` +
-    (db.columns.length ? `现在的列：${db.columns.join('、')}。表里多出来的列会接在后面。` : `第一本的表头会定成「${cat}」的列。`));
+  if (cat === C.BUILTIN) return t('feed.desc.builtin');
+  return catDb(cat).then((db) => t('feed.desc.cat', { cat }) +
+    (db.columns.length ? t('feed.desc.cols', { cols: I18N.list(db.columns) }) : t('feed.desc.first', { cat })));
 }
 
 function setupFeed() {
@@ -785,63 +783,67 @@ function setupNames() {
     await S.st.put('kv', 'names', $('#namestxt').value.replace(/\r\n/g, '\n').trim());
     dlg.close();
     const n = C.parseNames(await namesText()).length;
-    log(n ? `✓ 名单存好了：${n} 人` : '名单是空的：没有也能用，SETTER 就照单子抄');
+    log(n ? t('log.namesSaved', { n }) : t('log.namesEmpty'));
     refreshCategory();
   };
 }
 
 // ---------------------------------------------------------------- 设置
+function settingsText() {                       // ⚙ 底下的落款、找方丈的话、千手院总舵网址（Song 2026-11-01 给的原话）
+  $('#setver').replaceChildren(t('set.ver', { v: C.VERSION }), document.createElement('br'), t('set.sign'));
+  const hub = $('#hub').href;
+  $('#setcontact').replaceChildren(t('set.contact', { mail: CONTACT }), document.createElement('br'), t('set.hubLine'),
+    Object.assign(document.createElement('a'), { href: hub, target: '_blank', rel: 'noopener', textContent: hub.replace(/^https?:\/\//, '').replace(/\/$/, '') }));
+}
+
 function mb(n) { return n >= 1048576 ? `${(n / 1048576).toFixed(n >= 1073741824 ? 0 : 1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`; }
 
 function setupSettings() {
   const dlg = $('#dlg-set');
   const rows = $('#setrows');
-  for (const [key, title, desc] of SETTINGS) {
+  for (const key of SETTINGS) {
     const r = document.createElement('label');
     r.className = 'srow';
     r.innerHTML = `<div class="t"></div><span class="switch"><input type="checkbox"><span></span></span>`;
-    r.querySelector('.t').append(title, Object.assign(document.createElement('div'), { className: 'd', textContent: desc }));
+    r.querySelector('.t').append(Object.assign(document.createElement('span'), { textContent: t(`row.${key}`) }),
+      Object.assign(document.createElement('div'), { className: 'd', textContent: t(`row.${key}.d`) }));
+    r.querySelector('.t span').dataset.i18n = `row.${key}`;          // 换语言时跟着换
+    r.querySelector('.t .d').dataset.i18n = `row.${key}.d`;
     const box = r.querySelector('input');
     box.dataset.key = key;
     box.onchange = () => {
       S.cfg[key] = box.checked;
       saveCfg(true);
-      if (key === 'redo') log(box.checked ? '↻ 干过的照片也重干：开了。以前认过的照片再放进来，照样认一遍（钥匙次数照扣），测完记得关'
-        : '干过的照片也重干：关了，以前干过的照旧自动跳过');
+      if (key === 'redo') log(t(box.checked ? 'log.redoOn' : 'log.redoOff'));
     };
     rows.appendChild(r);
   }
-  $('#setver').innerHTML = '';
-  $('#setver').append(`录入僧网页版 v${C.VERSION}`, document.createElement('br'), '千手院方丈释手');
-  const hub = $('#hub').href;                   // 找方丈的话、千手院总舵网址（Song 2026-11-01 给的原话）
-  $('#setcontact').replaceChildren(`要什么新功能、有修改建议，或洽谈商业合作请直接找方丈飞鸽传书：${CONTACT}`,
-    document.createElement('br'), '千手院总舵：',
-    Object.assign(document.createElement('a'), { href: hub, target: '_blank', rel: 'noopener', textContent: hub.replace(/^https?:\/\//, '').replace(/\/$/, '') }));
+  settingsText();
   const mail = $('#mail');
   mail.title = CONTACT;
   mail.onclick = async (e) => {                 // 方丈邮箱：点一下，邮箱亮在底下、顺手复制好；不去开邮件程序（Song 定的）
     e.preventDefault();
     const ok = await copyText(CONTACT, dlg);
     const note = $('#setnote');
-    note.textContent = ok ? `${CONTACT}　已复制，粘进邮箱找方丈算账` : `方丈邮箱：${CONTACT}`;
+    note.textContent = ok ? t('set.copied', { mail: CONTACT }) : t('set.mailShow', { mail: CONTACT });
     note.classList.add('strong');
   };
   $('#gear').onclick = async () => {
     $('#setnote').textContent = '';
     $('#setnote').classList.remove('strong');
     for (const box of rows.querySelectorAll('input')) box.checked = !!S.cfg[box.dataset.key];
-    $('#seterr').textContent = S.st.kind === 'memory' ? '这个浏览器不让存东西（无痕窗口？）：关掉页面数据就没了，记得备份' : '';
+    $('#seterr').textContent = S.st.kind === 'memory' ? t('set.private') : '';
     const u = await ST.usage();
     const kb = await kbDb();
-    $('#usage').textContent = `数据库 ${kb.records.length} 条` + (u ? ` · 这个浏览器里一共存了 ${mb(u[0])}` : '') +
-      '。换电脑、清浏览器之前先备份一份。';
+    $('#usage').textContent = t('set.usage', { n: kb.records.length }) + (u ? t('set.usageSize', { size: mb(u[0]) }) : '') +
+      t('set.usageTail');
     await companyRow();
     dlg.showModal();
   };
   $('#backup').onclick = async () => {
     const data = await ST.exportBackup(S.st, { version: C.VERSION });
-    save(new Blob([JSON.stringify(data)], { type: 'application/json' }), `录入僧备份_${runId()}.json`);
-    log(`✓ 备份下载好了：数据库 ${data.kb.records.length} 条、自建类别 ${Object.keys(data.cats).length} 个（钥匙不在里面）`);
+    save(new Blob([JSON.stringify(data)], { type: 'application/json' }), t('log.backupFile', { id: runId() }));
+    log(t('log.backup', { n: data.kb.records.length, c: Object.keys(data.cats).length }));
   };
   $('#restore').onclick = () => $('#restorefile').click();
   $('#restorefile').onchange = async (e) => {
@@ -852,12 +854,11 @@ function setupSettings() {
       const out = await ST.importBackup(S.st, JSON.parse(SH.decode(new Uint8Array(await f.arrayBuffer()))));
       await loadCats();
       fillCats($('#cat'), $('#cat').value);
-      log(`✓ 恢复好了（合并进来，原来的一条没删）：数据库新增 ${out.records} 条、${out.people} 人，` +
-        `自建类别新增 ${out.cats} 个、${out.catRecords} 条，干过的照片 ${out.ledger} 张，名单 ${out.names} 行`);
+      log(t('log.restored', { r: out.records, p: out.people, c: out.cats, cr: out.catRecords, l: out.ledger, nm: out.names }));
       refreshCategory();
       dlg.close();
     } catch (err) {
-      $('#seterr').textContent = `✗ 恢复不了：${err.message}`;
+      $('#seterr').textContent = t('set.restoreErr', { e: err.message });
     }
   };
 }
@@ -868,7 +869,7 @@ const V = { runs: [], run: null, nos: [], cur: 0, url: '', rowsByNo: new Map() }
 function runLabel(run) {
   const m = run.id.match(/^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})/);
   const when = m ? `${m[2]}-${m[3]} ${m[4]}:${m[5]}` : run.id;
-  return `${when} 这批（${run.total} 张）${run.cat === C.BUILTIN ? '' : ' · ' + run.cat}`;
+  return t('view.run', { when, n: run.total }) + (run.cat === C.BUILTIN ? '' : ' · ' + run.cat);
 }
 
 async function openViewer(id = null) {
@@ -902,7 +903,7 @@ async function loadRun(id, start = null) {
     V.cur = null;
     $('#vnum').value = '';
     for (const el of ['#vphoto', '#vpanel']) $(el).textContent = '';
-    $('#vinfo').textContent = '这批刚开工，一张还没认完：待会儿再来看';
+    $('#vinfo').textContent = t('view.fresh');
     return;
   }
   await show(start && V.nos.includes(start) ? start : V.nos[0]);
@@ -912,7 +913,7 @@ async function show(no) {
   V.cur = no;
   $('#vnum').value = no ?? '';
   const n = V.nos.length;
-  $('#vinfo').textContent = no ? `第 ${no} 张 / 共 ${n} 张` + (TOUCH ? ' · 左右滑翻页，点照片看原尺寸' : '') : '';
+  $('#vinfo').textContent = no ? t('view.pos', { no, n }) + (TOUCH ? t('view.posTouch') : '') : '';
   const box = $('#vphoto');
   box.textContent = '';
   if (V.url) { URL.revokeObjectURL(V.url); V.url = ''; }
@@ -921,10 +922,10 @@ async function show(no) {
     V.url = URL.createObjectURL(blob);
     const img = new Image();
     img.src = V.url;
-    img.alt = `第 ${no} 张`;
+    img.alt = t('view.alt', { no });
     box.appendChild(img);
   } else {
-    box.appendChild(Object.assign(document.createElement('div'), { className: 'none', textContent: '这一张没有编号照片（没认成）' }));
+    box.appendChild(Object.assign(document.createElement('div'), { className: 'none', textContent: t('view.noPhoto') }));
   }
   fillPanel(no);
 }
@@ -939,13 +940,13 @@ function fillPanel(no) {
   p.textContent = '';
   const recs = V.rowsByNo.get(no) || [];
   const add = (tag, cls, text) => { const el = document.createElement(tag); if (cls) el.className = cls; el.textContent = text; return el; };
-  if (!recs.length) { p.append(add('h3', '', `No. ${no}`), add('div', 'dim', '表里没有这一号的记录。')); return; }
+  if (!recs.length) { p.append(add('h3', '', `No. ${no}`), add('div', 'dim', t('view.noRec'))); return; }
   const labels = V.run.cat === C.BUILTIN ? C.FIELDS.map((f) => C.LABEL[f]) : (V.run.columns || []);
   const keys = V.run.cat === C.BUILTIN ? C.FIELDS : (V.run.columns || []);
   recs.forEach((rec, k) => {
     const wrap = add('div', 'rec', '');
-    wrap.appendChild(add('h3', '', `No. ${no}` + (recs.length > 1 ? `　第 ${k + 1} 条` : '')));
-    if (rec.kind === 'blank') { wrap.appendChild(add('div', 'note', rec.note)); p.appendChild(wrap); return; }
+    wrap.appendChild(add('h3', '', `No. ${no}` + (recs.length > 1 ? t('view.recN', { k: k + 1 }) : '')));
+    if (rec.kind === 'blank') { wrap.appendChild(add('div', 'note', I18N.note(rec.note))); p.appendChild(wrap); return; }
     const dl = document.createElement('dl');
     const red = new Set(rec.red), orange = new Set(rec.orange), human = new Set(rec.human || []);
     keys.forEach((f, i) => {
@@ -960,13 +961,13 @@ function fillPanel(no) {
       dd.setAttribute('role', 'button');
       dd.dataset.k = String(k);
       dd.dataset.f = f;
-      dd.title = '点一下改';
+      dd.title = t('view.editTip');
       dd.onclick = () => openCell(dl, dd, rec, k, f, labels[i]);
       dd.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); dd.click(); } };
       dl.appendChild(dd);
     });
     wrap.appendChild(dl);
-    if (rec.notes) wrap.appendChild(add('div', rec.notes === C.HUMAN_NOTE ? 'note ok' : 'note', rec.notes));
+    if (rec.notes) wrap.appendChild(add('div', rec.notes === C.HUMAN_NOTE ? 'note ok' : 'note', I18N.note(rec.notes)));
     p.appendChild(wrap);
   });
 }
@@ -986,7 +987,7 @@ function openCell(dl, dd, rec, k, f, label) {
   ed.dataset.for = `${k}/${f}`;
   const input = Object.assign(document.createElement('input'), { className: 'field', value: C.showValue(rec.values[f]) });
   for (const [a, v] of [['autocomplete', 'off'], ['autocorrect', 'off'], ['spellcheck', 'false'], ['autocapitalize', 'characters'],
-    ['enterkeyhint', 'done'], ['aria-label', `改 ${label}`]]) input.setAttribute(a, v);
+    ['enterkeyhint', 'done'], ['aria-label', t('view.editAria', { label })]]) input.setAttribute(a, v);
   if (builtin && (C.NUM_FIELDS.has(f) || f === 'mo' || f === 'opr_no')) input.inputMode = 'numeric';
   ed.appendChild(input);
   const alts = red ? C.altsOf(rec, f, V.run.cat) : [];
@@ -1001,11 +1002,11 @@ function openCell(dl, dd, rec, k, f, label) {
   }
   const btns = Object.assign(document.createElement('div'), { className: 'btns' });
   if (red || orange) {
-    const ok = Object.assign(document.createElement('button'), { type: 'button', className: 'pill', textContent: '对的' });
+    const ok = Object.assign(document.createElement('button'), { type: 'button', className: 'pill', textContent: t('view.right') });
     ok.onclick = () => saveCell(rec, k, f, label, undefined);
     btns.appendChild(ok);
   }
-  const save = Object.assign(document.createElement('button'), { type: 'button', className: 'pill primary', textContent: '改好了' });
+  const save = Object.assign(document.createElement('button'), { type: 'button', className: 'pill primary', textContent: t('view.save') });
   save.onclick = () => saveCell(rec, k, f, label, input.value);
   btns.appendChild(save);
   ed.appendChild(btns);
@@ -1033,15 +1034,15 @@ async function saveCell(rec, k, f, label, text) {
   const shiftNow = C.showValue(rec.values.shift);
   const shiftMoved = builtin && f === 'setter' && (rec.orange || []).includes('shift')
     && (shiftNow !== shiftWas[0] || (shiftWas[1] && !(rec.red || []).includes('shift')));
-  try { await S.st.put('runs', V.run.id, V.run); } catch (e) { $('#vinfo').textContent = `✗ 存不下：${e.message}`; return; }
+  try { await S.st.put('runs', V.run.id, V.run); } catch (e) { $('#vinfo').textContent = t('view.saveErr', { e: e.message }); return; }
   const still = (rec.red || []).includes(f);
-  let msg = still ? `${label} ${after || '空'} 还不对：${rec.notes.split('；').pop()}`
-    : text === undefined || after === before ? `${label} 核过了` : `${label} 改成 ${after || '空'}`;
-  if (shiftMoved) msg += `，SHIFT 跟着猜成 ${shiftNow}（照 ${C.splitSetter(after)[0]} 以前的班次）`;
-  try { if (await feedRow(rec, k)) msg += '，这条核完进了样板资料'; } catch (e) { /* 样板资料存不下，不耽误改表 */ }
+  let msg = still ? t('view.still', { label, v: after || t('empty'), why: I18N.note(rec.notes.split('；').pop()) })
+    : text === undefined || after === before ? t('view.checked', { label }) : t('view.changed', { label, v: after || t('empty') });
+  if (shiftMoved) msg += t('view.shiftToo', { s: shiftNow, id: C.splitSetter(after)[0] });
+  try { if (await feedRow(rec, k)) msg += t('view.fedRow'); } catch (e) { /* 样板资料存不下，不耽误改表 */ }
   fillPanel(rec.no);
   const done = V.run.cat === C.BUILTIN && !fillState();     // 最后一个红格子核完：「填进公司表」变蓝，说一声
-  $('#vinfo').textContent = msg + (still ? '' : '，表跟着改了') + (done && !still ? '。全核完了：点「下载」或者「填进公司表」' : '');
+  $('#vinfo').textContent = msg + (still ? '' : t('view.sheetToo')) + (done && !still ? t('view.allDone') : '');
 }
 
 // 核完的那条（没有红格子、人动过）当样板放进这个类别的数据库；同一条再改，换掉上次那份；又改红了就拿掉
@@ -1079,7 +1080,7 @@ async function ask(title, text, ok) {
 
 // ---------------------------------------------------------------- 填进公司表（Song 2026-11-01：1A 直接写进原来那本；没核完提醒一句照样让填；不要标记）
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-const BOOK_TYPES = [{ description: '公司那本表', accept: { [XLSX_MIME]: ['.xlsx'], 'application/vnd.ms-excel.sheet.macroEnabled.12': ['.xlsm'] } }];
+const BOOK_TYPES = () => [{ description: t('fill.bookType'), accept: { [XLSX_MIME]: ['.xlsx'], 'application/vnd.ms-excel.sheet.macroEnabled.12': ['.xlsm'] } }];
 const canWrite = () => typeof window.showOpenFilePicker === 'function' && window.isSecureContext;
 const redCount = (run) => run.rows.reduce((n, r) => n + (r.kind === 'rec' ? (r.red || []).length : 0), 0);
 
@@ -1089,12 +1090,12 @@ function fillState() {                             // 只有刀单有「填进�
   const reds = run ? redCount(run) : 0;
   btn.classList.toggle('primary', !!run && !reds && run.rows.some((r) => r.kind === 'rec'));
   const f = run && run.filled;
-  btn.title = f ? `${localWhen(f.at)} 填进过 ${f.file}；再点一下：核对里改过的就地改，不另起一行` : '';
+  btn.title = f ? t('fill.title', { when: localWhen(f.at), file: f.file }) : '';
   return reds;
 }
 
 async function pickCompany() {                     // 选一回公司那本、记住它：以后点一下就填
-  const [h] = await window.showOpenFilePicker({ id: 'company-book', types: BOOK_TYPES, multiple: false });
+  const [h] = await window.showOpenFilePicker({ id: 'company-book', types: BOOK_TYPES(), multiple: false });
   S.cohandle = h;
   await S.st.put('kv', 'cohandle', h);
   await S.st.put('kv', 'coname', h.name);
@@ -1124,8 +1125,8 @@ async function keepBackup(name, bytes, run) {
   await S.st.put('kv', 'cobackups', list);
 }
 
-const filledLine = (name, res) => `✓ 填进 ${name}：${F.fillLine(res)}`;
-const nothingLine = (name, res) => (res.kept.length ? `${name} 一条没动：${F.fillLine(res)}` : `这批都已经在 ${name} 里了：一条没填`);
+const filledLine = (name, res) => t('fill.done', { name, detail: F.fillLine(res) });
+const nothingLine = (name, res) => (res.kept.length ? t('fill.untouched', { name, detail: F.fillLine(res) }) : t('fill.allThere', { name }));
 
 // 这批上回填进同一本时记下的那几行：再填就地改它们，不另起一行（换了一本就当没填过）
 function fillMemo(run, name) {
@@ -1140,17 +1141,17 @@ async function rememberFill(run, name, res, download) {
 
 async function sureToFill(run) {                   // 没核完：提醒一句，照样让填
   const reds = redCount(run);
-  return !reds || ask(`还有 ${reds} 格红的没核`, '没核对完，你确定要写入吗？看来阁下摸鱼心切啊', '写入');
+  return !reds || ask(t('ask.fill.title', { n: reds }), t('ask.fill.text'), t('ask.fill.ok'));
 }
 
 // 能不能改这本。刚选完表那一下，浏览器可能不让接着问「能改吗」（要再点一下才算人点的）：请他再点一下
 async function allowed(h, info) {
   try {
     if (await writable(h)) return true;
-    info('没给它改这本表的权限：一条没填');
+    info(t('fill.noPerm'));
   } catch (e) {
     if (e.name !== 'SecurityError' && e.name !== 'NotAllowedError') throw e;
-    info(`选好了 ${h.name}。再点一下「填进公司表」就填：浏览器会问一声能不能改这本，点「允许」`);
+    info(t('fill.again', { name: h.name }));
   }
   return false;
 }
@@ -1158,20 +1159,20 @@ async function allowed(h, info) {
 async function fillCompany(run) {
   if (S.filling) return;
   const info = (t) => { $('#vinfo').textContent = t; };
-  if (!run.rows.some((r) => r.kind === 'rec')) { info('这批没有认出来的记录'); return; }
+  if (!run.rows.some((r) => r.kind === 'rec')) { info(t('view.noRecs')); return; }
   if (!(await sureToFill(run))) return;
   S.filling = true;
   $('#vfill').disabled = true;
   try {
     let h = await companyHandle();
-    if (!h) { info('选一下公司那本表：只选这一回，以后点一下就填'); h = await pickCompany(); }
+    if (!h) { info(t('fill.pickOnce')); h = await pickCompany(); }
     if (!(await allowed(h, info))) return;
     let bytes;
     try { bytes = await (await h.getFile()).arrayBuffer(); } catch (e) {
       if (e.name === 'NotFoundError') {             // 挪了地方、改了名：忘掉它，下回点的时候重新选
         await forgetCompany();
-        info(`上回选的 ${h.name} 找不到了（挪了地方还是改了名？）：再点一下「填进公司表」，重新选一回`);
-      } else info(`✗ 读不了 ${h.name}，一条没动：多半在 Excel 里开着，关掉 Excel 再点「填进公司表」（${e.name}）`);
+        info(t('fill.gone', { name: h.name }));
+      } else info(t('fill.cantRead', { name: h.name, e: e.name }));
       return;
     }
     const JSZip = await I.loadScript(JSZIP_LIB, 'JSZip');
@@ -1183,15 +1184,15 @@ async function fillCompany(run) {
       await w.write(res.bytes);
       await w.close();
     } catch (e) {
-      info(`✗ ${h.name} 写不进去，一条没动：多半在 Excel 里开着，关掉 Excel 再点「填进公司表」（${e.name}）`);
+      info(t('fill.cantWrite', { name: h.name, e: e.name }));
       return;
     }
     await rememberFill(run, h.name, res, false);
     info(filledLine(h.name, res));
-    log(`${filledLine(h.name, res)}（${runLabel(run)}）`);
+    log(filledLine(h.name, res) + t('fill.logRun', { run: runLabel(run) }));
   } catch (e) {
-    if (e && e.name === 'AbortError') info('没选公司表：一条没填');
-    else info(`✗ 填不进去：${e.message}`);
+    if (e && e.name === 'AbortError') info(t('fill.noPick'));
+    else info(t('fill.err', { e: e.message }));
   } finally {
     S.filling = false;
     $('#vfill').disabled = false;
@@ -1208,10 +1209,10 @@ async function fillByDownload(run, file) {         // 不能直接改文件的�
     if (!res.bytes) { info(nothingLine(file.name, res)); return; }
     save(new Blob([res.bytes], { type: XLSX_MIME }), file.name);
     await rememberFill(run, file.name, res, true);
-    info(`这个浏览器不能直接改文件：填好的 ${file.name} 下载了，拿它换掉原来那本。${F.fillLine(res)}`);
-    log(`${filledLine(file.name, res)}（下载的，${runLabel(run)}）`);
+    info(t('fill.downloaded', { name: file.name, detail: F.fillLine(res) }));
+    log(filledLine(file.name, res) + t('fill.logDl', { run: runLabel(run) }));
   } catch (e) {
-    info(`✗ 填不进去：${e.message}`);
+    info(t('fill.err', { e: e.message }));
   }
 }
 
@@ -1219,8 +1220,8 @@ async function companyRow() {                      // ⚙ 里「公司表」那�
   const name = await S.st.get('kv', 'coname').catch(() => null);
   const backups = (await S.st.get('kv', 'cobackups').catch(() => null)) || [];
   $('#corow').hidden = !canWrite();
-  $('#coname').textContent = name ? `${name}：核对里点「填进公司表」就填进这本` : '还没选：核对里第一次点「填进公司表」时选一回，以后点一下就填';
-  $('#copick').textContent = name ? '换一本' : '选一本';
+  $('#coname').textContent = name ? t('set.coName', { name }) : t('set.coNone');
+  $('#copick').textContent = name ? t('set.coChange') : t('set.coPick');
   $('#coundo').hidden = !backups.length;
 }
 
@@ -1234,9 +1235,9 @@ function setupCompany() {
     const h = await companyHandle();
     if (!last || !h) return;
     const when = localWhen(last.at);
-    if (!(await ask('退回上一版？', `${last.name} 退回到 ${when} 填之前的样子。那之后在 Excel 里改过的也一起没了。`, '退回'))) return;
+    if (!(await ask(t('ask.undo.title'), t('ask.undo.text', { name: last.name, when }), t('ask.undo.ok')))) return;
     try {
-      if (!(await writable(h))) { $('#seterr').textContent = '没给它改这本表的权限：没退回'; return; }
+      if (!(await writable(h))) { $('#seterr').textContent = t('set.undoNoPerm'); return; }
       const w = await h.createWritable();
       await w.write(last.bytes);
       await w.close();
@@ -1248,10 +1249,10 @@ function setupCompany() {
         await S.st.put('runs', r.id, r);
         if (V.run && V.run.id === r.id) { V.run.filled = r.filled; fillState(); }
       }
-      log(`✓ ${last.name} 退回到 ${when} 填之前的样子了`);
-      $('#setnote').textContent = `✓ ${last.name} 退回到 ${when} 填之前的样子了`;
+      log(t('log.undone', { name: last.name, when }));
+      $('#setnote').textContent = t('log.undone', { name: last.name, when });
     } catch (e) {
-      $('#seterr').textContent = `✗ 退回不了：多半在 Excel 里开着，关掉再点（${e.name}）`;
+      $('#seterr').textContent = t('set.undoErr', { e: e.name });
     }
     companyRow();
   };
@@ -1269,12 +1270,12 @@ function setupViewer() {
   $('#vprev').onclick = () => step(-1);
   $('#vnext').onclick = () => step(1);
   const jump = () => {
-    const t = $('#vnum').value.trim();
-    if (!/^\d+$/.test(t) || !V.nos.includes(+t)) {
-      $('#vinfo').textContent = t ? `没有第 ${t} 张（这批是 ${V.nos[0]}–${V.nos[V.nos.length - 1]}）` : '先输入编号';
+    const want = $('#vnum').value.trim();
+    if (!/^\d+$/.test(want) || !V.nos.includes(+want)) {
+      $('#vinfo').textContent = want ? t('view.noSuch', { t: want, a: V.nos[0], b: V.nos[V.nos.length - 1] }) : t('view.typeNo');
       return;
     }
-    show(+t);
+    show(+want);
     $('#vnum').blur();
   };
   $('#vgo').onclick = jump;
@@ -1293,12 +1294,12 @@ function setupViewer() {
     sx = null;
   });
   $('#vphoto').onclick = () => { if (V.url) window.open(V.url, '_blank'); };
-  $('#vphoto').title = '点一下看原尺寸；←→ 翻页';
+  $('#vphoto').title = t('view.photoTip');
   const turn = async (cw) => {
     const key = `${V.run.id}/${V.cur}`;
     const blob = await S.st.get('photos', key);
     if (!blob) return;
-    try { await S.st.put('photos', key, await I.rotate(blob, cw)); } catch (e) { $('#vinfo').textContent = `转不了：${e.message}`; return; }
+    try { await S.st.put('photos', key, await I.rotate(blob, cw)); } catch (e) { $('#vinfo').textContent = t('view.rotErr', { e: e.message }); return; }
     show(V.cur);
   };
   $('#vccw').onclick = () => turn(false);
@@ -1311,13 +1312,13 @@ function setupViewer() {
   $('#cofile').onchange = (e) => { const f = e.target.files[0]; if (f) fillByDownload(V.run, f); };
   $('#vcopy').onclick = async () => {
     const [text, n] = B.tsv(V.run);
-    if (!n) { $('#vinfo').textContent = '这批没有认出来的记录'; return; }
+    if (!n) { $('#vinfo').textContent = t('view.noRecs'); return; }
     await copyText(text, dlg);
-    $('#vinfo').textContent = `复制好了：${n} 行（认失败的不算）。到公司的表里点第一个空格子，粘贴`;
+    $('#vinfo').textContent = t('view.copied', { n });
   };
   $('#vzip').onclick = async () => {
     const run = V.run;
-    $('#vinfo').textContent = '正在打包…';
+    $('#vinfo').textContent = t('view.zipping');
     try {
       const JSZip = await I.loadScript(JSZIP_LIB, 'JSZip');
       const zip = new JSZip();
@@ -1327,20 +1328,20 @@ function setupViewer() {
       }
       zip.file(run.xlsx, await B.xlsx(run));
       save(await zip.generateAsync({ type: 'blob' }), run.xlsx.replace(/\.xlsx$/, '.zip'));
-      $('#vinfo').textContent = `打包好了：编号照片 ${run.photos.length} 张 + 表格`;
+      $('#vinfo').textContent = t('view.zipped', { n: run.photos.length });
     } catch (e) {
-      $('#vinfo').textContent = `✗ 打包不了：${e.message}`;
+      $('#vinfo').textContent = t('view.zipErr', { e: e.message });
     }
   };
   $('#vdel').onclick = async () => {
     const run = V.run;
-    if (S.run && S.run.id === run.id) { $('#vinfo').textContent = '这批还在干：干完（或者点「停止」）再删'; return; }
-    const yes = await ask('删掉这批？', `${runLabel(run)}：表格和编号照片从这个浏览器里删掉，找不回来。要留着的话先点「编号照片」打包下载。\n干过的记录还在，这批照片以后再放进来还是会跳过。`, '删掉');
+    if (S.run && S.run.id === run.id) { $('#vinfo').textContent = t('view.busy'); return; }
+    const yes = await ask(t('ask.del.title'), t('ask.del.text', { run: runLabel(run) }), t('ask.del.ok'));
     if (!yes) return;
     for (const no of run.photos) await S.st.del('photos', `${run.id}/${no}`);
     await S.st.del('runs', run.id);
     if (S.cfg.lastRun === run.id) { delete S.cfg.lastRun; saveCfg(true); }
-    log(`删掉了 ${runLabel(run)}`);
+    log(t('log.deleted', { run: runLabel(run) }));
     openViewer();
   };
 }
@@ -1349,11 +1350,9 @@ function setupViewer() {
 function phoneSay(text, now = false) { if (S.inbox) S.inbox.say(text, now); }
 
 function phoneState(state) {                    // 电脑这头的长连接：连上了没有
+  S.phoneState = state;
   const on = state === 'on';
-  const text = !S.pair ? '手机扫个码，拍完一传，这边收齐自己开工'
-    : on ? '已配对：手机一传，这边就收'
-    : state === 'connecting' ? '正在连中转站…'
-    : '中转站连不上（断网了，或者公司网拦了），过一会儿自己再连';
+  const text = t(!S.pair ? 'phone.idle' : on ? 'phone.on' : state === 'connecting' ? 'phone.connecting' : 'phone.off');
   for (const [dot, txt] of [['#pdot', '#phinttxt'], ['#pdot2', '#pstate']]) {
     $(dot).classList.toggle('on', on);
     $(txt).textContent = text;
@@ -1367,13 +1366,13 @@ async function phoneFile(file, info) {          // 手机传来一张：跟选�
   const q = { file, id, phone: info.batch };
   S.queue.push(q);
   if (S.busy) S.fresh++;
-  refreshQueue(S.busy || $('#status').textContent.startsWith('干完'));
-  if (info.seq === 1 || info.seq === info.total) log(`📱 手机传来第 ${info.seq}/${info.total} 张：${file.name}`);
+  refreshQueue(S.busy || S.finished);
+  if (info.seq === 1 || info.seq === info.total) log(t('log.phoneGot', { i: info.seq, n: info.total, name: file.name }));
   await stash(q);
 }
 
 function phoneBatch(batch, got, total) {        // 手机这一趟收齐了（或者传到一半两分钟没动静）：开工
-  log(got >= total ? `📱 手机传来 ${got} 张，收齐了，开工` : `📱 手机这趟只到了 ${got}/${total} 张，两分钟没动静，先干收到的`);
+  log(got >= total ? t('log.phoneAll', { n: got }) : t('log.phonePart', { got, n: total }));
   S.phoneWaiting = true;
   if (!S.busy) start(true);
 }
@@ -1382,7 +1381,7 @@ function phoneJoined() {                       // 手机扫码连上了：二维
   const dlg = $('#dlg-phone');
   if (!dlg.open) return;
   dlg.close();
-  log('📱 手机连上了，二维码收起来了：拍完一传，这边收齐自己开工');
+  log(t('log.phoneJoined'));
 }
 
 function openInbox() {
@@ -1400,9 +1399,9 @@ async function drawQr() {
     const qr = qrcode(0, 'M');
     qr.addData(href);
     qr.make();
-    box.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 3, scalable: true, alt: '手机传图二维码' });
+    box.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 3, scalable: true, alt: t('phone.qrAlt') });
   } catch (e) {
-    box.textContent = `二维码出不来：${e.message}`;
+    box.textContent = t('phone.qrErr', { e: e.message });
   }
 }
 
@@ -1423,17 +1422,50 @@ function setupPhone() {
   $('#phonenew').onclick = async () => {
     const dlg = $('#dlg-phone');
     dlg.close();
-    const yes = await ask('换个二维码？', '换了以后，以前扫过的手机就传不过来了，得重新扫一下。', '换');
-    if (yes) { await newPairing(); log('换了个手机传图的二维码：以前扫过的手机得重新扫'); }
+    const yes = await ask(t('ask.qr.title'), t('ask.qr.text'), t('ask.qr.ok'));
+    if (yes) { await newPairing(); log(t('log.qrNew')); }
     await drawQr();
     dlg.showModal();
   };
 }
 
+// ---------------------------------------------------------------- 语言（右上角 EN / 中文；字全在 strings.js）
+function pageText() {                            // 页面上不跟着干活变的字：标题、简介、主屏图标的名字
+  I18N.apply(document);
+  document.title = t('app.title');
+  document.querySelector('meta[name="description"]').content = t('app.desc');
+  $('#manifest').href = I18N.lang() === 'zh' ? 'manifest.zh.webmanifest' : 'manifest.webmanifest';
+  document.documentElement.classList.remove('i18n-wait');
+}
+
+async function relabel() {                       // 换了语言：开着的、显示着的都换一遍（日志里已经写下的不动）
+  pageText();
+  for (const sel of [$('#cat'), $('#feedcat')]) for (const o of sel.options) o.text = catLabel(o.value);
+  refreshQueue(true);
+  if (S.shown) status(...S.shown);
+  if (S.said) slogan(...S.said);
+  phoneState(S.phoneState || 'off');
+  settingsText();
+  if ($('#dlg-set').open) await companyRow();
+  if ($('#dlg-feed').open) $('#feeddesc').textContent = await feedDesc($('#feedcat').value);
+  if ($('#dlg-view').open && V.run) {
+    for (const o of $('#vruns').options) { const r = await S.st.get('runs', o.value); if (r) o.text = runLabel(r); }
+    fillState();
+    if (V.cur) await show(V.cur);
+  }
+  await refreshCategory();
+}
+
 // ---------------------------------------------------------------- 开机
 async function boot() {
+  pageText();
+  I18N.toggle($('#lang'));
   S.st = await ST.openStore();
-  await loadCfg();
+  const used = await loadCfg();
+  // 默认英文。没选过语言的头一回打开就定下来、记住：这个浏览器以前用过录入僧（存过设置）的照旧中文
+  // （跟电脑版老电脑照旧一个意思），新来的英文。记住以后，下回打开不会因为存过设置又变回中文
+  if (!I18N.picked() && !/[?&]lang=/.test(location.search)) { I18N.setLang(used ? 'zh' : 'en'); pageText(); }
+  I18N.onChange(() => { relabel().catch((e) => console.error(e)); });
   await loadCats();
   fillCats($('#cat'), S.cfg.category);
   const dl = $('#models');
@@ -1450,8 +1482,8 @@ async function boot() {
   $('#stop').onclick = halt;
   $('#result').onclick = async () => {
     const run = await latestRun();
-    if (!run) { log('还没有结果：先选照片，点「开始工作」干一批'); return; }
-    if (await downloadXlsx(run)) log(`✓ 下载了 ${run.xlsx}（${runLabel(run)}）。别的批次在「核对」里下载`);
+    if (!run) { log(t('log.noResult')); return; }
+    if (await downloadXlsx(run)) log(t('log.downloaded', { xlsx: run.xlsx, run: runLabel(run) }));
   };
   for (const d of document.querySelectorAll('dialog')) {
     for (const b of d.querySelectorAll('[data-close]')) if (!b.onclick) b.onclick = () => d.close();
@@ -1466,8 +1498,8 @@ async function boot() {
   window.addEventListener('beforeunload', (e) => { if (S.busy) { e.preventDefault(); e.returnValue = ''; } });
   document.addEventListener('visibilitychange', () => { if (S.busy) keepAwake(true); });
   refreshQueue();
-  if (S.st.kind === 'memory') log('⚠ 这个浏览器不让存东西（无痕窗口？）：这次能用，关掉页面数据库、结果就没了');
-  if (!S.cfg.key1 && !S.cfg.key2) log('第一次用：先填钥匙（点「免费领钥匙」看怎么领），再选照片，点「开始工作」。');
+  if (S.st.kind === 'memory') log(t('log.private'));
+  if (!S.cfg.key1 && !S.cfg.key2) log(t('log.first'));
   await refreshCategory(true);
   const back = await restore();                    // 上回的照片还在浏览器里：放回列表
   if (back) refreshQueue();
@@ -1477,4 +1509,4 @@ async function boot() {
   if (PR.valid(pair)) { S.pair = pair; openInbox(); }
 }
 
-boot().catch((e) => { log(`✗ 打不开：${e.name || 'Error'}：${e.message}`); console.error(e); });
+boot().catch((e) => { log(t('log.bootErr', { e: `${e.name || 'Error'}: ${e.message}` })); console.error(e); });

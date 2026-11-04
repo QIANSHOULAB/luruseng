@@ -1,7 +1,11 @@
 // 手机传图页：扫了电脑上的二维码打开这里。拍完全选一传，照片先在手机上缩小、加密，一张张送到中转站；
 // 电脑那边取走一张，这里就记一张「电脑收到」；电脑开工、干完也报回来。
+import './strings.js';
 import * as P from './pair.js';
 import * as I from './image.js';
+
+const I18N = globalThis.LURU_I18N;
+const t = I18N.t;
 
 const $ = (s) => document.querySelector(s);
 const SIDE = 2560;                                 // 送多大：最长边 2560（认字只用 2048，核对放大看也够）
@@ -24,8 +28,7 @@ function pairing() {                               // 先看网址 # 后面（�
 function pcState(on) {
   T.pc = on;
   $('#dot').classList.toggle('on', !!on);
-  $('#pcstate').textContent = on === null ? '正在连中转站…'
-    : on ? '电脑在线：送到就开工' : '电脑没开：照片先存着，电脑一打开录入僧就干';
+  $('#pcstate').textContent = t(on === null ? 'send.connecting' : on ? 'send.pcOn' : 'send.pcOff');
 }
 
 function status(text) {                            // 数字蓝色大字（跟电脑上一个样）
@@ -41,7 +44,7 @@ function draw() {
   if (!T.total) return;
   const got = T.got.size;
   $('#prog').hidden = false;
-  status(got >= T.total ? `电脑收齐 ${T.total} 张` : `送出 ${T.sent}/${T.total} · 电脑收到 ${got}/${T.total}`);
+  status(got >= T.total ? t('send.all', { n: T.total }) : t('send.progress', { sent: T.sent, n: T.total, got }));
   $('#bar').style.width = `${Math.round((100 * (T.sent + got)) / (2 * T.total))}%`;
 }
 
@@ -61,7 +64,7 @@ async function shrink(file) {                      // 缩小、转 JPG；拍摄�
 async function sendOne(p, file, seq) {
   const { bytes, head } = await shrink(file);
   const sealed = await P.seal(p.key, head, bytes);
-  if (sealed.length > P.MAX_SEALED) throw new Error('这张太大，压不下去');
+  if (sealed.length > P.MAX_SEALED) throw new Error(t('send.tooBig'));
   let last;
   for (const wait of [0, 1, 3, 6]) {               // 网不好就再送：中转站认得出是同一张，不会存两份
     if (wait) await new Promise((r) => setTimeout(r, wait * 1000));
@@ -97,7 +100,7 @@ async function send(p, files) {
       T.sent++;
       T.mine.add(`${T.batch}/${i + 1}`);
     } catch (e) {
-      failed.push(`第 ${i + 1} 张（${files[i].name || '照片'}）：${e.message}`);
+      failed.push(t('send.item', { i: i + 1, name: files[i].name || t('eng.photo'), e: e.message }));
     }
     draw();
   }
@@ -105,9 +108,9 @@ async function send(p, files) {
   T.busy = false;
   $('#pick').disabled = false;
   if (failed.length) {
-    $('#bad').textContent = `✗ 有 ${failed.length} 张没送出去：电脑等两分钟收不齐，就先干收到的。再选一次这几张就行：\n` + failed.join('\n');
+    $('#bad').textContent = t('send.failed', { n: failed.length }) + failed.join('\n');
   }
-  if (T.sent && !T.pc) $('#say').textContent = '照片在中转站等着，电脑一打开录入僧网页版就收、就干（放 3 天）。';
+  if (T.sent && !T.pc) $('#say').textContent = t('send.waiting');
 }
 
 function onMessage(m, p) {
@@ -122,11 +125,23 @@ async function showSay(st, p) {                    // 电脑报来的进度（�
     const { text, at } = JSON.parse(await P.openText(p.key, st.data));
     if (Date.now() - at > 12 * 3600e3) return;     // 半天前的旧话不提
     $('#prog').hidden = false;
-    $('#say').textContent = `电脑：${text}`;
+    $('#say').textContent = t('send.pc', { text });
   } catch (e) { /* 解不开：别的配对的，不管 */ }
 }
 
+function pageText() {
+  I18N.apply(document);
+  document.title = t('send.title');
+  document.querySelector('meta[name="apple-mobile-web-app-title"]').content = t('send.appTitle');
+  if (T.pc !== undefined && $('#pcstate')) pcState(T.pc);
+  if (T.total) draw();
+  document.documentElement.classList.remove('i18n-wait');
+}
+
 function boot() {
+  pageText();
+  I18N.toggle($('#lang'));
+  I18N.onChange(pageText);
   const p = pairing();
   if (!p) { $('#nopair').hidden = false; return; }
   $('#paired').hidden = false;

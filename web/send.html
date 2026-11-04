@@ -1,10 +1,22 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>传图给电脑 · 录入僧</title>
-<meta name="apple-mobile-web-app-title" content="传图">
+<title>Send to computer · Luru</title>
+<meta name="apple-mobile-web-app-title" content="Send">
+<script>
+  /* 挑语言：?lang=zh|en 只管这一次 > 右上角选过的（localStorage luruseng.lang，跟电脑上的网页版同一个）> 默认英文。
+     中文的先藏一下，换好字再露出来（最多 1.5 秒） */
+  (() => {
+    let l = 'en';
+    try { const v = localStorage.getItem('luruseng.lang'); if (v === 'zh' || v === 'en') l = v; } catch (e) { /* 默认英文 */ }
+    const m = /[?&]lang=(zh|en)\b/.exec(location.search);
+    if (m) l = m[1];
+    document.documentElement.lang = l === 'zh' ? 'zh-CN' : 'en';
+    if (l !== 'en') { document.documentElement.classList.add('i18n-wait'); setTimeout(() => document.documentElement.classList.remove('i18n-wait'), 1500); }
+  })();
+</script>
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#F2F2F7">
 <meta name="robots" content="noindex">
@@ -12,13 +24,22 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%235AB4FF'/%3E%3Cstop offset='1' stop-color='%231E7BF2'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='15' fill='url(%23g)'/%3E%3Crect x='19' y='15' width='26' height='34' rx='4.5' fill='%23fff'/%3E%3Crect x='24' y='23' width='14' height='3' rx='1.5' fill='%232F8BF5'/%3E%3Crect x='24' y='30.5' width='14' height='3' rx='1.5' fill='%232F8BF5'/%3E%3Crect x='24' y='38' width='9' height='3' rx='1.5' fill='%232F8BF5'/%3E%3C/svg%3E">
 <style>
   :root { --bg: #F2F2F7; --card: #fff; --line: #E5E5EA; --text: #1D1D1F; --grey: #6E6E73; --blue: #0071E3; --blue-off: #A6CBF3;
-          --green: #34C759; --red: #B3261E; --lift: 0 1px 2px rgba(0,0,0,.04), 0 6px 20px rgba(0,0,0,.045); }
+          --green: #34C759; --red: #B3261E; --lift: 0 1px 2px rgba(0,0,0,.04), 0 6px 20px rgba(0,0,0,.045);
+          --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+  html[lang=en] { --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", sans-serif; }
+  html.i18n-wait body { visibility: hidden; }
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
   body { margin: 0; background: var(--bg); color: var(--text); font-size: 16px; line-height: 1.5;
-         font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei UI", "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+         font-family: var(--font); -webkit-font-smoothing: antialiased; }
   [hidden] { display: none !important; }
-  .wrap { max-width: 520px; margin: 0 auto; padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom)); }
+  .wrap { max-width: 520px; margin: 0 auto; padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom)); position: relative; }
+  .lang { position: absolute; top: max(16px, env(safe-area-inset-top)); right: 16px; display: inline-flex; padding: 2px; border-radius: 10px; background: rgba(120, 120, 128, .12); }
+  .lang button { font: inherit; font-size: 13px; font-weight: 600; min-width: 44px; height: 30px; padding: 0 10px; border: 0; border-radius: 8px;
+                 background: transparent; color: var(--grey); cursor: pointer; }
+  .lang button[aria-pressed="true"] { background: #fff; color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
+  .st b { font-variant-numeric: tabular-nums; }
+  .lang + h1 { margin-top: 52px; }                  /* 右上角的 EN / 中文 让出一行，大标题不跟它挤 */
   h1 { font-size: 28px; margin: 8px 0 2px; letter-spacing: .02em; }
   .sub { color: var(--grey); margin: 0 0 16px; }
   .card { background: var(--card); border-radius: 14px; box-shadow: var(--lift); padding: 18px; }
@@ -43,22 +64,23 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>传图给电脑</h1>
-  <p class="sub">录入僧 · 施主去玩，贫僧填表</p>
+  <div id="lang" class="lang"></div>
+  <h1 data-i18n="send.h1">Send to computer</h1>
+  <p class="sub" data-i18n="send.sub">Luru · Snap the forms. Skip the typing.</p>
 
   <div class="card" id="nopair" hidden>
-    <div class="st" style="font-size:19px">还没配对</div>
-    <p class="tip" style="font-size:15px">电脑上打开录入僧网页版，点「手机传图」，用手机相机扫那个二维码。</p>
+    <div class="st" style="font-size:19px" data-i18n="send.unpaired">Not paired yet</div>
+    <p class="tip" style="font-size:15px" data-i18n="send.unpairedTip"></p>
   </div>
 
   <div id="paired" hidden>
     <div class="card">
-      <div class="pc"><i class="dot" id="dot"></i><span id="pcstate">正在连中转站…</span></div>
+      <div class="pc"><i class="dot" id="dot"></i><span id="pcstate"></span></div>
       <button type="button" class="go" id="pick">
-        <svg viewBox="0 0 20 20" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M2.5 6.5h3l1.6-2.2h5.8l1.6 2.2h3v9.7h-15z"/><circle cx="10" cy="11" r="3.2"/></g></svg>拍照 / 选照片</button>
+        <svg viewBox="0 0 20 20" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M2.5 6.5h3l1.6-2.2h5.8l1.6 2.2h3v9.7h-15z"/><circle cx="10" cy="11" r="3.2"/></g></svg><span data-i18n="send.pick">Take or choose photos</span></button>
       <input type="file" id="files" accept="image/*" multiple hidden>
-      <p class="tip" id="tip">拍完全选，点一下送过去。电脑收齐自己开工，你去摸鱼。</p>
-      <p class="tip" id="tipwait" hidden>点完「添加」，相册会愣一会儿：iPhone 在给照片打包，张数多要等十几秒。不是死机，别狂点。</p>
+      <p class="tip" id="tip" data-i18n="send.tip"></p>
+      <p class="tip" id="tipwait" hidden data-i18n="send.tipWait"></p>
     </div>
     <div class="card" id="prog" hidden>
       <div class="st" id="st"></div>
@@ -66,17 +88,17 @@
       <div class="say" id="say"></div>
       <div class="bad" id="bad"></div>
     </div>
-    <p class="tip" id="home" style="text-align:center">在 Safari 里点「分享」→「添加到主屏幕」，以后点图标直接传，不用再扫。</p>
+    <p class="tip" id="home" style="text-align:center" data-i18n="send.home"></p>
   </div>
 
-  <div class="foot">照片在手机上加密了才发出去，中转站只存加密过的数据，电脑取走就删。</div>
+  <div class="foot" data-i18n="send.foot"></div>
 </div>
 <script>
   // 每次发布，GitHub 给所有文件同一个时间戳：拿它当版本号挂在每个模块网址后面。
   // 不然刚更新那十分钟，浏览器会拿新页面配缓存里的旧代码（按钮在、点了没反应）。
   (() => {
     const v = Date.parse(document.lastModified) || Date.now();
-    const mods = ['send', 'pair', 'image', 'core'];
+    const mods = ['send', 'strings', 'pair', 'image', 'core'];
     const map = document.createElement('script');
     map.type = 'importmap';
     map.textContent = JSON.stringify({ imports: Object.fromEntries(mods.map((m) => [`./${m}.js`, `./${m}.js?v=${v}`])) });

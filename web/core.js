@@ -1,7 +1,13 @@
 // 录入僧网页版 · 认单子的核心（跟电脑版 bangong/engine.py、kb.py、tables.py 同一套规矩，改一边要改另一边）
-// 纯逻辑：不碰页面、不碰存储，浏览器和 node 测试都能跑。
+// 纯逻辑：不碰页面、不碰存储，浏览器和 node 测试都能跑。给人看的字（日志里那几句）在 strings.js；
+// 提示词、写进表里的核对提示照旧是中文（那是给模型和公司那本表的，核对窗口还要从提示里读候选）。
+import './strings.js';
 
-export const VERSION = '1.11.2';
+const t = (k, v) => globalThis.LURU_I18N.t(k, v);
+const list = (a) => globalThis.LURU_I18N.list(a);
+
+export const VERSION = '1.11.3';
+export const MANUAL_STOP = '手动停止';      // 点了「停止」（只当记号比，给人看的字在 strings.js）
 export const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 export const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
 export const MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro'];
@@ -526,7 +532,6 @@ const LIST_KEYS = {
 const LIST_OTHER = new Set(['SHIFT', 'TOOL', 'TOOLS', 'TNO', 'DESCRIPTION', 'DATE', 'MO', 'PARTNUMBER', 'PARTNO']);
 const LIST_SHEET = /NAME|EMP|LIST|名单|名字|人员|清单/i;
 export const LIST_NAME = { machine: '机台表', opr_no: '工序表' };
-const LIST_UNIT = { machine: '台', opr_no: '道' };
 
 export function readLists(rows) {           // 前 5 行里找 MACHINE、OPERATION 这样的列头，底下一格一个值 -> [{machine, opr_no}, 清单列]
   for (let i = 0; i < Math.min(rows.length, 5); i++) {
@@ -614,7 +619,7 @@ export function feedKb(db, sheets, source) {
   const res = { source, rows: 0, added: 0, people: 0, sheets: [], error: '', lists: {} };
   const { recs, people, used, lists } = readWorkbook(sheets);
   if (!recs.length && !people.length && !Object.keys(lists).length) {
-    res.error = '这本不像刀单：没找到 DATE、MACHINE 那样的表头，一条没吃。是别的单子的话，放进它自己的类别';
+    res.error = t('kb.notTool');
     return res;
   }
   const now = new Date().toISOString().slice(0, 19);
@@ -644,22 +649,22 @@ export function feedKb(db, sheets, source) {
   return res;
 }
 export function feedLine(r) {
-  if (r.error) return `✗ ${r.source}：${r.error}`;
+  if (r.error) return t('kb.bad', { src: r.source, why: r.error });
   if (r.columns !== undefined) {
-    return `✓ 放进去 ${r.source}：读到 ${r.rows} 行，新增 ${r.added} 行（其余以前放过）` +
-      (r.newColumns && r.newColumns.length ? `，新列：${r.newColumns.join('、')}` : '');
+    return t('kb.fedTable', { src: r.source, rows: r.rows, added: r.added }) +
+      (r.newColumns && r.newColumns.length ? t('kb.newCols', { cols: list(r.newColumns) }) : '');
   }
-  const got = Object.entries(r.lists || {}).filter(([, n]) => n).map(([k, n]) => `${LIST_NAME[k]} ${n} ${LIST_UNIT[k]}`).join('、');
-  return `✓ 吃进 ${r.source}：读到 ${r.rows} 行记录，新增 ${r.added} 行（其余以前吃过）` +
-    (r.people ? `，新认识 ${r.people} 人` : '') + (got ? `，认得${got}` : '') + (r.sheets.length ? `（${r.sheets.join('、')}）` : '');
+  const got = list(Object.entries(r.lists || {}).filter(([, n]) => n).map(([k, n]) => t(`kb.list.${k}`, { n })));
+  return t('kb.fed', { src: r.source, rows: r.rows, added: r.added }) +
+    (r.people ? t('kb.people', { n: r.people }) : '') + (got ? t('kb.lists', { got }) : '') + (r.sheets.length ? t('kb.sheets', { s: list(r.sheets) }) : '');
 }
 export function kbSummary(db) {
   const n = db.records.length;
-  if (!n) return '数据库还是空的：点「放入样板资料」喂几本改对的刀单表，喂得越多它越不瞎';
+  if (!n) return t('kb.empty');
   const d = (f) => new Set(db.records.map((r) => r[f]).filter(Boolean)).size;
   const machines = new Set([...db.records.map((r) => r.machine).filter(Boolean), ...((db.lists || {}).machine || [])].map(mkey));
   const people = db.people.filter(([, nm]) => !isShiftWord(nm)).length;
-  return `数据库：${n} 条记录 · 机台 ${machines.size} 台 · 零件 ${d('part_number')} 种 · 刀具描述 ${d('description')} 种 · 认识 ${people} 人`;
+  return t('kb.sum', { n, m: machines.size, p: d('part_number'), d: d('description'), people });
 }
 
 const CAT_FIELDS = ['machine', 'part_number', 'description'];
@@ -1273,7 +1278,7 @@ export function readBook(sheets) {          // -> {columns, recs: [[页名, {列
 export function feedTable(db, sheets, source) {
   const res = { source, rows: 0, added: 0, sheets: [], error: '', columns: [], newColumns: [] };
   const { columns, recs, used } = readBook(sheets);
-  if (!recs.length) { res.error = '没找到表头和记录（表头要在前 15 行，至少两列）'; return res; }
+  if (!recs.length) { res.error = t('kb.noHead'); return res; }
   const have = new Map(db.columns.map((nm) => [colkey(nm), nm]));
   for (const nm of columns) {                // 第一本的表头定成这个类别的列；以后多出来的列接在后面
     if (!have.has(colkey(nm))) { db.columns.push(nm); have.set(colkey(nm), nm); res.newColumns.push(nm); }
@@ -1295,9 +1300,9 @@ export function feedTable(db, sheets, source) {
   return res;
 }
 export function tableSummary(db, name) {
-  if (!db.columns.length) return `「${name}」还没放过表：先认全部内容，改对了点「放入样板资料」，表头就定成这个类别的列`;
+  if (!db.columns.length) return t('tbl.empty', { name });
   const cols = db.columns;
-  return `「${name}」数据库：${db.records.length} 条记录 · ${cols.length} 列（${cols.slice(0, 8).join('、')}${cols.length > 8 ? '…' : ''}）`;
+  return t('tbl.sum', { name, n: db.records.length, c: cols.length, cols: list(cols.slice(0, 8)), more: cols.length > 8 ? '…' : '' });
 }
 
 export class TableSnapshot {
@@ -1715,10 +1720,10 @@ export function feedChecked(db, row, { cat = BUILTIN, columns = [], source }) {
 // ---------------------------------------------------------------- 新类别的名字
 export function checkName(name, existing) {
   const n = String(name || '').trim();
-  if (!n) return '名字不能空着';
-  if (n.length > 20) return '名字太长了（最多 20 个字）';
-  if (/[\\/:*?"<>|\x00-\x1f]/.test(n) || n.endsWith('.')) return '名字里不能有 \\ / : * ? " < > | 这些符号';
-  if (existing.map((x) => x.toLocaleLowerCase()).includes(n.toLocaleLowerCase())) return `已经有「${n}」了`;
+  if (!n) return t('name.empty');
+  if (n.length > 20) return t('name.long', { max: 20 });
+  if (/[\\/:*?"<>|\x00-\x1f]/.test(n) || n.endsWith('.')) return t('name.chars');
+  if (existing.map((x) => x.toLocaleLowerCase()).includes(n.toLocaleLowerCase())) return t('name.taken', { n });
   return '';
 }
 

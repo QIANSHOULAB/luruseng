@@ -1,5 +1,6 @@
 // 手机传图：配对、加密、电脑那头收图凑齐一趟（pair.js、inbox.js）
 // 跑：node --test web/test/pair.test.mjs
+import './zh.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as P from '../pair.js';
@@ -117,7 +118,7 @@ test('pages load every module through the versioned import map (a new module can
     if (seen.has(entry)) return seen;
     seen.add(entry);
     const src = readFileSync(new URL(`${entry}.js`, dir), 'utf8');
-    for (const m of src.matchAll(/from '\.\/([\w-]+)\.js'/g)) deps(m[1], seen);
+    for (const m of src.matchAll(/(?:from|import) '\.\/([\w-]+)\.js'/g)) deps(m[1], seen);   // 只为了副作用 import 的（strings.js）也算
     return seen;
   };
   for (const [page, entry] of [['index.html', 'app'], ['send.html', 'send']]) {

@@ -14,6 +14,7 @@ from datetime import date, datetime
 
 from . import sheets
 from .engine import FIELDS, SHIFT_WORDS, norm_shift, to_int
+from .strings import T, join
 
 DB_FILE = '数据库.sqlite'
 FEED_DIR = '投喂'
@@ -195,12 +196,12 @@ class FeedResult:
     def line(self) -> str:
         name = os.path.basename(self.path)
         if self.error:
-            return f'✗ {name}：{self.error}'
-        got = '、'.join(f'{LIST_NAME[k]} {n} {LIST_UNIT[k]}' for k, n in self.lists.items() if n)
-        return (f'✓ 吃进 {name}：读到 {self.rows} 行记录，新增 {self.added} 行（其余以前吃过）'
-                + (f'，新认识 {self.people} 人' if self.people else '')
-                + (f'，认得{got}' if got else '')
-                + (f'（{"、".join(self.sheets)}）' if self.sheets else ''))
+            return T('kb.bad', src=name, why=self.error)
+        got = join(T(f'kb.list.{k}', n=n) for k, n in self.lists.items() if n)
+        return (T('kb.fed', src=name, rows=self.rows, added=self.added)
+                + (T('kb.people', n=self.people) if self.people else '')
+                + (T('kb.lists', got=got) if got else '')
+                + (T('kb.sheets', s=join(self.sheets)) if self.sheets else ''))
 
 
 LIST_NAME = {'machine': '机台表', 'opr_no': '工序表'}
@@ -347,7 +348,7 @@ class KnowledgeBase:
     def feed(self, path: str) -> FeedResult:
         res = FeedResult(path)
         if not sheets.supported(path):
-            res.error = sheets.UNSUPPORTED
+            res.error = T(sheets.UNSUPPORTED)
             return res
         try:
             recs, people, used, lists = read_workbook(path)
@@ -355,8 +356,7 @@ class KnowledgeBase:
             res.error = sheets.why(e)
             return res
         if not recs and not people and not lists:
-            res.error = ('这本不像刀单：没找到 DATE、MACHINE 那样的表头，一条没吃。'
-                         '是别的单子的话，放进它自己的类别')
+            res.error = T('kb.notTool')
             return res
         now = datetime.now().isoformat(timespec='seconds')
         src = os.path.basename(path)
@@ -419,12 +419,12 @@ class KnowledgeBase:
         with self._conn() as c:
             n = c.execute('SELECT COUNT(*) FROM records').fetchone()[0]
             if not n:
-                return '数据库还是空的：点「放入样板资料」喂几本改对的刀单表，喂得越多它越不瞎'
+                return T('kb.empty')
             m = c.execute('SELECT COUNT(DISTINCT part_number), COUNT(DISTINCT description) FROM records').fetchone()
             machines = {mkey(v) for (v,) in c.execute("SELECT machine FROM records WHERE machine != ''")}
             machines |= {mkey(v) for (v,) in c.execute("SELECT value FROM lists WHERE kind = 'machine'")}
             p = c.execute('SELECT COUNT(*) FROM people').fetchone()[0]
-        return f'数据库：{n} 条记录 · 机台 {len(machines)} 台 · 零件 {m[0]} 种 · 刀具描述 {m[1]} 种 · 认识 {p} 人'
+        return T('kb.sum', n=n, m=len(machines), p=m[0], d=m[1], people=p)
 
     def load(self) -> 'Snapshot':
         with self._conn() as c:

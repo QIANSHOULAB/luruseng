@@ -14,8 +14,9 @@ from datetime import datetime
 from tkinter import filedialog
 from tkinter import font as tkfont
 
-from . import autopilot, engine, report, settings, sheets, tables, updater
+from . import autopilot, engine, report, settings, sheets, strings, tables, updater
 from . import macui as ui
+from .strings import T
 
 
 def config_dir() -> str:
@@ -78,10 +79,21 @@ def names_path() -> str:
     return os.path.join(app_dir(), engine.NAMES_FILE)
 
 
-PHOTO_TYPES = [('照片', ' '.join(f'*{e}' for e in sorted(engine.IMG_EXT))), ('所有文件', '*.*')]
-MAIL_COPIED = '{}　已复制，粘进邮箱找方丈算账'       # 点「方丈邮箱」：只亮出邮箱、复制好，不开浏览器
-CONTACT_LINE = '要什么新功能、有修改建议，或洽谈商业合作请直接找方丈飞鸽传书：{}'   # ⚙ 底下，Song 2026-11-01 给的原话
-HUB_LINE = '千手院总舵：'                                                          # 后面接总舵网址，点了就去
+def photo_types():
+    return [(T('ft.photos'), ' '.join(f'*{e}' for e in sorted(engine.IMG_EXT))), (T('ft.all'), '*.*')]
+
+
+# 界面上的字全在 strings.py。下面三句：点「方丈邮箱」只亮出邮箱、复制好，不开浏览器；⚙ 底下找方丈的话（Song 2026-11-01 给的原话）、总舵网址
+def mail_copied(mail: str) -> str:
+    return T('set.copied', mail=mail)
+
+
+def contact_line(mail: str) -> str:
+    return T('set.contact', mail=mail)
+
+
+def hub_line() -> str:
+    return T('set.hubLine')
 
 
 def hub_text(url: str) -> str:
@@ -92,19 +104,20 @@ def hub_text(url: str) -> str:
 def copy_lines(r, folder: str = '待识别') -> list[str]:
     """「选照片…」复制完，日志里说一声。"""
     out = []
+    base = os.path.basename(os.path.normpath(folder))
     if r.copied:
-        out.append(f'✓ 复制了 {len(r.copied)} 张进「{os.path.basename(os.path.normpath(folder))}」，原照片还在老地方。点「开始工作」')
+        out.append(T('log.copied', n=len(r.copied), folder=base))
     if r.redone:
-        out.append(f'↻ 其中 {len(r.redone)} 张以前干过，⚙ 开着「干过的照片也重干」，照样复制进去了')
+        out.append(T('log.copiedRedo', n=len(r.redone)))
     if r.already:
-        out.append(f'↷ {len(r.already)} 张「{os.path.basename(os.path.normpath(folder))}」里已经有了，没再复制')
+        out.append(T('log.copiedHad', n=len(r.already), folder=base))
     if r.done:
-        names = '、'.join(n for n, _ in r.done[:5]) + ('…' if len(r.done) > 5 else '')
-        out.append(f'↷ {len(r.done)} 张以前干过，没再复制：{names}')
+        names = strings.join(n for n, _ in r.done[:5]) + ('…' if len(r.done) > 5 else '')
+        out.append(T('log.copiedDone', n=len(r.done), names=names))
     for name, why in r.bad[:5]:
-        out.append(f'✗ {name}：{why}')
+        out.append(T('log.copyBad', name=name, why=why))
     if len(r.bad) > 5:
-        out.append(f'✗ 还有 {len(r.bad) - 5} 个也没复制')
+        out.append(T('log.copyMore', n=len(r.bad) - 5))
     return out
 
 
@@ -170,7 +183,7 @@ def migrate_old_home(new_dir: str | None = None) -> list[str]:
             src, dst = os.path.join(old_dir, name), os.path.join(new_dir, name)
             if os.path.isfile(src) and not os.path.exists(dst):
                 os.replace(src, dst)
-                done.append('搬过来：' + name)
+                done.append(T('log.moved', x=name))
         for sub in (FEED_DIR, '待识别'):
             so, sn = os.path.join(old_dir, sub), os.path.join(new_dir, sub)
             if not os.path.isdir(so):
@@ -180,7 +193,7 @@ def migrate_old_home(new_dir: str | None = None) -> list[str]:
                 src, dst = os.path.join(so, e), os.path.join(sn, e)
                 if not os.path.exists(dst):
                     os.replace(src, dst)
-                    done.append(f'搬过来：{sub}\\{e}')
+                    done.append(T('log.moved', x=f'{sub}\\{e}'))
         bin_ = os.path.join(parent, '待删除')
         os.makedirs(bin_, exist_ok=True)
         dst = os.path.join(bin_, engine.OLD_NAME)
@@ -197,9 +210,9 @@ def migrate_old_home(new_dir: str | None = None) -> list[str]:
                 if i == 19:
                     raise
                 time.sleep(0.5)
-        done.append('旧文件夹挪到：' + dst)
+        done.append(T('log.oldMoved', d=dst))
     except OSError as e:
-        done.append(f'旧文件夹没搬完：{e}')
+        done.append(T('log.oldStuck', e=e))
     return done
 
 
@@ -245,7 +258,7 @@ def sync_shortcuts(cfg: dict) -> list[str]:
                     link.SetArguments('--background')
                 link.SetWorkingDirectory(os.path.dirname(sys.executable))
                 link.SetIconLocation(sys.executable, 0)
-                link.SetDescription('刀具破损记录照片识别成 Excel')
+                link.SetDescription(T('lnk.desc'))
                 link.QueryInterface(pythoncom.IID_IPersistFile).Save(target, 0)
                 lines.append('已放：' + target)
         finally:
@@ -267,8 +280,9 @@ ensure_shortcuts = sync_shortcuts        # 旧名字（main.py --shortcuts 在�
 
 
 class App:
-    def __init__(self, root: tk.Tk):
+    def __init__(self, root: tk.Tk, relaunched: bool = False):
         self.root = root
+        self.relaunch = False                   # 换了语言：关掉窗口、照新语言重开一个（run_gui 里接着）
         self.q: queue.Queue = queue.Queue()
         self.stop = threading.Event()
         self.worker: threading.Thread | None = None
@@ -280,9 +294,10 @@ class App:
         self.dialog = None
         cfg = load_config()
         self.cfg = cfg
+        strings.init(cfg.get('lang'))           # 默认英文；老电脑照旧中文（settings.upgrade）；BANGONG_LANG 盖过设置
         ui.init_scale(root)                     # 屏幕放大 125%/150%：所有尺寸跟着放大，字和图才清楚
 
-        root.title(engine.TITLE)                # 标题栏只写山门偈语（Song 定的）
+        root.title(T('title'))                  # 标题栏只写山门偈语（Song 定的）
         root.after(50, lambda: ui.tint_titlebar(root))
         root.bind_class('Toplevel', '<Map>', lambda e: ui.tint_titlebar(e.widget), add='+')
         try:
@@ -313,52 +328,56 @@ class App:
 
         head = tk.Frame(g, bg=ui.CARD)
         head.grid(row=0, column=0, columnspan=3, sticky='w', pady=(0, 14))
-        tk.Label(head, text=engine.APP_NAME, font=(fam, 24, 'bold'), bg=ui.CARD, fg=ui.TEXT).pack(side='left')
+        tk.Label(head, text=T('name'), font=(fam, 24, 'bold'), bg=ui.CARD, fg=ui.TEXT).pack(side='left')
         tk.Frame(head, bg=ui.FIELD_LINE, width=ui.hairline(), height=px(26)).pack(side='left', padx=20)
-        tk.Label(head, text=engine.SUBTITLE, font=(fam, 13), bg=ui.CARD, fg=ui.GREY).pack(side='left')
+        tk.Label(head, text=T('sub'), font=(fam, 13), bg=ui.CARD, fg=ui.GREY).pack(side='left')
 
         def label(r, text):
             tk.Label(g, text=text, bg=ui.CARD, fg=ui.TEXT, font=bf, anchor='w').grid(
                 row=r, column=0, sticky='w', padx=(0, 16), pady=5)
 
-        label(1, '类别')
+        label(1, T('app.cat'))
         cats = tables.names(app_dir())
         self.category = tk.StringVar(value=cfg.get('category') if cfg.get('category') in cats else tables.BUILTIN)
         crow = tk.Frame(g, bg=ui.CARD)
         crow.grid(row=1, column=1, columnspan=2, sticky='ew', pady=5)
-        self.cat_combo = ui.Combo(crow, self.category, cats, font=bf, width=280)
+        # 下拉框里显示的是给人看的名字（刀单在英文界面叫 Tool breakage），存的、用的还是 self.category 里的真名字
+        self.cat_shown = tk.StringVar(value=strings.cat_label(self.category.get()))
+        self.category.trace_add('write', lambda *_: self.cat_shown.set(strings.cat_label(self.category.get())))
+        self.cat_combo = ui.Combo(crow, self.cat_shown, [strings.cat_label(c) for c in cats], font=bf, width=280)
         self.cat_combo.box.configure(state='readonly')
-        self.cat_combo.box.bind('<<ComboboxSelected>>', lambda e: self.on_category())
+        self.cat_combo.box.bind('<<ComboboxSelected>>', lambda e: self._pick_category())
         self.cat_combo.pack(side='left')
-        ui.Pill(crow, '＋ 新建类别', command=self.new_category, font=bf, bg=ui.CARD, height=38, radius=8,
+        ui.Pill(crow, T('app.newcat'), command=self.new_category, font=bf, bg=ui.CARD, height=38, radius=8,
                 padx=14).pack(side='left', padx=(10, 0))
         self.cat_hint = tk.StringVar(value='')
         tk.Label(crow, textvariable=self.cat_hint, bg=ui.CARD, fg=ui.GREY, font=(fam, size - 1)).pack(
             side='left', padx=(14, 0))
 
-        label(2, '图片文件夹')
+        label(2, T('app.folder'))
         self.folder = tk.StringVar(value=cfg.get('folder') or default_folder())
         ui.Field(g, self.folder, font=bf).grid(row=2, column=1, sticky='ew', pady=5)
-        key_w = tkfont.Font(font=bf).measure('免费领钥匙') + int(px(38) * 0.5) + px(10) + 2 * px(14)   # 右边一列按钮一样宽
-        self.pick_btn = ui.Pill(g, '选照片…', command=self.pick, font=bf, bg=ui.CARD, height=38, radius=8,
+        key_w = max(tkfont.Font(font=bf).measure(T(k)) for k in ('app.getKey', 'app.getKey2', 'app.pick')) \
+            + int(px(38) * 0.5) + px(10) + 2 * px(14)        # 右边一列按钮一样宽（照最宽的那个字量）
+        self.pick_btn = ui.Pill(g, T('app.pick'), command=self.pick, font=bf, bg=ui.CARD, height=38, radius=8,
                                 minwidth=key_w)
         self.pick_btn.grid(row=2, column=2, padx=(10, 0))         # 挑照片，自己复制进图片文件夹；换文件夹在框里改
 
         self.key1 = tk.StringVar(value=cfg.get('key1', ''))
         self.key2 = tk.StringVar(value=cfg.get('key2', ''))
-        label(3, '钥匙 1')
+        label(3, T('app.key1'))
         ui.Field(g, self.key1, show='•', font=bf).grid(row=3, column=1, sticky='ew', pady=5)
-        label(4, '钥匙 2（可空）')
+        label(4, T('app.key2'))
         ui.Field(g, self.key2, show='•', font=bf).grid(row=4, column=1, sticky='ew', pady=5)
         # 钥匙框后面：点了打开网站上的教程页（怎么免费领钥匙；第二把为什么要换个项目）
         self.key_btns = []
-        for r, text, url in ((3, '免费领钥匙', updater.KEY_URL), (4, '再领一把', updater.KEY_URL + '#key2')):
+        for r, text, url in ((3, T('app.getKey'), updater.KEY_URL), (4, T('app.getKey2'), updater.KEY_URL + '#key2')):
             b = ui.Pill(g, text, command=lambda u=url: open_path(u), font=bf, bg=ui.CARD, height=38, radius=8,
                         padx=14, minwidth=key_w, icon='key', link=True)
             b.grid(row=r, column=2, padx=(10, 0))
             self.key_btns.append(b)
 
-        label(5, '模型')
+        label(5, T('app.model'))
         self.model = tk.StringVar(value=cfg.get('model') or engine.DEFAULT_MODEL)
         self.auto = tk.BooleanVar(value=cfg.get('auto', False))
         mrow = tk.Frame(g, bg=ui.CARD)
@@ -366,7 +385,7 @@ class App:
         ui.Combo(mrow, self.model, engine.MODELS, font=bf, width=280).pack(side='left')
         chk = ui.Check(mrow, self.auto, command=self.save)
         chk.pack(side='left', padx=(24, 10))
-        for txt, color, fnt in (('来图就干', ui.TEXT, bf), ('（文件夹里一有新照片就自己开工）', ui.GREY, (fam, size - 1))):
+        for txt, color, fnt in ((T('app.auto'), ui.TEXT, bf), (T('app.autoHint'), ui.GREY, (fam, size - 1))):
             lab = tk.Label(mrow, text=txt, bg=ui.CARD, fg=color, font=fnt, cursor='hand2')
             lab.pack(side='left')
             lab.bind('<Button-1>', chk.toggle)
@@ -376,14 +395,14 @@ class App:
         bar = tk.Frame(g, bg=ui.CARD)
         bar.grid(row=7, column=0, columnspan=3, sticky='w')
         btn = dict(font=bf, bg=ui.CARD, height=44, radius=8, padx=14)
-        self.start_btn = ui.Pill(bar, '开始工作', command=self.start, primary=True, icon='play', **btn)
+        self.start_btn = ui.Pill(bar, T('app.start'), command=self.start, primary=True, icon='play', **btn)
         self.start_btn.pack(side='left')
-        self.stop_btn = ui.Pill(bar, '停止', command=self.halt, state='disabled', icon='stop', **btn)
+        self.stop_btn = ui.Pill(bar, T('app.stop'), command=self.halt, state='disabled', icon='stop', **btn)
         self.stop_btn.pack(side='left', padx=(8, 0))
-        ui.Pill(bar, '最新结果', command=self.open_latest, icon='table', **btn).pack(side='left', padx=(8, 0))
-        ui.Pill(bar, '所有结果', command=self.open_all, icon='folder', **btn).pack(side='left', padx=(8, 0))
-        ui.Pill(bar, '核对', command=self.check, icon='doc', **btn).pack(side='left', padx=(8, 0))
-        self.feed_btn = ui.Pill(bar, '放入样板资料', command=self.feed, icon='db', **btn)
+        ui.Pill(bar, T('app.latest'), command=self.open_latest, icon='table', **btn).pack(side='left', padx=(8, 0))
+        ui.Pill(bar, T('app.all'), command=self.open_all, icon='folder', **btn).pack(side='left', padx=(8, 0))
+        ui.Pill(bar, T('app.check'), command=self.check, icon='doc', **btn).pack(side='left', padx=(8, 0))
+        self.feed_btn = ui.Pill(bar, T('app.feed'), command=self.feed, icon='db', **btn)
         self.feed_btn.pack(side='left', padx=(8, 0))
 
         # ---- 右边小卡片：任务状态
@@ -393,10 +412,10 @@ class App:
         s_ = side.body
         hrow = tk.Frame(s_, bg=ui.CARD)
         hrow.pack(fill='x')
-        tk.Label(hrow, text='任务状态', bg=ui.CARD, fg=ui.TEXT, font=(fam, 12)).pack(side='left')
+        tk.Label(hrow, text=T('app.statusHead'), bg=ui.CARD, fg=ui.TEXT, font=(fam, 12)).pack(side='left')
         ui.Pill(hrow, '', command=self.open_settings, icon='gear', font=bf, bg=ui.CARD, height=32, radius=16,
                 padx=8).pack(side='right')
-        self.update_pill = ui.Pill(hrow, '新版本', command=self.reopen_update, primary=True, font=(fam, 9, 'bold'),
+        self.update_pill = ui.Pill(hrow, T('app.update'), command=self.reopen_update, primary=True, font=(fam, 9, 'bold'),
                                    bg=ui.CARD, height=28, radius=14, padx=10)      # 有新版才露出来
         ui.separator(s_).pack(fill='x', pady=(10, 10))
         self.status = tk.StringVar(value='')
@@ -410,7 +429,7 @@ class App:
                  justify='left', wraplength=px(260)).pack(anchor='w')
         tk.Label(s_, textvariable=self.names_path, bg=ui.CARD, fg=ui.GREY, font=(fam, size - 1), anchor='w',
                  justify='left', wraplength=px(260)).pack(anchor='w', pady=(4, 0))
-        self.names_btn = ui.Pill(s_, '编辑名单', command=self.edit_names, font=(fam, size - 1), bg=ui.CARD, height=32,
+        self.names_btn = ui.Pill(s_, T('app.names'), command=self.edit_names, font=(fam, size - 1), bg=ui.CARD, height=32,
                                  radius=8, padx=12)
         self.names_btn.pack(anchor='w', pady=(10, 0))           # 名单在窗口里改，不用去找 名单.txt
 
@@ -428,7 +447,7 @@ class App:
         self._rules: list = []
         self.text.bind('<Configure>', self._fit_rules)
 
-        if getattr(sys, 'frozen', False):
+        if getattr(sys, 'frozen', False) and not relaunched:
             for line in migrate_old_home():
                 self.write(line)
         self.refresh_count()
@@ -462,12 +481,12 @@ class App:
         self.last_input = time.time()
         root.bind_all('<KeyPress>', self._touched, add='+')
         root.bind_all('<ButtonPress>', self._touched, add='+')
-        args = autopilot.startup_args()
+        args = [] if relaunched else autopilot.startup_args()
         if '--after-update' in args:
-            self.write(f'✓ 换上新版 v{engine.VERSION}')
+            self.write(T('log.updated', v=engine.VERSION))
             threading.Thread(target=autopilot.retire_update_file, args=(app_dir(),), daemon=True).start()
         if self.auto.get():
-            self.write('来图就干：开着。往文件夹里放照片，30 秒内放完它就自己开工。')
+            self.write(T('log.autoOn'))
         root.after(3000, self.tick)
         if '--background' in args:
             root.after(200, root.iconify)
@@ -476,21 +495,21 @@ class App:
     def pick(self):
         """「选照片…」：挑照片（可以多选），复制进图片文件夹（默认 待识别，没有就当场建），原照片原地不动。
         复制完还是人点「开始工作」（Song 定的）；开着「来图就干」的话它自己会开工。"""
-        paths = filedialog.askopenfilenames(title='选照片（可以多选）', initialdir=self.cfg.get('pick_dir') or None,
-                                            filetypes=PHOTO_TYPES)
+        paths = filedialog.askopenfilenames(title=T('pick.title'), initialdir=self.cfg.get('pick_dir') or None,
+                                            filetypes=photo_types())
         if not paths:
             return
         folder = self.folder.get().strip() or default_folder()
         self.folder.set(folder)
         self.cfg['pick_dir'] = os.path.dirname(paths[0])
         self.save()
-        self.status.set('正在复制…')
+        self.status.set(T('st.copying'))
 
         def work():
             try:
                 r = engine.copy_in(paths, folder, redo=bool(self.cfg.get('redo')))
             except OSError as e:
-                self.log(f'✗ 复制不进 {folder}：{e}')
+                self.log(T('log.copyFail', folder=folder, e=e))
             else:
                 for line in copy_lines(r, folder):
                     self.log(line)
@@ -501,7 +520,7 @@ class App:
     def refresh_count(self):
         try:
             n = len(engine.scan(self.folder.get())) if os.path.isdir(self.folder.get()) else 0
-            self.status.set(f'待识别 {n} 张')
+            self.status.set(T('st.queue', n=n))
         except Exception:
             self.status.set('')
 
@@ -524,13 +543,13 @@ class App:
         self.auto_run = auto
         k1, k2 = self.key1.get().strip(), self.key2.get().strip()
         if not k1 and not k2:
-            self.write('✗ 先填钥匙。还没有？点钥匙框后面的「免费领钥匙」，两分钟的事，一分钱不花')
+            self.write(T('log.noKey'))
             return
         if k1 and k1 == k2:
-            self.write('✗ 两个钥匙填的是同一把（额度按项目算，同一把没意义）')
+            self.write(T('log.sameKey'))
             return
         if auto:
-            self.write('▶ 来图就干：发现新照片，自己开工')
+            self.write(T('log.autoGo'))
         self.save()
         self.stop.clear()
         self.start_btn.config(state='disabled')
@@ -553,7 +572,7 @@ class App:
             try:
                 res = eng.run()
             except Exception as e:  # 兜底
-                self.log(f'✗ 程序出错：{type(e).__name__}：{e}')
+                self.log(T('log.crash', e=f'{type(e).__name__}: {e}'))
                 res = None
             self.q.put(('done', res))
 
@@ -562,7 +581,7 @@ class App:
 
     def halt(self):
         self.stop.set()
-        self.status.set('正在停…（等手上这几张回来）')
+        self.status.set(T('st.stopping'))
 
     def open_out(self):
         d = os.path.join(self.folder.get(), engine.OUT_DIR)
@@ -573,7 +592,7 @@ class App:
         from .viewer import list_results
         runs = list_results(self.folder.get())
         if not runs:
-            self.write('还没有结果：先点「选照片…」，再点「开始工作」干一批')
+            self.write(T('log.noResult'))
             return
         open_path(runs[0]['xlsx'])
 
@@ -592,7 +611,7 @@ class App:
         """把表放进某个类别的数据库（后台干，不卡窗口）。刀单只吃像刀单的表；自建类别第一本的表头定成它的列。"""
         self.feed_btn.config(state='disabled')
         self.feeding = True
-        self.write(f'开始把 {len(paths)} 本表放进「{cat}」的数据库…')
+        self.write(T('log.feedStart', n=len(paths), cat=strings.cat_label(cat)))
 
         def work():
             try:
@@ -612,12 +631,12 @@ class App:
                         fr = db.feed(p)
                         self.log(fr.line())
                         if getattr(fr, 'new_columns', None):
-                            self.log(f'「{cat}」多了这些列：' + '、'.join(fr.new_columns))
+                            self.log(T('log.newCols', cat=cat, cols=strings.join(fr.new_columns)))
                         if send and not fr.error:
                             report.queue_sample(self.folder.get(), p, cat)
                     self.log(db.summary(cat))
             except Exception as e:
-                self.log(f'✗ 放入样板资料出错：{type(e).__name__}：{e}')
+                self.log(T('log.feedErr', e=f'{type(e).__name__}: {e}'))
             self.q.put(('fed', None))
 
         threading.Thread(target=work, daemon=True).start()
@@ -631,12 +650,19 @@ class App:
 
     def new_category(self, then=None):
         def made(name):
-            self.cat_combo.box.configure(values=tables.names(app_dir()))
+            self.cat_combo.box.configure(values=[strings.cat_label(c) for c in tables.names(app_dir())])
             self.category.set(name)
             self.on_category()
             if then:
                 then(name)
         self._dialog(NewCategoryCard, made)
+
+    def _pick_category(self):
+        cats = tables.names(app_dir())
+        i = self.cat_combo.box.current()
+        if 0 <= i < len(cats):
+            self.category.set(cats[i])
+        self.on_category()
 
     def on_category(self):
         self.save()
@@ -650,24 +676,23 @@ class App:
                 from .kb import KnowledgeBase
                 n = len(engine.load_names(names_path()))
                 total = len(self.roster())                   # 名单.txt + 样板资料里认识的人
-                self.cat_hint.set('内置 · 专属优化')
-                self.names_head.set(f'名单：{total} 人' if total else '没有名单')
-                self.names_path.set('没有也能用，SETTER 就照单子抄' if not total else
-                                    f'其中 {total - n} 人是样板资料里认识的' if n < total else '')
+                self.cat_hint.set(T('cat.hint.builtin'))
+                self.names_head.set(T('names.head', n=total) if total else T('names.none'))
+                self.names_path.set(T('names.noneHint') if not total else
+                                    T('names.fromKb', n=total - n) if n < total else '')
                 if not self.names_btn.winfo_manager():
                     self.names_btn.pack(anchor='w', pady=(10, 0))
-                line = KnowledgeBase(kb_path()).summary() + f'（也可以把表丢进：{feed_dir()}）'
+                line = KnowledgeBase(kb_path()).summary() + T('log.dropHere', dir=feed_dir())
             else:
                 db = tables.TableDB(tables.db_path(app_dir(), cat))
                 cols, n = db.columns(), db.count()
-                self.cat_hint.set(f'自建 · {len(cols)} 列 · {n} 条记录' if cols else '自建 · 还没放过表')
-                self.names_head.set(f'「{cat}」数据库：{n} 条' if cols else f'「{cat}」还没放过表')
-                self.names_path.set(('列：' + '、'.join(cols)) if cols else
-                                    '先认全部内容，改对了点「放入样板资料」，表头就定成它的列')
+                self.cat_hint.set(T('cat.hint.cols', c=len(cols), n=n) if cols else T('cat.hint.empty'))
+                self.names_head.set(T('names.cat', cat=cat, n=n) if cols else T('names.catEmpty', cat=cat))
+                self.names_path.set(T('names.cols', cols=strings.join(cols)) if cols else T('names.catEmptyHint'))
                 self.names_btn.pack_forget()                    # 名单只给刀单用
-                line = db.summary(cat) + f'（也可以把表丢进：{tables.feed_path(app_dir(), cat)}）'
+                line = db.summary(cat) + T('log.dropHere', dir=tables.feed_path(app_dir(), cat))
         except Exception as e:
-            line = f'「{cat}」的数据库打不开：{type(e).__name__}：{e}'
+            line = T('log.dbErr', cat=cat, e=f'{type(e).__name__}: {e}')
         if announce:
             self.write(line)
 
@@ -715,7 +740,7 @@ class App:
             else:
                 added = tables.TableDB(tables.db_path(app_dir(), cat)).put_checked(source, data)
         except Exception as e:
-            self.write(f'✗ 核完的那条放不进样板资料：{type(e).__name__}：{e}')
+            self.write(T('log.checkedErr', e=f'{type(e).__name__}: {e}'))
             return False
         self.refresh_category()
         return added
@@ -723,8 +748,7 @@ class App:
     def on_close(self):
         self.save()
         if self.auto.get() and self.cfg.get('hide_on_close', True):   # 来图就干开着：× 只是收起来，后台照样盯着
-            self.write('窗口收起来了，后台照样盯着文件夹。真要退出：去掉「来图就干」的勾再点 ×'
-                       '（或者在右上角 ⚙ 里关掉「点 × 只收起」）。')
+            self.write(T('log.hidden'))
             self.root.iconify()
             return
         self.stop.set()
@@ -738,7 +762,7 @@ class App:
         try:
             self._tick()
         except Exception as e:                      # 自动驾驶出错不能把窗口带崩
-            self.write(f'自动驾驶出错：{type(e).__name__}：{e}')
+            self.write(T('log.bgErr', e=f'{type(e).__name__}: {e}'))
         self.root.after(10_000, self.tick)
 
     def _tick(self):
@@ -806,8 +830,7 @@ class App:
             self.next_send = now + min(7200, 120 * 2 ** min(self.send_fails - 1, 6))
             if r.error in ('token', 'full') and not self.told_refused:
                 self.told_refused = True
-                self.write('方丈网盘暂时不收（' + ('今天收满了' if r.error == 'full' else '接口换了，等新版') + '），'
-                           '东西先攒在本机，过一阵自己再发')
+                self.write(T('log.refused', why=T('log.refusedFull' if r.error == 'full' else 'log.refusedToken')))
         else:
             self.send_fails = 0
             self.next_send = now + (15 if r.left > 0 else 600)
@@ -817,7 +840,7 @@ class App:
             left = len(report.pending(self.folder.get()))
         except Exception:
             left = 0
-        return f'发给方丈：这次开着送出去 {self.reported} 份，' + (f'还有 {left} 份在路上' if left else '没有欠账')
+        return T('rep.status', n=self.reported) + (T('rep.left', n=left) if left else T('rep.none'))
 
     def _canonicalize(self, d: str) -> bool:
         """正名：从「录入僧测试版.exe」之类的别名跑起来时，等 录入僧.exe 没人占着了，就把自己抄过去、从正名重开。
@@ -849,7 +872,7 @@ class App:
         ver = autopilot.probe_version(upd)
         if not ver:
             autopilot.log_update(app_dir(), f'新版 {autopilot.UPDATE_NAME} 打不开，没换')
-            self.log(f'✗ 新版 {autopilot.UPDATE_NAME} 打不开，没换')
+            self.log(T('log.badNew', name=autopilot.UPDATE_NAME))
             self.update_skip = self.downloaded              # 这次开着就别再下它了
             self.update_asap = False
             try:
@@ -859,7 +882,7 @@ class App:
             self.updating = False
             return
         autopilot.log_update(app_dir(), f'v{engine.VERSION} → v{ver}：开始换')
-        self.log(f'发现新版 v{ver}，换上后自己重开')
+        self.log(T('log.swapping', v=ver))
         subprocess.Popen([upd, '--install-update', sys.executable], cwd=app_dir())
         self.q.put(('quit', None))
 
@@ -888,25 +911,25 @@ class App:
         def go():
             try:
                 if not getattr(sys, 'frozen', False):
-                    msg = f'网站上最新是 v{updater.latest_version()}（这是开发版，不下载）'
+                    msg = T('upd.dev', v=updater.latest_version())
                 elif auto:
                     v = updater.check(app_dir(), log=self.log, skip=self.update_skip)
                     if v:
                         self.downloaded = v
-                    msg = f'新版 v{v} 下载好了，空闲时自己换上' if v else f'已经是最新版 v{engine.VERSION}'
+                    msg = T('upd.downloaded', v=v) if v else T('upd.latest', v=engine.VERSION)
                 else:
                     remote = updater.latest_version()
                     if updater.is_newer(remote) and remote != self.update_skip:
-                        msg = f'有新版本 v{remote}'
+                        msg = T('upd.available', v=remote)
                         if manual or remote != self.update_dismissed:
-                            text = updater.notes()
+                            text = updater.notes(lang=strings.lang())
                             self.q.put(('call', lambda: self.offer_update(remote, text)))
                         else:
                             self.q.put(('call', lambda: self.show_update_pill(remote)))
                     else:
-                        msg = f'已经是最新版 v{engine.VERSION}'
+                        msg = T('upd.latest', v=engine.VERSION)
             except Exception as e:
-                msg = f'查不到新版：{type(e).__name__}：{e}'
+                msg = T('upd.err', e=f'{type(e).__name__}: {e}')
                 if getattr(sys, 'frozen', False):
                     autopilot.log_update(app_dir(), msg)
             finally:
@@ -918,7 +941,7 @@ class App:
 
     def show_update_pill(self, remote: str):
         self.offered = remote
-        self.update_pill.config(text=f'新版本 v{remote}')
+        self.update_pill.config(text=T('app.updateV', v=remote))
         if not self.update_pill.winfo_ismapped():
             self.update_pill.pack(side='right', padx=(0, 8))
 
@@ -942,20 +965,20 @@ class App:
             dst = os.path.join(app_dir(), autopilot.UPDATE_NAME)
             try:
                 if not os.path.exists(dst):
-                    say('正在下载…')
+                    say(T('upd.downloading'))
                     updater.download(f'{updater.LATEST}/{updater.EXE_ASSET}', dst,
-                                     progress=lambda n, t: say(f'正在下载… {n // 1048576} / {max(t, n) // 1048576} MB'))
+                                     progress=lambda n, t: say(T('upd.progress', n=n // 1048576, t=max(t, n) // 1048576)))
                 self.downloaded = remote
                 self.update_asap = True
                 autopilot.log_update(app_dir(), f'点了「现在更新」：下载好新版 v{remote}')
-                self.log(f'新版 v{remote} 下载好了，马上换上（正在干活的话干完这批再换）')
+                self.log(T('upd.now', v=remote))
                 self.q.put(('call', lambda: card is not None and card.winfo_exists() and card.destroy()))
             except Exception as e:
-                say(f'下载失败：{type(e).__name__}：{e}（过一会儿再点一次）')
+                say(T('upd.fail', e=f'{type(e).__name__}: {e}'))
                 self.q.put(('call', lambda: card is not None and card.winfo_exists() and card.enable()))
 
         if not getattr(sys, 'frozen', False):
-            say('这是开发版，不下载')
+            say(T('upd.devNo'))
             return
         threading.Thread(target=go, daemon=True).start()
 
@@ -965,6 +988,14 @@ class App:
             self.settings_win.focus_force()
             return
         self.settings_win = SettingsCard(self)
+
+    def switch_language(self, code: str):
+        """⚙ 里换了语言：存进设置，关掉窗口、照新语言重开一个（run_gui 接着开；进程不退，不用重新双击）。"""
+        self.cfg['lang'] = code
+        strings.set_lang(code)
+        self.save()
+        self.relaunch = True
+        self.root.destroy()
 
     def setting_changed(self, key: str, value: bool):
         self.cfg[key] = value
@@ -976,12 +1007,10 @@ class App:
         if key == 'auto_update' and value:
             self.next_update = min(self.next_update, time.time() + 5)
         if key == 'redo':
-            self.write('↻ 干过的照片也重干：开了。以前认过的照片再放进待识别，照样认一遍（钥匙次数照扣），测完记得关'
-                       if value else '干过的照片也重干：关了，以前干过的照旧自动跳过')
+            self.write(T('log.redoOn' if value else 'log.redoOff'))
         if key == 'report':
             if value:
-                self.write('✓ 发数据给方丈：开了。每批认完，照片和认的过程自己送去方丈网盘；'
-                           '在表里改完存个盘，改过的格子也一起送去')
+                self.write(T('log.reportOn'))
                 self.next_send = min(self.next_send, time.time() + 3)
 
                 def ask():                          # 当场问一声：这台电脑的网够不够得着方丈网盘
@@ -989,12 +1018,12 @@ class App:
                     self.q.put(('call', lambda: self._pinged(why)))
                 threading.Thread(target=ask, daemon=True).start()
             else:
-                self.write('发数据给方丈：关了，一个字都不往外送了')
+                self.write(T('log.reportOff'))
 
     def _pinged(self, why: str):
         if not self.cfg.get('report'):
             return
-        msg = '✓ 方丈网盘连上了' if not why else f'现在连不上方丈网盘（{why}）。东西先攒在本机，连上了自己发'
+        msg = T('log.pingOk') if not why else T('log.pingBad', why=why)
         self.write(msg)
         if self.settings_win is not None and self.settings_win.winfo_exists():
             self.settings_win.say(msg if why else f'{msg} · {self.report_status()}')
@@ -1020,7 +1049,7 @@ class App:
                 elif kind == 'prog':
                     d, t = val
                     self.pb.config(maximum=max(t, 1), value=d)
-                    self.status.set(f'{d}/{t} 张')
+                    self.status.set(T('st.pages', d=d, t=t))
                 elif kind == 'call':
                     val()
                 elif kind == 'fed':
@@ -1037,12 +1066,12 @@ class App:
                     if val and val.xlsx:
                         self.last_xlsx = val.xlsx
                         self.last_photos = val.photos_dir
-                        self.status.set(f'干完：成功 {val.ok} · 失败 {val.failed}')
+                        self.status.set(T('st.done', ok=val.ok, bad=val.failed))
                         self.last_run = {'xlsx': val.xlsx, 'ok': val.ok, 'failed': val.failed, 'requests': val.requests,
                                          'stopped': val.stopped_reason, 'auto': self.auto_run,
                                          'at': datetime.now().isoformat(timespec='seconds')}
                         if self.cfg.get('report'):
-                            self.write('↗ 这批的照片和认的过程排好队了，闲下来就送去方丈网盘（⚙ 里能关）')
+                            self.write(T('log.queued'))
                             self.next_send = min(self.next_send, time.time() + 5)
                         if val.ok and not self.stop.is_set() and not self.auto_run and self.cfg.get('auto_open', True):
                             if val.photos_dir and os.path.isdir(val.photos_dir):
@@ -1063,7 +1092,7 @@ class SettingsCard(tk.Toplevel):
     def __init__(self, app: App):
         super().__init__(app.root)
         self.app = app
-        self.title('设置')
+        self.title(T('set.title'))
         self.configure(bg=ui.BG)
         self.transient(app.root)
         self.resizable(False, False)
@@ -1073,8 +1102,22 @@ class SettingsCard(tk.Toplevel):
         card.configure(width=ui.px(730))                         # 看着 720 宽，两边各 5 是影子
         card.pack(fill='both', expand=True, padx=9, pady=(12, 6))
         g = card.body
-        tk.Label(g, text='设置', font=(fam, 16, 'bold'), bg=ui.CARD, fg=ui.TEXT).pack(anchor='w')
+        tk.Label(g, text=T('set.title'), font=(fam, 16, 'bold'), bg=ui.CARD, fg=ui.TEXT).pack(anchor='w')
         ui.separator(g).pack(fill='x', pady=(10, 0))
+        # 语言：English / 中文 两个并排的小按钮（选中的那个蓝底），点了马上换（Song 11-03：默认英文，第二语言中文，选过就记住）
+        lrow = tk.Frame(g, bg=ui.CARD)
+        lrow.pack(fill='x', pady=4)
+        self.lang_btns = {}
+        for code, text in (('zh', '中文'), ('en', 'English')):          # 靠右排：English 在左、中文在右
+            b = ui.Pill(lrow, text, command=lambda c=code: self.pick_lang(c), primary=strings.lang() == code,
+                        font=(fam, 10, 'bold' if strings.lang() == code else 'normal'), bg=ui.CARD, height=32, radius=8, padx=14)
+            b.pack(side='right', padx=(6, 0))
+            self.lang_btns[code] = b
+        lleft = tk.Frame(lrow, bg=ui.CARD)
+        lleft.pack(side='left', fill='x', expand=True)
+        tk.Label(lleft, text=T('set.lang'), font=bf, bg=ui.CARD, fg=ui.TEXT, anchor='w').pack(anchor='w')
+        tk.Label(lleft, text=T('set.langD'), font=(fam, 9), bg=ui.CARD, fg=ui.GREY, anchor='w').pack(anchor='w', pady=(1, 0))
+        ui.separator(g).pack(fill='x')
         self.vars = {}
         for i, (key, title, desc) in enumerate(settings.ROWS):
             row = tk.Frame(g, bg=ui.CARD)
@@ -1084,8 +1127,8 @@ class SettingsCard(tk.Toplevel):
                 side='right', padx=(18, 0))
             left = tk.Frame(row, bg=ui.CARD)
             left.pack(side='left', fill='x', expand=True)
-            tk.Label(left, text=title, font=bf, bg=ui.CARD, fg=ui.TEXT, anchor='w').pack(anchor='w')
-            tk.Label(left, text=desc, font=(fam, 9), bg=ui.CARD, fg=ui.GREY, anchor='w', justify='left',
+            tk.Label(left, text=T(title), font=bf, bg=ui.CARD, fg=ui.TEXT, anchor='w').pack(anchor='w')
+            tk.Label(left, text=T(desc), font=(fam, 9), bg=ui.CARD, fg=ui.GREY, anchor='w', justify='left',
                      wraplength=ui.px(560)).pack(anchor='w', pady=(1, 0))
             self.vars[key] = v
             if i < len(settings.ROWS) - 1:
@@ -1093,11 +1136,11 @@ class SettingsCard(tk.Toplevel):
         ui.separator(g).pack(fill='x', pady=(0, 12))
         self.contact = say = tk.Frame(g, bg=ui.CARD)           # 找方丈的话、千手院总舵网址（点了就去）
         say.pack(fill='x', pady=(0, 12))
-        tk.Label(say, text=CONTACT_LINE.format(updater.CONTACT), font=(fam, 9), bg=ui.CARD, fg=ui.GREY,
+        tk.Label(say, text=contact_line(updater.CONTACT), font=(fam, 9), bg=ui.CARD, fg=ui.GREY,
                  anchor='w', justify='left', wraplength=ui.px(680)).pack(anchor='w')
         hub = tk.Frame(say, bg=ui.CARD)
         hub.pack(anchor='w')
-        tk.Label(hub, text=HUB_LINE, font=(fam, 9), bg=ui.CARD, fg=ui.GREY, padx=0).pack(side='left')
+        tk.Label(hub, text=hub_line(), font=(fam, 9), bg=ui.CARD, fg=ui.GREY, padx=0).pack(side='left')
         self.hub_link = tk.Label(hub, text=hub_text(updater.HUB_URL), font=(fam, 9), bg=ui.CARD, fg=ui.LINK,
                                  cursor='hand2', padx=0)
         self.hub_link.pack(side='left')
@@ -1106,16 +1149,16 @@ class SettingsCard(tk.Toplevel):
         foot.pack(fill='x')
         info = tk.Frame(foot, bg=ui.CARD)
         info.pack(side='left')
-        tk.Label(info, text=f'{engine.APP_NAME} v{engine.VERSION}', font=(fam, 10), bg=ui.CARD, fg=ui.GREY,
+        tk.Label(info, text=T('set.ver', v=engine.VERSION), font=(fam, 10), bg=ui.CARD, fg=ui.GREY,
                  anchor='w').pack(anchor='w')
-        tk.Label(info, text='千手院方丈释手', font=(fam, 9), bg=ui.CARD, fg=ui.GREY,
+        tk.Label(info, text=T('set.sign'), font=(fam, 9), bg=ui.CARD, fg=ui.GREY,
                  anchor='w').pack(anchor='w')
         btn = dict(font=(fam, 10), bg=ui.CARD, height=34, radius=8, padx=14)
-        ui.Pill(foot, '完成', command=self.destroy, primary=True, **btn).pack(side='right')
-        self.check_btn = ui.Pill(foot, '检查新版', command=self.check, **btn)
+        ui.Pill(foot, T('set.done'), command=self.destroy, primary=True, **btn).pack(side='right')
+        self.check_btn = ui.Pill(foot, T('set.check'), command=self.check, **btn)
         self.check_btn.pack(side='right', padx=8)
-        ui.Pill(foot, '方丈邮箱', command=self.mail, **btn).pack(side='right')
-        ui.Pill(foot, '千手院总舵', command=lambda: open_path(updater.HUB_URL), **btn).pack(side='right', padx=(0, 8))
+        ui.Pill(foot, T('set.mail'), command=self.mail, **btn).pack(side='right')
+        ui.Pill(foot, T('set.hub'), command=lambda: open_path(updater.HUB_URL), **btn).pack(side='right', padx=(0, 8))
         self.note = tk.StringVar(value=app.report_status() if app.cfg.get('report') else '')
         self.note_label = tk.Label(g, textvariable=self.note, font=(fam, 9), bg=ui.CARD, fg=ui.GREY, anchor='e')
         self.note_label.pack(fill='x', pady=(6, 0))
@@ -1126,6 +1169,14 @@ class SettingsCard(tk.Toplevel):
         """底下那行小字；strong = 要人看清的（比如邮箱），用正文的黑。"""
         self.note.set(text)
         self.note_label.config(fg=ui.TEXT if strong else ui.GREY)
+
+    def pick_lang(self, code: str):
+        if code == strings.lang():
+            return
+        if self.app.busy():                     # 换语言要重开窗口：正在干的那批别打断
+            self.say(T('log.langBusy'))
+            return
+        self.app.switch_language(code)
 
     def changed(self, key: str, value: bool):
         self.app.setting_changed(key, value)
@@ -1152,14 +1203,14 @@ class SettingsCard(tk.Toplevel):
     def mail(self):
         """方丈邮箱：点一下，邮箱亮在底下、顺手复制好。不去开浏览器、邮件程序（Song 定的：点就显示邮箱并且复制）。"""
         self.copy_mail()
-        self.say(MAIL_COPIED.format(updater.CONTACT), strong=True)
+        self.say(mail_copied(updater.CONTACT), strong=True)
 
     def copy_mail(self):
         self.clipboard_clear()
         self.clipboard_append(updater.CONTACT)
 
     def check(self):
-        self.say('正在查…')
+        self.say(T('set.checking'))
         self.check_btn.config(state='disabled')
 
         def done(msg):
@@ -1231,22 +1282,21 @@ class NewCategoryCard(CardDialog):
     """新建类别：起个名字，建一个文件夹（它自己的数据库、投喂文件夹都在里面）。"""
 
     def __init__(self, app: App, on_done):
-        super().__init__(app, '新建类别', 520)
+        super().__init__(app, T('new.title'), 520)
         self.on_done = on_done
         b = self.body
-        tk.Label(b, text='名字', font=self.bf, bg=ui.CARD, fg=ui.TEXT).pack(anchor='w')
+        tk.Label(b, text=T('new.name'), font=self.bf, bg=ui.CARD, fg=ui.TEXT).pack(anchor='w')
         self.name = tk.StringVar()
         self.field = ui.Field(b, self.name, font=self.bf)
         self.field.pack(fill='x', pady=(6, 0))
-        ui.Para(b, tk.StringVar(value=f'比如「质检单」「送货单」。建好会多一个文件夹 {tables.root(app_dir())}\\<名字>，'
-                                      '它自己的数据库和投喂文件夹都在里面，跟刀单互不串味。'),
+        ui.Para(b, tk.StringVar(value=T('new.para', root=tables.root(app_dir()))),
                 font=(self.fam, 9), width_px=470).pack(fill='x', pady=(8, 0))
         self.err = tk.StringVar()
         tk.Label(b, textvariable=self.err, font=(self.fam, 10), bg=ui.CARD, fg='#C0392B', anchor='w').pack(
             anchor='w', pady=(6, 0))
         f = self.footer()
-        self.button(f, '建好', self.ok, primary=True)
-        self.button(f, '取消', self.destroy)
+        self.button(f, T('new.ok'), self.ok, primary=True)
+        self.button(f, T('cancel'), self.destroy)
         self.field.entry.bind('<Return>', lambda e: self.ok())
         self.after(80, self.field.entry.focus_set)
 
@@ -1259,7 +1309,7 @@ class NewCategoryCard(CardDialog):
         try:
             tables.create(app_dir(), name)
         except OSError as e:
-            self.err.set(f'建不了：{e}')
+            self.err.set(T('new.err', e=e))
             return
         self.destroy()
         self.on_done(name)
@@ -1269,7 +1319,7 @@ class NamesCard(CardDialog):
     """编辑名单：在窗口里直接写，存成 录入僧.exe 旁边的 名单.txt（记事本照样能改）。"""
 
     def __init__(self, app: App):
-        super().__init__(app, '名单', 520)
+        super().__init__(app, T('names.title'), 520)
         b = self.body
         self.box = ui.TextArea(b, font=(self.fam, 11), height=240)
         self.box.pack(fill='x')
@@ -1278,13 +1328,13 @@ class NamesCard(CardDialog):
                 self.box.set(sheets._decode(fh.read()).replace('\r\n', '\n').rstrip('\n'))
         except OSError:
             self.box.set('')
-        ui.Para(b, tk.StringVar(value='一行一个「工号/名字」，比如 639/Lee Ah Kow。单子上只写了工号的，贫僧照这个把名字补上。没有也能用。'),
+        ui.Para(b, tk.StringVar(value=T('names.para')),
                 font=(self.fam, 9), width_px=470).pack(fill='x', pady=(8, 0))
         self.err = tk.StringVar()
         tk.Label(b, textvariable=self.err, font=(self.fam, 10), bg=ui.CARD, fg='#C0392B', anchor='w').pack(anchor='w')
         f = self.footer()
-        self.button(f, '存好', self.ok, primary=True)
-        self.button(f, '取消', self.destroy)
+        self.button(f, T('save'), self.ok, primary=True)
+        self.button(f, T('cancel'), self.destroy)
         self.after(80, self.box.text.focus_set)
 
     def ok(self):
@@ -1293,11 +1343,11 @@ class NamesCard(CardDialog):
             with open(names_path(), 'w', encoding='utf-8-sig', newline='\r\n') as fh:   # 带 BOM：老记事本也认
                 fh.write(text + ('\n' if text else ''))
         except OSError as e:
-            self.err.set(f'存不了：{e}')
+            self.err.set(T('names.err', e=e))
             return
         n = len(engine.load_names(names_path()))
         self.destroy()
-        self.app.write(f'✓ 名单存好了：{n} 人' if n else '名单是空的：没有也能用，SETTER 就照单子抄')
+        self.app.write(T('log.namesSaved', n=n) if n else T('log.namesEmpty'))
         self.app.refresh_category()
 
 
@@ -1308,11 +1358,11 @@ class ResultsCard(CardDialog):
 
     def __init__(self, app: App):
         from .viewer import list_results
-        super().__init__(app, '所有结果', 600)
+        super().__init__(app, T('res.title'), 600)
         b = self.body
         self.runs = list_results(app.folder.get())
         if not self.runs:
-            ui.Para(b, tk.StringVar(value='还没有结果：先点「选照片…」，再点「开始工作」干一批。'),
+            ui.Para(b, tk.StringVar(value=T('res.empty')),
                     font=(self.fam, 10), width_px=540).pack(fill='x')
         for i, r in enumerate(self.runs[:self.SHOW]):
             if i:
@@ -1321,19 +1371,19 @@ class ResultsCard(CardDialog):
             row.pack(fill='x', pady=6)
             d = datetime.strptime(r['run'], '%Y%m%d_%H%M%S')
             tk.Label(row, text=f'{d:%m-%d %H:%M}', font=(self.fam, 11), bg=ui.CARD, fg=ui.TEXT).pack(side='left')
-            tag = f"{r['cat']} · {r['photos']} 张" + ('　最新' if i == 0 else '')
+            tag = T('res.tag', cat=strings.cat_label(r['cat']), n=r['photos']) + (T('res.latest') if i == 0 else '')
             tk.Label(row, text=tag, font=(self.fam, 10), bg=ui.CARD, fg=ui.BLUE if i == 0 else ui.GREY).pack(
                 side='left', padx=(12, 0))
             pill = dict(font=(self.fam, 10), bg=ui.CARD, height=30, radius=8, padx=12)
-            ui.Pill(row, '核对', command=lambda r=r: self.check(r), state='normal' if r['photos'] else 'disabled',
+            ui.Pill(row, T('res.check'), command=lambda r=r: self.check(r), state='normal' if r['photos'] else 'disabled',
                     **pill).pack(side='right', padx=(8, 0))
-            ui.Pill(row, '打开表', command=lambda r=r: open_path(r['xlsx']), icon='table', **pill).pack(side='right')
+            ui.Pill(row, T('res.open'), command=lambda r=r: open_path(r['xlsx']), icon='table', **pill).pack(side='right')
         if len(self.runs) > self.SHOW:
-            ui.Para(b, tk.StringVar(value=f'更早的 {len(self.runs) - self.SHOW} 批在结果文件夹里。'),
+            ui.Para(b, tk.StringVar(value=T('res.older', n=len(self.runs) - self.SHOW)),
                     font=(self.fam, 9), width_px=540).pack(fill='x', pady=(8, 0))
         f = self.footer()
-        self.button(f, '完成', self.destroy, primary=True)
-        self.button(f, '打开结果文件夹', app.open_out)
+        self.button(f, T('done'), self.destroy, primary=True)
+        self.button(f, T('res.folder'), app.open_out)
 
     def check(self, r):
         self.destroy()
@@ -1344,43 +1394,44 @@ class FeedCard(CardDialog):
     """放入样板资料：先选放进哪个类别（刀单 / 自建的 / ＋新建），再选表（Song 定的叫法；说明里不提公司）。"""
 
     def __init__(self, app: App, preselect: str | None = None):
-        super().__init__(app, '放入样板资料', 600)
+        super().__init__(app, T('feed.title'), 600)
         b = self.body
         row = tk.Frame(b, bg=ui.CARD)
         row.pack(fill='x')
-        tk.Label(row, text='放进', font=self.bf, bg=ui.CARD, fg=ui.TEXT).pack(side='left', padx=(0, 12))
+        tk.Label(row, text=T('feed.into'), font=self.bf, bg=ui.CARD, fg=ui.TEXT).pack(side='left', padx=(0, 12))
         cats = tables.names(app_dir())
         self.cat = tk.StringVar(value=preselect if preselect in cats else app.category.get())
-        combo = ui.Combo(row, self.cat, cats, font=self.bf, bg=ui.CARD, width=260)
+        self.cats = cats
+        shown = tk.StringVar(value=strings.cat_label(self.cat.get()))        # 下拉框显示给人看的名字，self.cat 存真名字
+        combo = ui.Combo(row, shown, [strings.cat_label(c) for c in cats], font=self.bf, bg=ui.CARD, width=260)
         combo.box.configure(state='readonly')
-        combo.box.bind('<<ComboboxSelected>>', lambda e: self.describe())
+        combo.box.bind('<<ComboboxSelected>>', lambda e: self._picked(combo.box.current()))
         combo.pack(side='left')
-        ui.Pill(row, '＋ 新建类别', command=self.new, font=self.bf, bg=ui.CARD, height=38, radius=8,
+        ui.Pill(row, T('app.newcat'), command=self.new, font=self.bf, bg=ui.CARD, height=38, radius=8,
                 padx=14).pack(side='left', padx=(10, 0))
         self.desc = tk.StringVar()
         ui.Para(b, self.desc, font=(self.fam, 10), width_px=540).pack(fill='x', pady=(14, 0))
         f = self.footer()
-        self.button(f, '选表放进去', self.choose, primary=True)
-        self.button(f, '取消', self.destroy)
+        self.button(f, T('feed.go'), self.choose, primary=True)
+        self.button(f, T('cancel'), self.destroy)
+        self.describe()
+
+    def _picked(self, i: int):
+        if 0 <= i < len(self.cats):
+            self.cat.set(self.cats[i])
         self.describe()
 
     def describe(self):
         cat = self.cat.get()
         if cat == tables.BUILTIN:
-            t = ('改对的刀单表，人工录的、录入僧认完改好的都行，一次能塞好几本。\n'
-                 'Excel（.xlsx、.xls）、CSV 都行。\n'
-                 '不像刀单的表（没有 DATE、MACHINE 表头）一条都不吃，免得别的单子串进来。\n'
-                 f'也可以把表直接丢进 {feed_dir()}，每次开工前自动吃。')
+            t = T('feed.desc.builtin') + T('feed.desc.drop', dir=feed_dir())
         else:
             try:
                 cols = tables.TableDB(tables.db_path(app_dir(), cat)).columns()
             except Exception:
                 cols = []
-            head = (f'现在的列：{"、".join(cols)}。表里多出来的列会接在后面。' if cols
-                    else f'第一本的表头会定成「{cat}」的列。')
-            t = (f'认完、改对了的「{cat}」结果表（录入僧出的那本就行），可以一次选好几本。\n'
-                 f'Excel（.xlsx、.xls）、CSV 都行。\n{head}\n'
-                 f'也可以把表直接丢进 {tables.feed_path(app_dir(), cat)}，每次开工前自动吃。')
+            head = T('feed.desc.cols', cols=strings.join(cols)) if cols else T('feed.desc.first', cat=cat)
+            t = T('feed.desc.cat', cat=cat) + head + T('feed.desc.drop', dir=tables.feed_path(app_dir(), cat))
         self.desc.set(t)
 
     def new(self):
@@ -1389,8 +1440,8 @@ class FeedCard(CardDialog):
 
     def choose(self):
         cat = self.cat.get()
-        paths = filedialog.askopenfilenames(parent=self, title=f'选要放进「{cat}」的表（可以多选）',
-                                            filetypes=sheets.FILETYPES)
+        paths = filedialog.askopenfilenames(parent=self, title=T('feed.pickTitle', cat=strings.cat_label(cat)),
+                                            filetypes=sheets.filetypes())
         if not paths:
             return
         self.destroy()
@@ -1411,17 +1462,16 @@ class UpdateCard(CardDialog):
 
     def __init__(self, app: App, remote: str, text: str = ''):
         # 话是 Song 定的（2026-10-30）：不打官腔
-        super().__init__(app, f'录入僧 v{remote} 搞出来了', 560)
+        super().__init__(app, T('upd.title', v=remote), 560)
         self.remote = remote
         b = self.body
-        tk.Label(b, text=f'（你那 v{engine.VERSION} 该淘汰了）', font=(self.fam, 10), bg=ui.CARD, fg=ui.GREY,
+        tk.Label(b, text=T('upd.old', v=engine.VERSION), font=(self.fam, 10), bg=ui.CARD, fg=ui.GREY,
                  anchor='w').pack(anchor='w')
-        tk.Label(b, text='这次弄了点啥：', font=(self.fam, 11, 'bold'), bg=ui.CARD, fg=ui.TEXT, anchor='w').pack(
+        tk.Label(b, text=T('upd.what'), font=(self.fam, 11, 'bold'), bg=ui.CARD, fg=ui.TEXT, anchor='w').pack(
             anchor='w', pady=(14, 4))
-        self.notes = tk.StringVar(value=pretty_notes(text) if text else '正在拿更新说明…')
+        self.notes = tk.StringVar(value=pretty_notes(text) if text else T('upd.fetching'))
         ui.Para(b, self.notes, font=(self.fam, 10), fg=ui.TEXT, width_px=500).pack(fill='x')
-        ui.Para(b, tk.StringVar(value='放心，换版本不会动你的设置、数据库和照片。更新完自己重启一下。\n'
-                                      '如果想要什么新花样，或者觉得哪里反人类，直接发邮件找我算账：'),
+        ui.Para(b, tk.StringVar(value=T('upd.calm')),
                 font=(self.fam, 9), width_px=500).pack(fill='x', pady=(14, 0))
         mail = tk.Label(b, text=updater.CONTACT, font=(self.fam, 9, 'underline'), bg=ui.CARD, fg=ui.BLUE,
                         cursor='hand2', anchor='w')
@@ -1431,19 +1481,19 @@ class UpdateCard(CardDialog):
         tk.Label(b, textvariable=self.status, font=(self.fam, 10), bg=ui.CARD, fg=ui.BLUE, anchor='w').pack(
             anchor='w', pady=(8, 0))
         f = self.footer()
-        self.btns = [self.button(f, '现在更新', self.now, primary=True),
-                     self.button(f, '以后都自动更新', self.always),
-                     self.button(f, '以后再说', self.later)]
+        self.btns = [self.button(f, T('upd.btnNow'), self.now, primary=True),
+                     self.button(f, T('upd.btnAlways'), self.always),
+                     self.button(f, T('upd.btnLater'), self.later)]
         if not text:
             def go():
-                t = updater.notes()
-                app.q.put(('call', lambda: self.winfo_exists() and self.notes.set(pretty_notes(t) or '这次没写更新说明。')))
+                t = updater.notes(lang=strings.lang())
+                app.q.put(('call', lambda: self.winfo_exists() and self.notes.set(pretty_notes(t) or T('upd.noNotes'))))
             threading.Thread(target=go, daemon=True).start()
 
     def mail(self):
         self.clipboard_clear()                  # 只复制，不开浏览器、邮件程序
         self.clipboard_append(updater.CONTACT)
-        self.status.set(MAIL_COPIED.format(updater.CONTACT))
+        self.status.set(mail_copied(updater.CONTACT))
 
     def enable(self, on: bool = True):
         for btn in self.btns:
@@ -1455,7 +1505,7 @@ class UpdateCard(CardDialog):
 
     def always(self):
         self.app.setting_changed('auto_update', True)
-        self.app.write('自动更新打开了：以后有新版自己下载、空闲时换上（⚙ 里可以关）')
+        self.app.write(T('log.autoUpdOn'))
         self.now()
 
     def later(self):
@@ -1497,6 +1547,11 @@ def run_gui():
             autopilot.ask_running_to_show(app_dir())
         return
     ui.dpi_aware()                              # 先告诉 Windows「放大我自己来」，再建窗口：字和图标才清楚
-    root = tk.Tk()
-    App(root)
-    root.mainloop()
+    again = False
+    while True:                                 # 在 ⚙ 里换了语言：窗口关掉、照新语言重开一个（进程不退，还是同一个录入僧）
+        root = tk.Tk()
+        app = App(root, relaunched=again)
+        root.mainloop()
+        if not app.relaunch:
+            break
+        again = True

@@ -1,7 +1,9 @@
 // 电脑这头：挂着一根长连接等手机传图。来一张取一张（取回来先存进浏览器，再让中转站删掉），
 // 手机这一趟传齐了就喊一声开工；手机传到一半没了动静，等两分钟也开工，先干收到的。
 import * as P from './pair.js';
+import './strings.js';
 
+const t = (k, v) => globalThis.LURU_I18N.t(k, v);
 export const STALL_MS = 120_000;                  // 一趟传到一半没动静多久，就先干收到的
 
 export class Inbox {
@@ -37,7 +39,7 @@ export class Inbox {
     this.seen.add(item.id);
     const b = this.batchOf(item);
     b.want.add(item.seq);
-    this.chain = this.chain.then(() => this.take(item)).catch((e) => this.log(`✗ 手机传来的一张没取到：${e.message}`));
+    this.chain = this.chain.then(() => this.take(item)).catch((e) => this.log(t('log.phoneTakeErr', { e: e.message })));
   }
 
   batchOf(item) {
@@ -55,7 +57,7 @@ export class Inbox {
     }
     let got;
     try { got = await P.open(this.pair.key, sealed); } catch (e) {
-      this.log('✗ 手机传来的一张解不开（二维码换过了？让手机重新扫一下），扔掉了');
+      this.log(t('log.phoneBad'));
       await P.delItem(this.pair, item.id).catch(() => {});
       return;
     }

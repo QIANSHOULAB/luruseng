@@ -1,13 +1,25 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>录入僧网页版 · 施主去玩，贫僧填表</title>
-<meta name="description" content="刀具破损记录拍照丢进来，Excel 表自己出来。网页版，不用装，电脑、手机都能用。">
+<title>Luru Web · Photo Typist</title>
+<meta name="description" content="Photograph tool breakage records, get the Excel sheet back. Runs in your browser, no install, phones included.">
+<script>
+  /* 挑语言（跟 strings.js 一个规矩）：?lang=zh|en 只管这一次 > 右上角选过的（localStorage luruseng.lang）> 默认英文。
+     字在 strings.js（模块，晚一点才到）：中文的先把页面藏一下，换好字再露出来，免得先闪一下英文；最多藏 1.5 秒 */
+  (() => {
+    let l = 'en';
+    try { const v = localStorage.getItem('luruseng.lang'); if (v === 'zh' || v === 'en') l = v; } catch (e) { /* 默认英文 */ }
+    const m = /[?&]lang=(zh|en)\b/.exec(location.search);
+    if (m) l = m[1];
+    document.documentElement.lang = l === 'zh' ? 'zh-CN' : 'en';
+    if (l !== 'en') { document.documentElement.classList.add('i18n-wait'); setTimeout(() => document.documentElement.classList.remove('i18n-wait'), 1500); }
+  })();
+</script>
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#F2F2F7">
-<link rel="manifest" href="manifest.webmanifest">
+<link rel="manifest" href="manifest.webmanifest" id="manifest">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%235AB4FF'/%3E%3Cstop offset='1' stop-color='%231E7BF2'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='15' fill='url(%23g)'/%3E%3Crect x='19' y='15' width='26' height='34' rx='4.5' fill='%23fff'/%3E%3Crect x='24' y='23' width='14' height='3' rx='1.5' fill='%232F8BF5'/%3E%3Crect x='24' y='30.5' width='14' height='3' rx='1.5' fill='%232F8BF5'/%3E%3Crect x='24' y='38' width='9' height='3' rx='1.5' fill='%232F8BF5'/%3E%3C/svg%3E">
 <style>
@@ -18,13 +30,21 @@
     --lift: 0 1px 2px rgba(0, 0, 0, .04), 0 6px 20px rgba(0, 0, 0, .045);
     --red-bg: #FFC7CE; --red: #9C0006; --orange-bg: #FCE4D6; --orange: #833C0B; --green: #34C759;
     --key-w: 9.2em;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei",
+            "Segoe UI Variable Text", "Segoe UI", "Noto Sans CJK SC", "Noto Sans SC", system-ui, sans-serif;
   }
+  /* 英文：西文字体排前面；中文照旧 */
+  html[lang=en] {
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui,
+            "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", sans-serif;
+    --key-w: 9.6em;
+  }
+  html.i18n-wait body { visibility: hidden; }
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
   body {
     margin: 0; background: var(--bg); color: var(--text); font-size: 15px; line-height: 1.5;
-    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",
-                 "Segoe UI", "Noto Sans CJK SC", "Noto Sans SC", sans-serif;
+    font-family: var(--font);
     -webkit-font-smoothing: antialiased;
   }
   button, input, select, textarea { font: inherit; color: inherit; }
@@ -48,6 +68,15 @@
   .head .bar-v { width: 1px; height: 26px; background: #D1D1D6; }
   .head .sub { color: var(--grey); font-size: 17px; }
   .head .tag { font-size: 12px; color: var(--blue); background: #E8F1FC; border-radius: 999px; padding: 2px 10px; }
+  html[lang=en] .head h1 { letter-spacing: -.01em; }
+  /* 右上角 EN / 中文 */
+  .lang { margin-left: auto; display: inline-flex; padding: 2px; border-radius: 10px; background: var(--fill); flex: none; }
+  .lang button { font-size: 13px; font-weight: 600; min-width: 44px; height: 30px; padding: 0 10px; border: 0; border-radius: 8px;
+                 background: transparent; color: var(--grey); cursor: pointer; }
+  .lang button[aria-pressed="true"] { background: #fff; color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
+  .lang button:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
+  .status b, .vbar .num { font-variant-numeric: tabular-nums; }   /* 只给数字：挂整段会把连字符撑宽 */
+  input.field[type=password]::placeholder { letter-spacing: normal; }
 
   .form { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px 0; align-items: center; }
   .form > label { padding-right: 16px; white-space: nowrap; }
@@ -122,7 +151,7 @@
   .track > div { height: 100%; width: 0; background: var(--blue); border-radius: 7px; transition: width .3s; }
   .slogan { margin-top: 10px; color: var(--grey); font-size: 14px; line-height: 1.45; min-height: 1.45em; }
   .nhead { font-size: 16px; }
-  .npath { color: var(--grey); font-size: 13.5px; margin-top: 4px; word-break: break-all; }
+  .npath { color: var(--grey); font-size: 13.5px; margin-top: 4px; overflow-wrap: anywhere; }   /* 长路径照断，英文单词不从中间劈开 */
   .side .more { margin-top: 10px; align-self: flex-start; }
 
   .logcard > svg { width: 26px; height: 26px; margin: 10px 4px 0 10px; color: #8E8E93; flex: none; }
@@ -219,6 +248,7 @@
     .head h1 { font-size: 26px; }
     .head .bar-v { display: none; }
     .head .sub { font-size: 15px; width: 100%; margin-top: -8px; order: 3; }
+    .lang { order: 2; }
     .form { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 0; }
     .form > label { grid-column: 1 / -1; margin-top: 6px; color: var(--grey); font-size: 13.5px; }
     .form .wide { grid-column: 1 / -1; }
@@ -263,55 +293,56 @@
 <div class="app">
   <section class="card main">
     <header class="head">
-      <h1>录入僧</h1><i class="bar-v"></i><span class="sub">施主去玩，贫僧填表</span><span class="tag">网页版</span>
+      <h1 data-i18n="name">Luru</h1><i class="bar-v"></i><span class="sub" data-i18n="sub">Snap the forms. Skip the typing.</span><span class="tag" data-i18n="app.tag">Web</span>
+      <div id="lang" class="lang"></div>
     </header>
     <div class="form">
-      <label for="cat">类别</label>
+      <label for="cat" data-i18n="app.cat">Form type</label>
       <div class="wide">
         <select id="cat" class="field combo"></select>
-        <button type="button" class="pill" id="newcat"><svg class="i"><use href="#i-plus"/></svg>新建类别</button>
+        <button type="button" class="pill" id="newcat"><svg class="i"><use href="#i-plus"/></svg><span data-i18n="app.newcat">New type</span></button>
         <span class="hint" id="cathint"></span>
       </div>
 
-      <label for="pick">照片</label>
-      <div class="field drop" id="drop" role="button" tabindex="0" aria-label="选照片">
-        <svg class="i"><use href="#i-photo"/></svg><span class="txt" id="droptxt">把照片拖进来，或点右边「选照片」</span>
-        <a href="#" class="clear" id="clear" hidden>清空</a>
+      <label for="pick" data-i18n="app.photos">Photos</label>
+      <div class="field drop" id="drop" role="button" tabindex="0" data-i18n-attr="aria-label:app.pickAria" aria-label="Add photos">
+        <svg class="i"><use href="#i-photo"/></svg><span class="txt" id="droptxt"></span>
+        <a href="#" class="clear" id="clear" hidden data-i18n="app.clear">Clear</a>
       </div>
-      <button type="button" class="pill side-btn" id="pick">选照片…</button>
+      <button type="button" class="pill side-btn" id="pick" data-i18n="app.pick">Add photos…</button>
       <input type="file" id="files" accept="image/*,.heic,.heif" multiple hidden>
 
-      <label for="phone" class="pc-only">手机</label>
-      <div class="phint pc-only" id="phint"><i class="dot" id="pdot"></i><span class="txt" id="phinttxt">手机扫个码，拍完一传，这边收齐自己开工</span></div>
-      <button type="button" class="pill side-btn pc-only" id="phone"><svg class="i"><use href="#i-phone"/></svg>手机传图</button>
+      <label for="phone" class="pc-only" data-i18n="app.phone">Phone</label>
+      <div class="phint pc-only" id="phint"><i class="dot" id="pdot"></i><span class="txt" id="phinttxt"></span></div>
+      <button type="button" class="pill side-btn pc-only" id="phone"><svg class="i"><use href="#i-phone"/></svg><span data-i18n="app.phoneBtn">From phone</span></button>
 
-      <label for="key1">钥匙 1</label>
-      <input id="key1" class="field" type="password" autocomplete="off" spellcheck="false" placeholder="贴进来">
-      <a class="pill link side-btn" href="../key.html" target="_blank" rel="noopener"><svg class="i"><use href="#i-key"/></svg>免费领钥匙</a>
+      <label for="key1" data-i18n="app.key1">Key 1</label>
+      <input id="key1" class="field" type="password" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:app.paste" placeholder="Paste here">
+      <a class="pill link side-btn" href="../key.html" target="_blank" rel="noopener"><svg class="i"><use href="#i-key"/></svg><span data-i18n="app.getKey">Get a key</span></a>
 
-      <label for="key2">钥匙 2（可空）</label>
+      <label for="key2" data-i18n="app.key2">Key 2 (optional)</label>
       <input id="key2" class="field" type="password" autocomplete="off" spellcheck="false">
-      <a class="pill link side-btn" href="../key.html#key2" target="_blank" rel="noopener"><svg class="i"><use href="#i-key"/></svg>再领一把</a>
+      <a class="pill link side-btn" href="../key.html#key2" target="_blank" rel="noopener"><svg class="i"><use href="#i-key"/></svg><span data-i18n="app.getKey2">Get another</span></a>
 
-      <label for="model">模型</label>
+      <label for="model" data-i18n="app.model">Model</label>
       <div class="wide">
         <input id="model" class="field combo" list="models" autocomplete="off" spellcheck="false">
         <datalist id="models"></datalist>
-        <label class="check"><input type="checkbox" id="auto"><span class="box"><svg><use href="#i-check"/></svg></span>来图就干<span class="hint">（选好照片就自己开工）</span></label>
+        <label class="check"><input type="checkbox" id="auto"><span class="box"><svg><use href="#i-check"/></svg></span><span data-i18n="app.auto">Auto-start</span><span class="hint" data-i18n="app.autoHint">(starts as soon as photos arrive)</span></label>
       </div>
     </div>
     <hr class="sep">
     <div class="bar">
-      <button type="button" class="pill big primary" id="start"><svg class="i"><use href="#i-play"/></svg>开始工作</button>
-      <button type="button" class="pill big" id="stop" disabled><svg class="i"><use href="#i-stop"/></svg>停止</button>
-      <button type="button" class="pill big" id="result"><svg class="i"><use href="#i-down"/></svg>下载结果</button>
-      <button type="button" class="pill big" id="check"><svg class="i"><use href="#i-doc"/></svg>核对</button>
-      <button type="button" class="pill big" id="feed"><svg class="i"><use href="#i-db"/></svg>放入样板资料</button>
+      <button type="button" class="pill big primary" id="start"><svg class="i"><use href="#i-play"/></svg><span data-i18n="app.start">Start</span></button>
+      <button type="button" class="pill big" id="stop" disabled><svg class="i"><use href="#i-stop"/></svg><span data-i18n="app.stop">Stop</span></button>
+      <button type="button" class="pill big" id="result"><svg class="i"><use href="#i-down"/></svg><span data-i18n="app.result">Download</span></button>
+      <button type="button" class="pill big" id="check"><svg class="i"><use href="#i-doc"/></svg><span data-i18n="app.check">Review</span></button>
+      <button type="button" class="pill big" id="feed"><svg class="i"><use href="#i-db"/></svg><span data-i18n="app.feed">Add samples</span></button>
     </div>
   </section>
 
   <aside class="card side">
-    <div class="top"><span>任务状态</span><button type="button" class="pill round" id="gear" aria-label="设置"><svg class="i"><use href="#i-gear"/></svg></button></div>
+    <div class="top"><span data-i18n="app.statusHead">Status</span><button type="button" class="pill round" id="gear" data-i18n-attr="aria-label:app.gear" aria-label="Settings"><svg class="i"><use href="#i-gear"/></svg></button></div>
     <hr class="sep" style="margin:10px 0 10px">
     <div class="status" id="status"></div>
     <div class="track"><div id="bar"></div></div>
@@ -319,7 +350,7 @@
     <hr class="sep" style="margin:22px 0 14px">
     <div class="nhead" id="nhead"></div>
     <div class="npath" id="npath"></div>
-    <button type="button" class="pill small more" id="names">编辑名单</button>
+    <button type="button" class="pill small more" id="names" data-i18n="app.names">Edit roster</button>
   </aside>
 
   <section class="card logcard">
@@ -327,56 +358,56 @@
     <div class="log" id="log" aria-live="polite"></div>
   </section>
 
-  <div class="foot">照片只发给谷歌认；表格、数据库都存在这个浏览器里 · <a href="../">录入僧电脑版</a></div>
+  <div class="foot"><span data-i18n="app.foot"></span> · <a href="../" data-i18n="app.footLink">Windows app</a></div>
 </div>
 
 <!-- 新建类别 -->
 <dialog id="dlg-new"><form method="dialog" class="dcard" style="width:520px">
-  <h2>新建类别</h2><div class="sep1"></div>
-  <label for="newname">名字</label>
+  <h2 data-i18n="new.title">New form type</h2><div class="sep1"></div>
+  <label for="newname" data-i18n="new.name">Name</label>
   <input id="newname" class="field" maxlength="40" autocomplete="off" style="margin-top:6px">
-  <p class="para">比如「质检单」「送货单」。它有自己的数据库，跟刀单互不串味。</p>
+  <p class="para" data-i18n="new.para"></p>
   <div class="err" id="newerr"></div>
-  <div class="foot2"><button type="button" class="pill" data-close>取消</button><button type="submit" class="pill primary" id="newok">建好</button></div>
+  <div class="foot2"><button type="button" class="pill" data-close data-i18n="cancel">Cancel</button><button type="submit" class="pill primary" id="newok" data-i18n="new.ok">Create</button></div>
 </form></dialog>
 
 <!-- 放入样板资料 -->
 <dialog id="dlg-feed"><div class="dcard" style="width:600px">
-  <h2>放入样板资料</h2><div class="sep1"></div>
-  <div class="row"><span>放进</span><select id="feedcat" class="field combo" style="width:260px"></select>
-    <button type="button" class="pill" id="feednew" style="height:38px"><svg class="i"><use href="#i-plus"/></svg>新建类别</button></div>
+  <h2 data-i18n="feed.title">Add samples</h2><div class="sep1"></div>
+  <div class="row"><span data-i18n="feed.into">Into</span><select id="feedcat" class="field combo" style="width:260px"></select>
+    <button type="button" class="pill" id="feednew" style="height:38px"><svg class="i"><use href="#i-plus"/></svg><span data-i18n="app.newcat">New type</span></button></div>
   <p class="para" id="feeddesc"></p>
-  <div class="fdrop" id="fdrop">表格也可以直接拖到这里</div>
+  <div class="fdrop" id="fdrop" data-i18n="feed.drop">Or drop sheets here</div>
   <input type="file" id="feedfiles" accept=".xlsx,.xlsm,.xls,.csv" multiple hidden>
-  <div class="foot2"><button type="button" class="pill" data-close>取消</button><button type="button" class="pill primary" id="feedgo">选表放进去</button></div>
+  <div class="foot2"><button type="button" class="pill" data-close data-i18n="cancel">Cancel</button><button type="button" class="pill primary" id="feedgo" data-i18n="feed.go">Choose sheets</button></div>
 </div></dialog>
 
 <!-- 名单 -->
 <dialog id="dlg-names"><div class="dcard" style="width:560px">
-  <h2>名单</h2><div class="sep1"></div>
+  <h2 data-i18n="names.title">Roster</h2><div class="sep1"></div>
   <textarea id="namestxt" class="field" spellcheck="false" placeholder="639/Lee Ah Kow&#10;232/Tan Mei Ling"></textarea>
-  <p class="para">一行一个「工号/名字」。单子上只写了工号的，贫僧照这个把名字补上。没有也能用。</p>
+  <p class="para" data-i18n="names.para"></p>
   <input type="file" id="namesfile" accept=".txt,text/plain" hidden>
-  <div class="foot2"><button type="button" class="pill" id="namesload" style="margin-right:auto">读 名单.txt</button><button type="button" class="pill" data-close>取消</button><button type="button" class="pill primary" id="namesok">存好</button></div>
+  <div class="foot2"><button type="button" class="pill" id="namesload" style="margin-right:auto" data-i18n="names.load">Load .txt</button><button type="button" class="pill" data-close data-i18n="cancel">Cancel</button><button type="button" class="pill primary" id="namesok" data-i18n="save">Save</button></div>
 </div></dialog>
 
 <!-- 设置 -->
 <dialog id="dlg-set"><div class="dcard" style="width:640px">
-  <h2>设置</h2><div class="sep1" style="margin-bottom:0"></div>
+  <h2 data-i18n="set.title">Settings</h2><div class="sep1" style="margin-bottom:0"></div>
   <div id="setrows"></div>
   <div class="srow" style="border-top:1px solid var(--line)">
-    <div class="t">数据备份<div class="d" id="usage">数据库、名单、干过的照片都存在这个浏览器里。换电脑、清浏览器之前先备份一份。</div></div>
-    <button type="button" class="pill" id="backup">备份</button><button type="button" class="pill" id="restore" style="margin-left:-10px">恢复</button>
+    <div class="t"><span data-i18n="set.backupT">Backup</span><div class="d" id="usage" data-i18n="set.backupD"></div></div>
+    <button type="button" class="pill" id="backup" data-i18n="set.backup">Back up</button><button type="button" class="pill" id="restore" style="margin-left:-10px" data-i18n="set.restore">Restore</button>
     <input type="file" id="restorefile" accept=".json,application/json" hidden>
   </div>
   <div class="srow" id="corow" style="border-top:1px solid var(--line)">
-    <div class="t">公司表<div class="d" id="coname"></div></div>
-    <button type="button" class="pill" id="copick">换一本</button><button type="button" class="pill" id="coundo" style="margin-left:-10px">退回上一版</button>
+    <div class="t"><span data-i18n="set.coT">Company book</span><div class="d" id="coname"></div></div>
+    <button type="button" class="pill" id="copick">Change</button><button type="button" class="pill" id="coundo" style="margin-left:-10px" data-i18n="set.coUndo">Undo last fill</button>
   </div>
   <div class="err" id="seterr" style="min-height:0"></div>
   <div class="contact" id="setcontact"></div>
   <div class="foot2"><div class="left" id="setver"></div>
-    <a class="pill" id="hub" href="https://qianshoulab.github.io/" target="_blank" rel="noopener">千手院总舵</a><button type="button" class="pill" id="mail">方丈邮箱</button><button type="button" class="pill primary" data-close>完成</button></div>
+    <a class="pill" id="hub" href="https://qianshoulab.github.io/" target="_blank" rel="noopener" data-i18n="set.hub">QIANSHOU LAB</a><button type="button" class="pill" id="mail" data-i18n="set.mail">Email the abbot</button><button type="button" class="pill primary" data-close data-i18n="set.done">Done</button></div>
   <div class="snote" id="setnote"></div>
 </div></dialog>
 
@@ -385,46 +416,45 @@
   <div class="card vbar">
     <div class="g">
       <select id="vruns" class="field runs"></select>
-      <button type="button" class="pill" id="vprev" aria-label="上一张"><span class="w">◀ 上一张</span><span class="n">◀</span></button>
-      <input id="vnum" class="field num" inputmode="numeric" autocomplete="off" aria-label="编号">
-      <button type="button" class="pill primary" id="vgo">看</button>
-      <button type="button" class="pill" id="vnext" aria-label="下一张"><span class="w">下一张 ▶</span><span class="n">▶</span></button>
-      <button type="button" class="pill" id="vccw" title="逆时针转 90°" aria-label="逆时针转">↺</button>
-      <button type="button" class="pill" id="vcw" title="顺时针转 90°" aria-label="顺时针转">↻</button>
+      <button type="button" class="pill" id="vprev" data-i18n-attr="aria-label:view.prevAria" aria-label="Previous"><span class="w" data-i18n="view.prev">◀ Prev</span><span class="n">◀</span></button>
+      <input id="vnum" class="field num" inputmode="numeric" autocomplete="off" data-i18n-attr="aria-label:view.numAria" aria-label="Number">
+      <button type="button" class="pill primary" id="vgo" data-i18n="view.go">Go</button>
+      <button type="button" class="pill" id="vnext" data-i18n-attr="aria-label:view.nextAria" aria-label="Next"><span class="w" data-i18n="view.next">Next ▶</span><span class="n">▶</span></button>
+      <button type="button" class="pill" id="vccw" data-i18n-attr="title:view.ccw;aria-label:view.ccwAria" title="Rotate left 90°" aria-label="Rotate left">↺</button>
+      <button type="button" class="pill" id="vcw" data-i18n-attr="title:view.cw;aria-label:view.cwAria" title="Rotate right 90°" aria-label="Rotate right">↻</button>
       <span class="info" id="vinfo"></span>
     </div>
     <div class="g acts">
-      <button type="button" class="pill" id="vxlsx"><svg class="i"><use href="#i-down"/></svg>下载</button>
-      <button type="button" class="pill" id="vfill"><span class="w">填进公司表</span><span class="n">填表</span></button>
+      <button type="button" class="pill" id="vxlsx"><svg class="i"><use href="#i-down"/></svg><span data-i18n="view.xlsx">Download</span></button>
+      <button type="button" class="pill" id="vfill"><span class="w" data-i18n="view.fill">Fill company book</span><span class="n" data-i18n="view.fillShort">Fill</span></button>
       <input type="file" id="cofile" accept=".xlsx,.xlsm" hidden>
-      <button type="button" class="pill" id="vzip">编号照片</button>
-      <button type="button" class="pill" id="vcopy"><span class="w">复制整批</span><span class="n">复制</span></button>
-      <button type="button" class="pill" id="vdel"><span class="w">删掉这批</span><span class="n">删掉</span></button>
-      <button type="button" class="pill" id="vclose">关</button>
+      <button type="button" class="pill" id="vzip" data-i18n="view.zip">Photo zip</button>
+      <button type="button" class="pill" id="vcopy"><span class="w" data-i18n="view.copy">Copy all</span><span class="n" data-i18n="view.copyShort">Copy</span></button>
+      <button type="button" class="pill" id="vdel"><span class="w" data-i18n="view.del">Delete batch</span><span class="n" data-i18n="view.delShort">Delete</span></button>
+      <button type="button" class="pill" id="vclose" data-i18n="view.close">Close</button>
     </div>
   </div>
   <div class="vbody" id="vbody">
     <div class="photo" id="vphoto" tabindex="-1"></div>
     <div class="card panel" id="vpanel"></div>
   </div>
-  <div class="card empty" id="vempty" hidden>还没有结果：先选照片，点「开始工作」干一批。</div>
+  <div class="card empty" id="vempty" hidden data-i18n="view.empty"></div>
 </div></dialog>
 
 <!-- 手机传图 -->
 <dialog id="dlg-phone"><div class="dcard" style="width:400px">
-  <h2>手机传图</h2><div class="sep1"></div>
+  <h2 data-i18n="phone.title">Send from phone</h2><div class="sep1"></div>
   <div class="qr" id="qr"></div>
   <div class="pstate"><i class="dot" id="pdot2"></i><span id="pstate"></span></div>
-  <p class="para">用手机相机扫一下，手机一连上这个框自己关。拍完全选一传，这边收齐自己开工，你去摸鱼。
-扫过一次就记住了：手机上把那一页「添加到主屏幕」，以后点图标就传。</p>
-  <div class="foot2"><button type="button" class="pill" id="phonenew" style="margin-right:auto">换个码</button><button type="button" class="pill primary" data-close>好</button></div>
+  <p class="para" data-i18n="phone.para"></p>
+  <div class="foot2"><button type="button" class="pill" id="phonenew" style="margin-right:auto" data-i18n="phone.new">New code</button><button type="button" class="pill primary" data-close data-i18n="phone.ok">OK</button></div>
 </div></dialog>
 
 <!-- 删掉这批之前问一句 -->
 <dialog id="dlg-ask"><div class="dcard" style="width:440px">
   <h2 id="asktitle"></h2><div class="sep1"></div>
   <p class="para" id="asktext" style="margin:0"></p>
-  <div class="foot2"><button type="button" class="pill" data-close>取消</button><button type="button" class="pill primary" id="askok"></button></div>
+  <div class="foot2"><button type="button" class="pill" data-close data-i18n="cancel">Cancel</button><button type="button" class="pill primary" id="askok"></button></div>
 </div></dialog>
 
 <script>
@@ -432,7 +462,7 @@
   // 不然刚更新那十分钟，浏览器会拿新页面配缓存里的旧代码（按钮在、点了没反应）。
   (() => {
     const v = Date.parse(document.lastModified) || Date.now();
-    const mods = ['app', 'core', 'sheets', 'store', 'image', 'book', 'engine', 'pair', 'inbox', 'fill'];
+    const mods = ['app', 'strings', 'core', 'sheets', 'store', 'image', 'book', 'engine', 'pair', 'inbox', 'fill'];
     const map = document.createElement('script');
     map.type = 'importmap';
     map.textContent = JSON.stringify({ imports: Object.fromEntries(mods.map((m) => [`./${m}.js`, `./${m}.js?v=${v}`])) });

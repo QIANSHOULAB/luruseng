@@ -9,6 +9,7 @@ from openpyxl import load_workbook
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bangong import kb, sheets, tables  # noqa: E402
+from bangong.strings import T  # noqa: E402
 from test_kb import company_book  # noqa: E402
 
 
@@ -119,12 +120,12 @@ def test_locked_and_broken_xls_say_what_to_do(tmp_path, monkeypatch):
     p = tmp_path / 'a.xls'
     p.write_bytes(sheets.OLE2 + b'x' * 600)
     t = tables.TableDB(str(tmp_path / 't.sqlite'))
-    assert t.feed(str(p)).error == sheets.BROKEN
+    assert t.feed(str(p)).error == T(sheets.BROKEN)
 
     def locked(*a, **k):
         raise xlrd.XLRDError('Workbook is encrypted')
     monkeypatch.setattr(xlrd, 'open_workbook', locked)
-    assert t.feed(str(p)).error == sheets.LOCKED
+    assert t.feed(str(p)).error == T(sheets.LOCKED)
 
 
 def test_supported_names():

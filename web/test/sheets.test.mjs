@@ -1,5 +1,6 @@
 // 放入数据库读表（sheets.js）：.xlsx / .xls / .csv（GBK、UTF-8、UTF-16、分号）/ 网页导出的假 .xls / 坏表
 // 跑：node --test web/test/sheets.test.mjs（.xlsx、.xls 样本用 python 现做：要 openpyxl、xlwt）
+import './zh.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

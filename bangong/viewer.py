@@ -15,6 +15,7 @@ from PIL import Image, ImageTk
 
 from . import engine
 from . import macui as ui
+from .strings import T, note as note_text
 from .kb import cell_text, uniq
 
 LABELS = ['DATE', 'MACHINE', 'PART NUMBER', 'MO', 'OPR NO.', 'T NO.', 'DESCRIPTION', 'BTMP',
@@ -363,7 +364,7 @@ def rotate_photo(path: str, clockwise: bool) -> None:
 
 def run_label(run_id: str, n: int) -> str:
     d = datetime.strptime(run_id, '%Y%m%d_%H%M%S')
-    return f'{d:%Y-%m-%d %H:%M} 这批（{n} 张）'
+    return T('view.run', when=f'{d:%Y-%m-%d %H:%M}', n=n)
 
 
 def _open(p: str):
@@ -406,8 +407,8 @@ class Viewer(tk.Toplevel):
         fam = ui.family(self)
         bf = (fam, 10)
         if not self.runs:
-            self.title('核对')
-            tk.Label(self, text='还没有编号照片：先点「开始工作」干一批。', bg=ui.BG, fg=ui.TEXT, font=bf,
+            self.title(T('view.title'))
+            tk.Label(self, text=T('view.none'), bg=ui.BG, fg=ui.TEXT, font=bf,
                      padx=ui.px(30), pady=ui.px(30)).pack()
             return
 
@@ -421,7 +422,7 @@ class Viewer(tk.Toplevel):
         self.run_box = holder.box
         self.run_box.configure(state='readonly')
         self.run_box.bind('<<ComboboxSelected>>', lambda e: self.load_run(self.run_box.current()))
-        ui.Pill(top, radius=8, bg=ui.CARD, height=38, padx=16, text='◀ 上一张', command=lambda: self.step(-1), font=bf).pack(side='left', padx=(12, 6))
+        ui.Pill(top, radius=8, bg=ui.CARD, height=38, padx=16, text=T('view.prev'), command=lambda: self.step(-1), font=bf).pack(side='left', padx=(12, 6))
         self.num = tk.StringVar()
         box = ui.Field(top, self.num, font=bf, bg=ui.CARD)
         box.configure(width=ui.px(64))
@@ -429,11 +430,11 @@ class Viewer(tk.Toplevel):
         self.entry = box.entry
         self.entry.configure(justify='center')
         self.entry.bind('<Return>', lambda e: self.jump())
-        ui.Pill(top, radius=8, bg=ui.CARD, height=38, padx=16, text='看', command=self.jump, primary=True, font=(fam, 10, 'bold')).pack(side='left', padx=6)
-        ui.Pill(top, radius=8, bg=ui.CARD, height=38, padx=16, text='下一张 ▶', command=lambda: self.step(1), font=bf).pack(side='left')
+        ui.Pill(top, radius=8, bg=ui.CARD, height=38, padx=16, text=T('view.go'), command=self.jump, primary=True, font=(fam, 10, 'bold')).pack(side='left', padx=6)
+        ui.Pill(top, radius=8, bg=ui.CARD, height=38, padx=16, text=T('view.next'), command=lambda: self.step(1), font=bf).pack(side='left')
         ui.Pill(top, radius=8, bg=ui.CARD, height=38, padx=16, text='↺', command=lambda: self.turn(False), font=bf).pack(side='left', padx=(12, 6))
         ui.Pill(top, radius=8, bg=ui.CARD, height=38, padx=16, text='↻', command=lambda: self.turn(True), font=bf).pack(side='left')
-        self.table_btn = ui.Pill(top, radius=8, bg=ui.CARD, height=38, padx=14, text='打开表', icon='table',
+        self.table_btn = ui.Pill(top, radius=8, bg=ui.CARD, height=38, padx=14, text=T('view.open'), icon='table',
                                  command=self.open_table, font=bf)
         self.table_btn.pack(side='left', padx=(10, 0))
         self.info = tk.StringVar()
@@ -499,7 +500,7 @@ class Viewer(tk.Toplevel):
         if getattr(self, 'xlsx', '') and os.path.isfile(self.xlsx):
             _open(self.xlsx)
         else:
-            self.info.set('这批的表找不到了（挪走或者删了？）')
+            self.info.set(T('view.gone'))
 
     def step(self, delta: int):
         if not self.nos:
@@ -510,7 +511,7 @@ class Viewer(tk.Toplevel):
     def jump(self):
         t = self.num.get().strip()
         if not t.isdigit() or int(t) not in self.photos:
-            self.info.set(f'没有第 {t} 张（这批是 {self.nos[0]}–{self.nos[-1]}）' if t else '先输入编号')
+            self.info.set(T('view.noSuch', t=t, a=self.nos[0], b=self.nos[-1]) if t else T('view.typeNo'))
             return
         self.show(int(t))
         self.focus_set()
@@ -518,8 +519,8 @@ class Viewer(tk.Toplevel):
     def show(self, no: int):
         self.cur = no
         self.num.set(str(no))
-        self.title(f'核对 · 第 {no} 张 / 共 {len(self.nos)} 张')
-        self.info.set(f'第 {no} 张 / 共 {len(self.nos)} 张　←→ 翻页，双击看大图，点格子改')
+        self.title(T('view.titleN', no=no, n=len(self.nos)))
+        self.info.set(T('view.pos', no=no, n=len(self.nos)))
         if self.editing and self.editing[0] != no:
             self.editing = None
         try:
@@ -527,7 +528,7 @@ class Viewer(tk.Toplevel):
                 self._pil = im.convert('RGB')
         except Exception as e:
             self._pil = None
-            self.info.set(f'第 {no} 张打不开：{e}')
+            self.info.set(T('view.cantOpen', no=no, e=e))
         self.render()
         self.fill_panel(no)
 
@@ -537,7 +538,7 @@ class Viewer(tk.Toplevel):
             try:
                 rotate_photo(self.photos[self.cur], clockwise)
             except Exception as e:
-                self.info.set(f'转不了：{e}')
+                self.info.set(T('view.rotErr', e=e))
                 return
             self.show(self.cur)
 
@@ -569,11 +570,11 @@ class Viewer(tk.Toplevel):
         recs = self.rows.get(no, [])
         if not recs:
             p.insert('end', f'No. {no}\n\n', 'h')
-            p.insert('end', '表里没有这一号的记录。\n', 'dim')
+            p.insert('end', T('view.noRec') + '\n', 'dim')
         for k, rec in enumerate(recs):
-            p.insert('end', f'No. {no}' + (f'　第 {k + 1} 条' if len(recs) > 1 else '') + '\n', 'h')
+            p.insert('end', f'No. {no}' + (T('view.recN', k=k + 1) if len(recs) > 1 else '') + '\n', 'h')
             if not any(rec['values']):
-                p.insert('end', rec['note'] + '\n\n', 'note')
+                p.insert('end', note_text(rec['note']) + '\n\n', 'note')
                 continue
             for i, (lab, val) in enumerate(zip(rec.get('labels', LABELS), rec['values'])):
                 if (rec.get('builtin') and i == BTMP and (not val or val == rec['values'][TOTAL])
@@ -590,7 +591,7 @@ class Viewer(tk.Toplevel):
                     p.window_create('end', window=self._editor(rec, k, i), padx=ui.px(2), pady=ui.px(4))
                     p.insert('end', '\n')
             if rec['note']:
-                p.insert('end', '\n' + rec['note'] + '\n', 'ok' if rec['note'] == HUMAN_NOTE else 'note')
+                p.insert('end', '\n' + note_text(rec['note']) + '\n', 'ok' if rec['note'] == HUMAN_NOTE else 'note')
             p.insert('end', '\n')
         p.configure(state='disabled')
         p.yview_moveto(y)
@@ -608,7 +609,7 @@ class Viewer(tk.Toplevel):
     def open_cell(self, k: int, i: int):
         """点一格：底下展开一个小框，红格子还列出几遍认出来的不同写法，点一个就填上。再点一下收起。"""
         if self._busy_here():
-            self.info.set('这批还在干：干完再改（干完存盘会把这本表整本重写）')
+            self.info.set(T('view.busy'))
             return
         key = (self.cur, k, i)
         self.editing = None if self.editing == key else key
@@ -639,10 +640,10 @@ class Viewer(tk.Toplevel):
                         command=lambda a=a: self.save_cell(k, i, a)).pack(side='left', padx=(0, ui.px(6)))
         btns = tk.Frame(f, bg=ui.CARD)
         btns.pack(fill='x', pady=(ui.px(8), 0))
-        ui.Pill(btns, text='改好了', primary=True, radius=8, height=32, padx=16, bg=ui.CARD, font=(fam, 10, 'bold'),
+        ui.Pill(btns, text=T('view.save'), primary=True, radius=8, height=32, padx=16, bg=ui.CARD, font=(fam, 10, 'bold'),
                 command=lambda: self.save_cell(k, i, var.get())).pack(side='right')
         if red or i in rec.get('fixed', ()):
-            ui.Pill(btns, text='对的', radius=8, height=32, padx=16, bg=ui.CARD, font=(fam, 10),
+            ui.Pill(btns, text=T('view.right'), radius=8, height=32, padx=16, bg=ui.CARD, font=(fam, 10),
                     command=lambda: self.save_cell(k, i, None)).pack(side='right', padx=(0, ui.px(8)))
         ent = fld.entry
         ent.bind('<Return>', lambda e: (self.save_cell(k, i, var.get()), 'break')[1])
@@ -661,7 +662,7 @@ class Viewer(tk.Toplevel):
     def save_cell(self, k: int, i: int, text: str | None):
         """「改好了」/ 回车（text 是框里的字）、点候选（text 是那个写法）、「对的」（text 是 None）：写回表里。"""
         if self._busy_here():
-            self.info.set('这批还在干：干完再改（干完存盘会把这本表整本重写）')
+            self.info.set(T('view.busy'))
             return
         no = self.cur
         rec = self.rows[no][k]
@@ -679,27 +680,27 @@ class Viewer(tk.Toplevel):
                     snap = None
             res = edit_cell(self.xlsx, rec['row'], i, text, today=self.today, roster=names, kb=snap)
         except Locked:
-            self.info.set('✗ 表在 Excel 里开着，写不进去：关掉 Excel 再点「改好了」')
+            self.info.set(T('view.locked'))
             return
         except Exception as e:
-            self.info.set(f'✗ 改不了：{type(e).__name__}：{e}')
+            self.info.set(T('view.err', e=f'{type(e).__name__}: {e}'))
             return
         if res['still']:
-            msg = f'{label} {res["value"] or "空"} 还不对：{res["why"]}'
+            msg = T('view.still', label=label, v=res['value'] or T('empty'), why=note_text(res['why']))
         elif text is None or res['value'] == before:
-            msg = f'{label} 核过了'
+            msg = T('view.checked', label=label)
         else:
-            msg = f'{label} 改成 {res["value"] or "空"}'
+            msg = T('view.changed', label=label, v=res['value'] or T('empty'))
         if res.get('also'):
-            msg += f'，SHIFT 跟着猜成 {res["also"]}（照 {engine.split_setter(res["value"])[0]} 以前的班次）'
+            msg += T('view.shiftToo', s=res['also'], id=engine.split_setter(res['value'])[0])
         if self.on_checked:
             try:
                 if self.on_checked(self.cat, f'核对 {self.run_id} #{no}.{k}', res['data'] if res['checked'] else None):
-                    msg += '，这条核完进了样板资料'
+                    msg += T('view.fedRow')
             except Exception:
                 pass                                        # 样板资料存不下，不耽误改表
         self.rows = load_rows(self.xlsx)
         self.editing = None
         self.fill_panel(no)
-        self.info.set(msg + ('' if res['still'] else '，表跟着改了'))
+        self.info.set(msg + ('' if res['still'] else T('view.sheetToo')))
         self.focus_set()

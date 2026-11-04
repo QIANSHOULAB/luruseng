@@ -1,5 +1,6 @@
 // 网页版干活那一套（engine.js）：跟电脑版 tests/test_engine.py 同样的场景，用假的谷歌服务器
 // 跑：node --test web/test/engine.test.mjs
+import './zh.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as C from '../core.js';

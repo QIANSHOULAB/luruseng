@@ -4,6 +4,9 @@
 // 不要 No.、不要颜色、不要核对提示（Song：「不要标记，人核对哪些都不要」）。
 // 公司表最后一条在第 33 行，这批的 1 就填第 34 行（Song：「公司表格编号33结尾我们的1就是34」）。
 import { FIELDS, findHeader, labelKey, mkey, skel, nkey } from './core.js';
+import './strings.js';
+
+const t = (k, v) => globalThis.LURU_I18N.t(k, v);
 
 const SHEET_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml';
 const SHEET_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet';
@@ -43,9 +46,9 @@ export function sharedStrings(xml) {
 
 // 一页拆成：sheetData 前面、每一行（原样留着）、sheetData 后面
 export function parseSheet(xml) {
-  if (/<\w+:sheetData\b/.test(xml)) throw new FillError('这本表的格式认不得（带命名空间前缀的 XML）');
+  if (/<\w+:sheetData\b/.test(xml)) throw new FillError(t('fill.errNs'));
   const a = xml.indexOf('<sheetData');
-  if (a < 0) throw new FillError('页里没有 sheetData');
+  if (a < 0) throw new FillError(t('fill.errNoData'));
   let head, body, tail;
   const self = xml.slice(a).match(/^<sheetData\s*\/>/);
   if (self) {
@@ -59,7 +62,7 @@ export function parseSheet(xml) {
   const rows = new Map();
   for (const m of body.matchAll(/<row\b[^>]*?(?:\/>|>[\s\S]*?<\/row>)/g)) {
     const r = +attr(startTag(m[0]), 'r');
-    if (!r) throw new FillError('表里有一行没写行号，认不得');
+    if (!r) throw new FillError(t('fill.errNoRow'));
     rows.set(r, { r, xml: m[0], touched: false });
   }
   return { head, tail, rows };
@@ -226,7 +229,7 @@ export async function fillBook(bytes, rows, { JSZip, before = null, sure = true 
   let wbXml = await read('xl/workbook.xml');
   let relsXml = await read('xl/_rels/workbook.xml.rels');
   let ctXml = await read('[Content_Types].xml');
-  if (!wbXml || !relsXml || !ctXml) throw new FillError('这不像 Excel 表（.xlsx）');
+  if (!wbXml || !relsXml || !ctXml) throw new FillError(t('fill.errNotXlsx'));
   const shared = sharedStrings(await read('xl/sharedStrings.xml'));
   const rels = new Map([...relsXml.matchAll(/<Relationship\b[^>]*>/g)].map((m) => [attr(m[0], 'Id'), m[0]]));
   const sheets = [...wbXml.matchAll(/<sheet\b[^>]*\/>/g)].map((m) => {
@@ -242,7 +245,7 @@ export async function fillBook(bytes, rows, { JSZip, before = null, sure = true 
     const look = layout(parseSheet(xml), shared);
     if (look) months.push({ ...s, month: m, xml, look });
   }
-  if (!months.length) throw new FillError('这本表里找不到按月份分页、带 DATE 和 MACHINE 表头的页：选的是公司那本 TOOL BROKEN RECORD 吗？');
+  if (!months.length) throw new FillError(t('fill.errNoMonth'));
   const recs = rows.filter((r) => r && r.kind === 'rec' && r.values);
   const parsed = new Map();                          // 路径 -> 拆开的页：改都改在这上面，最后一起写回去
   const sheetOf = (t) => { if (!parsed.has(t.path)) parsed.set(t.path, parseSheet(t.xml)); return parsed.get(t.path); };
@@ -307,7 +310,7 @@ export async function fillBook(bytes, rows, { JSZip, before = null, sure = true 
     if (!target) {                                   // 还没有这个月那一页：照最后一个月那页新建，放在最后
       const tpl = months[months.length - 1];
       const name = MONTH_SHEET[m];
-      if (sheets.some((s) => s.name.toUpperCase() === name)) throw new FillError(`已经有一页叫「${name}」，可它不像记录页`);
+      if (sheets.some((s) => s.name.toUpperCase() === name)) throw new FillError(t('fill.errClash', { name }));
       const path = `xl/worksheets/sheet${nextFile++}.xml`;
       const rid = `rId${nextRid++}`;
       const xml = blankMonth(tpl.xml, tpl.look.dataStart);
@@ -375,7 +378,8 @@ export async function fillBook(bytes, rows, { JSZip, before = null, sure = true 
 
 // 给人看的一句：OCT 第 33–43 行（11 条）；NOV（新建的一页）第 4–5 行（2 条）
 export function reportLine(report) {
-  return report.filter((x) => x.n).map((x) => `${x.sheet}${x.created ? '（新建的一页）' : ''} 第 ${x.from}${x.to > x.from ? `–${x.to}` : ''} 行（${x.n} 条）`).join('；');
+  return report.filter((x) => x.n).map((x) => t('fill.rows', { sheet: x.sheet, created: x.created ? t('fill.created') : '', from: x.from,
+    to: x.to > x.from ? `–${x.to}` : '', n: x.n })).join(t('fill.sep'));
 }
 
 // 「✓ 填进 X：」后面那半句：新添的、就地改的、本来就有的、没敢动的、一模一样的
@@ -386,12 +390,13 @@ export function fillLine(res) {
   if (res.updated && res.updated.length) {
     const by = new Map();
     for (const u of res.updated) { if (!by.has(u.sheet)) by.set(u.sheet, []); by.get(u.sheet).push(u.r); }
-    parts.push(`上回填的改了 ${res.updated.length} 条（${[...by].map(([s, rs]) => `${s} 第 ${rs.sort((a, b) => a - b).join('、')} 行`).join('，')}）`);
+    const where = [...by].map(([s, rs]) => t('fill.where', { sheet: s, rows: rs.sort((a, b) => a - b).join(t('list.sep')) })).join(t('fill.sep2'));
+    parts.push(t('fill.updated', { n: res.updated.length, where }));
   }
-  if (res.dup) parts.push(`${res.dup} 条表里本来就有，没重复填`);
-  if (res.kept && res.kept.length) parts.push(`第 ${res.kept.join('、')} 张上回填过，表里那行后来有人改过或删了，没动它`);
-  if (res.twins && res.twins.length) parts.push(`第 ${res.twins.map((p) => p.join('、')).join('，')} 张一模一样，都填了，看一眼是不是同一张拍了两回`);
-  return parts.join('；');
+  if (res.dup) parts.push(t('fill.dup', { n: res.dup }));
+  if (res.kept && res.kept.length) parts.push(t('fill.kept', { nos: res.kept.join(t('list.sep')) }));
+  if (res.twins && res.twins.length) parts.push(t('fill.twins', { nos: res.twins.map((p) => p.join(t('list.sep'))).join(t('fill.sep2')) }));
+  return parts.join(t('fill.sep'));
 }
 
 export { labelKey };

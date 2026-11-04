@@ -2,11 +2,14 @@
 // 电脑上生成一个通道（room）和一把钥匙（key），放进二维码；手机一扫就配上了。
 // 照片在手机上用这把钥匙加密（AES-GCM）才发出去，中转站只见乱码；钥匙在网址 # 后面，从来不发给任何服务器。
 
+import './strings.js';
+
 export const RELAY = 'https://luruseng-relay.lunzigeju.workers.dev';   // 中转站（Cloudflare，仓库 QIANSHOULAB/luruseng-relay；推上去自己部署）
 export const MAX_SEALED = 1_990_000;           // 中转站一张最多收这么多字节
 const ROOM_RE = /^[A-Za-z0-9_-]{20,64}$/;
 const KEY_RE = /^[A-Za-z0-9_-]{43}$/;
 const enc = new TextEncoder(), dec = new TextDecoder();
+const t = (k, v) => globalThis.LURU_I18N.t(k, v);
 
 export function relayBase() { return (globalThis.LURUSENG_RELAY || RELAY).replace(/\/$/, ''); }   // 测试时换成本地的
 
@@ -78,7 +81,7 @@ async function call(input, init) {
   if (!res.ok) {
     let why = '';
     try { why = (await res.json()).error || ''; } catch (e) { /* 不是 JSON */ }
-    const e = new Error(`中转站 HTTP ${res.status}${why ? '：' + why : ''}`);
+    const e = new Error(t('relay.http', { s: res.status }) + (why ? `: ${why}` : ''));
     e.status = res.status;
     throw e;
   }

@@ -31,7 +31,9 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-VERSION = '1.11.2'
+from .strings import T, join
+
+VERSION = '1.11.3'
 APP_NAME = '录入僧'
 SUBTITLE = '施主去玩，贫僧填表'
 TITLE = '入我千手院，凡事尽释手；千僧替牛马，施主自风流。'      # 窗口标题栏只写这一句（Song 定的）
@@ -1099,7 +1101,7 @@ def copy_in(paths, folder: str, redo: bool = False) -> CopyResult:
     for src in paths:
         name = os.path.basename(src)
         if os.path.splitext(name)[1].lower() not in IMG_EXT:
-            res.bad.append((name, '不是照片'))
+            res.bad.append((name, T('copy.notPhoto')))
             continue
         try:
             if os.path.normcase(os.path.dirname(os.path.abspath(src))) == os.path.normcase(os.path.abspath(folder)):
@@ -1119,7 +1121,7 @@ def copy_in(paths, folder: str, redo: bool = False) -> CopyResult:
             if h in ledger:
                 res.redone.append(name)
         except OSError as e:
-            res.bad.append((name, f'复制不了：{e.strerror or e}'))
+            res.bad.append((name, T('copy.cant', e=e.strerror or e)))
     return res
 
 
@@ -1172,9 +1174,9 @@ class Engine:
         secs = max(0.0, ts - self.clock())
         if secs > 90:
             back = datetime.fromtimestamp(ts).strftime('%m-%d %H:%M')
-            self.log(f'⏸ {why}，等到 {back} 额度刷新后接着干（约 {secs / 3600:.1f} 小时）')
+            self.log(T('eng.waitLong', why=why, when=back, h=f'{secs / 3600:.1f}'))
         elif secs >= 1:
-            self.log(f'⏸ {why}，等 {int(secs)} 秒')
+            self.log(T('eng.wait', why=why, s=int(secs)))
         self.wait(secs)
 
     def recognize(self, path: str) -> tuple[list[dict], str]:
@@ -1277,7 +1279,7 @@ class Engine:
                 raise Fatal(self.fatal)
             i, key = self.keys.pick()
             if i is None:
-                self.wait_until(key, '所有钥匙额度都用完了' if key - self.clock() > 120 else '每分钟次数到顶')
+                self.wait_until(key, T('eng.allKeys' if key - self.clock() > 120 else 'eng.perMinute'))
                 continue
             try:
                 with self.lock:
@@ -1289,11 +1291,11 @@ class Engine:
                 if e.status == 429:
                     kind = classify_429(e)
                     if kind == 'prepay':
-                        raise Fatal(f'钥匙{i + 1} · {e.raw()}（账单账户预付余额用完，等也没用）')
+                        raise Fatal(T('eng.prepay', i=i + 1, raw=e.raw()))
                     if kind == 'day':
                         until = next_pacific_midnight(self.clock())
                         self.keys.park(i, until)
-                        self.log(f'钥匙{i + 1} 今天的额度用完了 · {e.raw()}')
+                        self.log(T('eng.dayOut', i=i + 1, raw=e.raw()))
                     else:
                         minute_hits += 1
                         if minute_hits > MAX_MINUTE_WAITS:
@@ -1305,19 +1307,19 @@ class Engine:
                 if e.status == 400 and re.search(r'schema', e.message, re.I):
                     if self.use_schema:
                         self.use_schema = False
-                        self.log(f'模型不认结构化输出格式，改用纯 JSON 提示重试 · {e.raw()}')
+                        self.log(T('eng.schema', raw=e.raw()))
                     if 'responseSchema' in body['generationConfig']:
                         body = self._body(jpeg, False)
                         continue
                 if e.status in (400, 401, 403) and re.search(r'API key|API_KEY|permission|PERMISSION', f'{e.message} {e.detail}'):
-                    raise Fatal(f'钥匙{i + 1} · {e.raw()}')
+                    raise Fatal(T('eng.keyBad', i=i + 1, raw=e.raw()))
                 if e.status == 404:
                     raise Fatal(f'{self.model} · {e.raw()}')
                 if e.status == 0 or e.status >= 500:
                     if net_tries < len(RETRY_WAITS):
                         w = RETRY_WAITS[net_tries]
                         net_tries += 1
-                        self.log(f'{os.path.basename(path)} · {e.raw()} · {w} 秒后重试')
+                        self.log(T('eng.retry', name=os.path.basename(path), raw=e.raw(), w=w))
                         self.wait(w)
                         continue
                 raise
@@ -1326,7 +1328,7 @@ class Engine:
         res = self.res
         if not self.keys.keys:
             res.stopped_reason = '没填钥匙'
-            self.log('✗ 没填钥匙')
+            self.log(T('eng.noKey'))
             return res
         os.makedirs(self.folder, exist_ok=True)
         out_dir = os.path.join(self.folder, OUT_DIR)
@@ -1365,7 +1367,7 @@ class Engine:
                 self.kb_line = kb.summary()
                 self.log(self.kb_line)
             except Exception as e:
-                self.log(f'数据库打不开，这次不用它：{type(e).__name__}：{e}')
+                self.log(T('eng.dbErr', e=f'{type(e).__name__}: {e}'))
                 self.snapshot, self.hints = None, ''
         ledger_path = os.path.join(out_dir, LEDGER)
         old_ledger = os.path.join(out_dir, OLD_LEDGER)
@@ -1391,15 +1393,15 @@ class Engine:
                 os.makedirs(dup, exist_ok=True)
                 os.replace(p, unique_dest(dup, os.path.basename(p)))
                 res.skipped += 1
-                self.log(f'↷ {os.path.basename(p)} 以前干过（{ledger[h].get("xlsx", "")} 第 {ledger[h].get("no", "?")} 张），挪进 已识别\\{DUP_DIR}')
+                self.log(T('eng.dup', name=os.path.basename(p), xlsx=ledger[h].get('xlsx', ''), no=ledger[h].get('no', '?'), dup=DUP_DIR))
             else:
                 todo.append((p, h))
         if again:
-            names = '、'.join(again[:5]) + ('…' if len(again) > 5 else '')
-            self.log(f'↻ {len(again)} 张以前干过，⚙ 开着「干过的照片也重干」，这回照样认（钥匙次数照扣）：{names}')
+            names = join(again[:5]) + ('…' if len(again) > 5 else '')
+            self.log(T('eng.redoing', n=len(again), names=names))
         total = len(todo)
         if not total:
-            self.log('文件夹里没有新图片，收工。')
+            self.log(T('eng.nothing'))
             return res
 
         run_id = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -1419,12 +1421,12 @@ class Engine:
         book = self.spec.book(res.xlsx) if self.spec else RecordBook(res.xlsx, names=self.names, kb=self.snapshot)
         items = [(i + 1, p, h) for i, (p, h) in enumerate(todo)]      # 按拍摄顺序编号：第 1 张对应表里 No. 1
         if self.spec:
-            what = f'，类别「{self.spec.name}」' + ('（还没定列：认全部内容）' if self.spec.open_mode
-                                                 else f'（{len(self.spec.columns)} 列）')
+            what = T('eng.what.cat', cat=self.spec.name) + (T('eng.what.open') if self.spec.open_mode
+                                                            else T('eng.what.cols', n=len(self.spec.columns)))
         else:
-            what = '，类别「刀单」' + (f'，名单 {len(self.names)} 人' if self.names else '，没找到名单')
-        self.log(f'▶ 开工（录入僧 v{VERSION}）：{total} 张，按拍摄顺序编号 1–{total}，每批 {BATCH} 张，模型 {self.model}'
-                 + ('，每张认两遍对答案' if self.reads >= 2 else '') + what)
+            what = T('eng.what.builtin') + (T('eng.what.names', n=len(self.names)) if self.names else T('eng.what.noNames'))
+        self.log(T('eng.start', v=VERSION, n=total, batch=BATCH, model=self.model,
+                   twice=T('eng.twice') if self.reads >= 2 else '', what=what))
         done = 0
         self.progress(0, total)
 
@@ -1448,7 +1450,7 @@ class Engine:
                 os.makedirs(done_dir, exist_ok=True)
                 stamp_number(p, no, os.path.join(done_dir, f'{no:0{width}d}.jpg'), side)
             except Exception as e:
-                self.log(f'{no:0{width}d} 编号照片没印成：{type(e).__name__}：{e}')
+                self.log(T('eng.stampErr', tag=f'{no:0{width}d}', e=f'{type(e).__name__}: {e}'))
             return no, p, h, recs, ''
 
         try:
@@ -1481,7 +1483,7 @@ class Engine:
                                 os.replace(p, unique_dest(orig_dir, f'{tag}_{name}'))
                             ledger[h] = {'file': name, 'no': no, 'xlsx': os.path.basename(book.path),
                                          'at': datetime.now().isoformat(timespec='seconds')}
-                            self.log(f'✓ {tag} {name} · {len(recs)} 条')
+                            self.log(T('eng.ok', tag=tag, name=name, n=len(recs)))
                         else:
                             res.failed += 1
                             res.errors.append((name, err))
@@ -1495,14 +1497,14 @@ class Engine:
                         raise halt
         except Fatal as e:
             res.stopped_reason = str(e)
-            self.log(f'■ 停工：{e}')
+            self.log(T('eng.halted', why=e))
         except Stopped:
             if self.fatal:
                 res.stopped_reason = self.fatal
-                self.log(f'■ 停工：{self.fatal}')
+                self.log(T('eng.halted', why=self.fatal))
             else:
                 res.stopped_reason = '手动停止'
-                self.log('■ 已停止，没干完的下次接着干')
+                self.log(T('eng.stopped'))
         if res.ok == 0 and res.failed == 0:
             try:
                 os.remove(res.xlsx)
@@ -1514,8 +1516,9 @@ class Engine:
                 from . import report
                 report.finish_run(self, items, getattr(book, 'path', res.xlsx), started, self.kb_line)
             except Exception as e:
-                self.log(f'给方丈的记录没写成（不耽误干活）：{type(e).__name__}：{e}')
-        used =' · '.join(f'钥匙{i + 1}×{n}' for i, n in enumerate(self.keys.used) if n)
-        self.log(f'{"✓" if not res.failed and not res.stopped_reason else "⚠"} 成功 {res.ok} 张（{res.records} 条记录）· 失败 {res.failed} 张 · '
-                 f'{res.requests} 次请求{" · " + used if used else ""}' + (f'\n结果：{res.xlsx}' if res.xlsx else ''))
+                self.log(T('eng.reportErr', e=f'{type(e).__name__}: {e}'))
+        used = ' · '.join(T('eng.used', i=i + 1, n=n) for i, n in enumerate(self.keys.used) if n)
+        self.log(T('eng.sum', mark='✓' if not res.failed and not res.stopped_reason else '⚠', ok=res.ok, rec=res.records,
+                   bad=res.failed, req=res.requests, used=' · ' + used if used else '')
+                 + (T('eng.sumXlsx', xlsx=res.xlsx) if res.xlsx else ''))
         return res

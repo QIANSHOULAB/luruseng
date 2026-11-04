@@ -219,7 +219,7 @@ def test_update_card_and_contact(tmp_path, monkeypatch):
     from bangong import app, macui as ui, updater
     monkeypatch.setattr(app, 'app_dir', lambda: str(tmp_path / 'app'))
     monkeypatch.setattr(app, 'CONFIG', str(tmp_path / 'config.json'))
-    monkeypatch.setattr(updater, 'notes', lambda since=None, timeout=15: '- 后来拿到的说明')
+    monkeypatch.setattr(updater, 'notes', lambda since=None, timeout=15, lang='zh': '- 后来拿到的说明')
     opened = []
     monkeypatch.setattr(app, 'open_path', opened.append)
     try:
@@ -288,10 +288,11 @@ def test_key_tutorial_buttons(tmp_path, monkeypatch):
 
 def test_key_page_is_there():
     """网站上的教程页：按钮指过去的地方得真有（key.html 和 #key2），去谷歌领钥匙的网址对。"""
-    page = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'key.html')
-    html = open(page, encoding='utf-8').read()
-    assert 'id="key2"' in html and 'https://aistudio.google.com/apikey' in html
-    assert '老衲不打诳语' in html and '打死别绑银行卡' in html
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    html = open(os.path.join(root, 'key.html'), encoding='utf-8').read()
+    words = open(os.path.join(root, 'web', 'strings.js'), encoding='utf-8').read()      # 页面上的字（中英两套）在这
+    assert 'id="key2"' in html and 'https://aistudio.google.com/apikey' in html and 'web/strings.js' in html
+    assert '老衲不打诳语' in words and '打死别绑银行卡' in words and 'never add a bank card' in words
 
 
 def test_pretty_notes():

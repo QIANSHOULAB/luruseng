@@ -7,8 +7,10 @@ from bangong import engine
 
 
 def cli(folder: str) -> int:
+    from bangong import strings
     from bangong.app import load_config
     cfg = load_config()
+    strings.init(cfg.get('lang'))                  # 日志用窗口里选的语言（没选过：新装英文、老电脑中文）
     keys = [os.environ.get('BANGONG_KEY1') or cfg.get('key1', ''), os.environ.get('BANGONG_KEY2') or cfg.get('key2', '')]
     model = os.environ.get('BANGONG_MODEL') or cfg.get('model') or engine.DEFAULT_MODEL
 
@@ -70,8 +72,10 @@ if __name__ == '__main__':
             print(v or '已经是最新版', flush=True)
         sys.exit(0)
     if a and a[0] == '--feed':                     # 录入僧.exe --feed 表1.xlsx 表2.xlsx（给大管家/计划任务用）
-        from bangong.app import kb_path
+        from bangong import strings
+        from bangong.app import kb_path, load_config
         from bangong.kb import KnowledgeBase
+        strings.init(load_config().get('lang'))
         kb = KnowledgeBase(kb_path())
         lines = [kb.feed(p).line() for p in a[1:]] + [kb.summary()]
         if sys.stdout:

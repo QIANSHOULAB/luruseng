@@ -1,0 +1,678 @@
+web.name	Luru
+web.fullName	Luru · Photo Typist
+web.sub	Snap the forms. Skip the typing.
+web.builtin	Tool breakage
+web.list.sep	, 
+web.empty	empty
+web.lang.label	Language
+web.site.title	Luru · Photo Typist
+web.site.desc	Photograph your tool breakage records and the Excel sheet fills itself. Free, for Windows or right in your browser.
+web.site.h1	Luru · Photo Typist
+web.site.lead	Photograph your TOOL BROKEN RECORD forms, drop them in a folder, and the Excel sheet fills itself. Each photo gets a number stamped on it to match its row. Anything the monk isn’t sure about turns <span class="red">red</span>: check those, skip the rest. Other forms work too. Make a new type and show it a few corrected sheets.
+web.site.phone	On a phone? Use the <a href="web/"><b>web version</b></a>, nothing to install. For the Windows app, send this link to your computer.
+web.site.copy	Copy link
+web.site.copied	Copied
+web.site.copyPrompt	Copy this link
+web.site.dl	Download for Windows
+web.site.web	Use in browser
+web.site.webSmall	No install. Phones too.
+web.site.meta	Windows 10 / 11 · about 30 MB · free
+web.site.updated	updated {d}
+web.site.versions	All versions
+web.site.shot	screenshot.en.png
+web.site.shotAlt	The Luru window: folder and keys on the left, status on the right, log below
+web.site.stepsH	Three steps, then you’re off the clock
+web.site.s1h	Download, double-click
+web.site.s1p	Hit the blue button. Tidy types give it a folder of its own first, like <span class="path">D:\录入僧</span> (that’s Luru in Chinese).
+web.site.s1hint	Running it straight from Downloads works too: it makes a 录入僧 folder next to itself and moves in, so photos, sheets and the database stay in one place.
+web.site.s2h	Add a key
+web.site.s2p	Sign in to <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> with a Google account, click <span class="btnlike">Create API key</span>, copy it, paste it into Key 1. Free. Actually free.
+web.site.s2hint	First time? <a href="key.html">Here’s the walkthrough</a>. Never add a card and it can’t cost you a cent.
+web.site.s3h	Add photos, hit Start
+web.site.s3p	Click Add photos… (they’re copied into the 待识别 to-do folder, originals stay put), then Start. When it’s done the review window opens: photo on the left, its row on the right. Click a cell, fix it, the sheet follows.
+web.site.s3hint	Not a tool breakage form? Pick its type first, or hit + New type. Tick Auto-start and it gets going whenever photos land in the folder.
+web.site.gatesH	Two speed bumps the first time
+web.site.gatesSmall	Only once
+web.site.g1h	Browser says “not commonly downloaded”
+web.site.g1a	Chrome: click <span class="btnlike">Keep</span>
+web.site.g1b	Edge: click <span class="btnlike">…</span> → <span class="btnlike">Keep</span> → <span class="btnlike">Keep anyway</span>
+web.site.g2h	Blue box: “Windows protected your PC”
+web.site.g2a	Click <span class="btnlike">More info</span> → <span class="btnlike">Run anyway</span>
+web.site.g2b	We didn’t buy a code-signing certificate, so Windows doesn’t recognise it. That’s all it is.
+web.site.factsH	Straight talk
+web.site.f1	<b>Photos go to Google Gemini to be read</b>, on your own key and quota. If the free quota runs out, it waits for the reset and carries on.
+web.site.f2	<b>Sheets, roster, database and photos stay on your computer.</b> So does your key. On a shared PC, turn off Remember keys in ⚙ at the top right.
+web.site.f3	<b>Gets sharper with use.</b> Feed it corrected sheets with Add samples and it learns your names, tools and machines.
+web.site.f4	<b>Not just tool forms.</b> Hit + New type, name it (say, QC check) and it reads everything on the form. Fix the result, add it as a sample, and those headers become its columns. Each type keeps its own database.
+web.site.f5	<b>Tells you when there’s an update.</b> It checks every 6 hours and shows what changed. Click Update now and it swaps itself in, settings and data untouched. Or pick Always update and forget about it.
+web.site.f6	<b>Originals optional.</b> Turn off Keep originals in ⚙ and they go to the Recycle Bin once read. Half the disk space.
+web.site.foot	Luru · Photo Typist
+web.site.contact	Feature ideas, complaints or business inquiries? Send the abbot a carrier pigeon: 
+web.site.hub	More monks at 
+web.site.source	Source
+web.site.mailSubject	Luru feedback
+web.key.title	Get a free API key · Luru
+web.key.desc	Google does the work, we just point the way. Four steps to a free Gemini API key.
+web.key.back	‹ Luru
+web.key.h1	Get a free key
+web.key.h1tag	No catch
+web.key.tagline	Google does the heavy lifting. We just point the way.
+web.key.lead	An “API key” is a string of gibberish that looks like a cat walked across the keyboard. Get one from Google, paste it into Key 1, and the app gets straight to work.
+web.key.cta	Get it from Google
+web.key.stepsH	Four steps, two minutes
+web.key.s1h	Sign in
+web.key.s1p	Hit the blue button and sign in with a Google account. Terms pop up? Accept and move on.
+web.key.s2h	Grab a key
+web.key.s2p	Click <span class="btnlike">Create API key</span>. New accounts often get one handed over on arrival.
+web.key.s3h	Copy all of it
+web.key.s3p	Copy the whole string. It starts with <code>AQ.</code> or <code>AIza</code>. Miss one character and it plays dead.
+web.key.s4h	Paste it in
+web.key.s4p	Paste it into Key 1 and you’re set. Go make tea.
+web.key.rulesH	Three ground rules
+web.key.rulesSmall	Thirty seconds, well spent
+web.key.r1	<b>Rule one</b>: <em>never add a bank card.</em> No card on file, and Google can’t charge you a cent. Ever.
+web.key.r2	<b>Free tier limits</b>: <b>15 requests a minute, 500 a day.</b> Push harder and Google stops answering. The app paces itself and waits out the limit on its own.
+web.key.r3	<b>Key 2 is the spare, usually empty.</b> When Key 1 burns through today’s 500, the app switches to Key 2 by itself. One key per Google account.
+web.key.home	Home
+web.app.title	Luru Web · Photo Typist
+web.app.desc	Photograph tool breakage records, get the Excel sheet back. Runs in your browser, no install, phones included.
+web.app.tag	Web
+web.app.cat	Form type
+web.app.newcat	New type
+web.app.photos	Photos
+web.app.pickAria	Add photos
+web.app.dropEmpty	Drop photos here, or click Add photos
+web.app.dropEmptyTouch	No photos yet
+web.app.queue	1 photo: {names} | {n} photos: {names}{more}
+web.app.clear	Clear
+web.app.pick	Add photos…
+web.app.phone	Phone
+web.app.phoneBtn	From phone
+web.app.key1	Key 1
+web.app.key2	Key 2 (optional)
+web.app.paste	Paste here
+web.app.getKey	Get a key
+web.app.getKey2	Get another
+web.app.model	Model
+web.app.auto	Auto-start
+web.app.autoHint	(starts as soon as photos arrive)
+web.app.start	Start
+web.app.stop	Stop
+web.app.result	Download
+web.app.check	Review
+web.app.feed	Add samples
+web.app.statusHead	Status
+web.app.gear	Settings
+web.app.names	Edit roster
+web.app.foot	Photos go to Google to be read, nowhere else. Sheets and the database stay in this browser
+web.app.footLink	Windows app
+web.st.queue	{n} photo queued | {n} photos queued
+web.st.pages	{d}/{t} photos
+web.st.saving	Saving photos {d}/{t}
+web.st.dedupe	Checking for repeats…
+web.st.stopping	Stopping… (waiting on the ones in flight)
+web.st.done	Done: {ok} ok · {bad} failed
+web.slogan.fish	Go take a break. The monk’s got this.
+web.slogan.done	All done. Give it a once-over.
+web.slogan.woke	The page got closed, so the monk picked up where it left off. Carry on.
+web.slogan.day	Today’s free quota is gone. The monk waits until {when}, then carries on. Keep this page open.
+web.slogan.sec	Google needs a breather. Back in {s}s.
+web.cat.hint.builtin	Built-in · tuned for it
+web.cat.hint.cols	Custom · {c} columns · {n} records
+web.cat.hint.empty	Custom · no samples yet
+web.names.head	Roster: 1 person | Roster: {n} people
+web.names.none	No roster
+web.names.noneHint	Optional. Without one, SETTER is copied as written.
+web.names.fromKb	{n} of them known from samples
+web.names.cat	“{cat}” database: {n} records
+web.names.catEmpty	“{cat}” has no samples yet
+web.names.cols	Columns: {cols}
+web.names.catEmptyHint	It reads everything at first. Fix the result, Add samples, and those headers become its columns.
+web.new.title	New form type
+web.new.name	Name
+web.new.para	Like “QC check” or “Delivery note”. It gets its own database, kept apart from tool breakage.
+web.new.ok	Create
+web.cancel	Cancel
+web.feed.title	Add samples
+web.feed.into	Into
+web.feed.drop	Or drop sheets here
+web.feed.go	Choose sheets
+web.feed.desc.builtin	Corrected tool breakage sheets, typed by hand or fixed after Luru read them. Several at once is fine.\nExcel (.xlsx, .xls) or CSV.\nSheets without DATE and MACHINE headers are ignored, so other forms don’t leak in.
+web.feed.desc.cat	Corrected “{cat}” result sheets (the one Luru made is fine). Several at once is fine.\nExcel (.xlsx, .xls) or CSV.\n
+web.feed.desc.cols	Current columns: {cols}. Extra columns get added at the end.
+web.feed.desc.first	The first sheet’s headers become the “{cat}” columns.
+web.names.title	Roster
+web.names.para	One “ID/Name” per line. When a form only has the ID, the monk fills in the name. Optional.
+web.names.load	Load .txt
+web.save	Save
+web.set.title	Settings
+web.set.backupT	Backup
+web.set.backupD	Database, roster and photo history live in this browser. Back up before switching computers or clearing browser data.
+web.set.usage	Database: 1 record | Database: {n} records
+web.set.usageSize	 · {size} stored in this browser
+web.set.usageTail	. Back up before switching computers or clearing browser data.
+web.set.backup	Back up
+web.set.restore	Restore
+web.set.coT	Company book
+web.set.coChange	Change
+web.set.coPick	Choose
+web.set.coUndo	Undo last fill
+web.set.coName	{name}: Fill company book writes here
+web.set.coNone	Not picked yet. You’ll pick it the first time you hit Fill company book.
+web.set.hub	QIANSHOU LAB
+web.set.mail	Email the abbot
+web.set.done	Done
+web.set.ver	Luru Web v{v}
+web.set.sign	Made by Abbot Shishou
+web.set.contact	Feature ideas, complaints or business inquiries? Send the abbot a carrier pigeon: {mail}
+web.set.hubLine	More monks at 
+web.set.copied	{mail} copied. Paste it into an email and give the abbot an earful.
+web.set.mailShow	The abbot’s email: {mail}
+web.set.private	This browser won’t keep data (private window?). It’s gone when the page closes, so back up.
+web.set.restoreErr	✗ Couldn’t restore: {e}
+web.set.undoNoPerm	No permission to edit that book. Nothing undone.
+web.set.undoErr	✗ Couldn’t undo. Probably open in Excel. Close it and try again ({e}).
+web.row.auto_open	Open review when done
+web.row.auto_open.d	After a batch you started yourself, the review screen opens. Click any cell to fix it.
+web.row.remember_keys	Remember keys
+web.row.remember_keys.d	Keys stay in this browser so you don’t paste them again. Turn off on shared computers.
+web.row.redo	Redo old photos
+web.row.redo.d	For testing: photos read before get read again, on your quota. Off means repeats are skipped.
+web.view.prev	◀ Prev
+web.view.prevAria	Previous
+web.view.next	Next ▶
+web.view.nextAria	Next
+web.view.numAria	Number
+web.view.go	Go
+web.view.ccw	Rotate left 90°
+web.view.ccwAria	Rotate left
+web.view.cw	Rotate right 90°
+web.view.cwAria	Rotate right
+web.view.xlsx	Download
+web.view.fill	Fill company book
+web.view.fillShort	Fill
+web.view.zip	Photo zip
+web.view.copy	Copy all
+web.view.copyShort	Copy
+web.view.del	Delete batch
+web.view.delShort	Delete
+web.view.close	Close
+web.view.empty	Nothing here yet. Add photos and hit Start.
+web.view.run	{when} · 1 photo | {when} · {n} photos
+web.view.fresh	This batch just started and nothing’s done yet. Check back in a bit.
+web.view.pos	{no} of {n}
+web.view.posTouch	 · Swipe to flip, tap the photo for full size
+web.view.alt	Photo {no}
+web.view.noPhoto	No numbered photo for this one (it wasn’t read).
+web.view.noRec	No rows for this number.
+web.view.recN	 · record {k}
+web.view.editTip	Click to edit
+web.view.editAria	Edit {label}
+web.view.right	Correct
+web.view.save	Save
+web.view.saveErr	✗ Couldn’t save: {e}
+web.view.still	{label} {v} still looks off: {why}
+web.view.checked	{label} confirmed
+web.view.changed	{label} → {v}
+web.view.shiftToo	, SHIFT guessed as {s} from {id}’s past shifts
+web.view.fedRow	, row added to samples
+web.view.sheetToo	. Sheet updated
+web.view.allDone	. All checked: Download or Fill company book.
+web.view.noSuch	No #{t} here (this batch is {a}–{b})
+web.view.typeNo	Type a number first
+web.view.photoTip	Click for full size. ←→ to flip.
+web.view.rotErr	Couldn’t rotate: {e}
+web.view.noRecs	No records in this batch.
+web.view.copied	Copied {n} rows (failed ones left out). Click the first empty cell in the company sheet and paste.
+web.view.zipping	Zipping…
+web.view.zipped	Zipped: {n} numbered photos + the sheet
+web.view.zipErr	✗ Couldn’t zip: {e}
+web.view.busy	This batch is still running. Delete it once it’s done (or stopped).
+web.ask.del.title	Delete this batch?
+web.ask.del.text	{run}: the sheet and numbered photos leave this browser for good. Want them? Grab the Photo zip first.\nThe history stays, so these photos are still skipped if you add them again.
+web.ask.del.ok	Delete
+web.ask.fill.title	1 red cell left | {n} red cells left
+web.ask.fill.text	You’re not done checking. Write it anyway? Someone’s keen to clock out.
+web.ask.fill.ok	Write
+web.ask.undo.title	Undo the last fill?
+web.ask.undo.text	{name} goes back to how it was before {when}. Anything changed in Excel since then goes too.
+web.ask.undo.ok	Undo
+web.ask.qr.title	New QR code?
+web.ask.qr.text	Phones that scanned the old one can’t send until they scan again.
+web.ask.qr.ok	Replace
+web.fill.title	Filled into {file} at {when}. Click again to update edited rows in place.
+web.fill.noPerm	No permission to edit that book. Nothing written.
+web.fill.again	Picked {name}. Hit Fill company book again; the browser will ask to allow edits. Say yes.
+web.fill.pickOnce	Pick the company book. Just this once, then it’s one click.
+web.fill.gone	Can’t find {name} any more (moved or renamed?). Hit Fill company book and pick it again.
+web.fill.cantRead	✗ Can’t read {name}, nothing changed. Probably open in Excel. Close it and try again ({e}).
+web.fill.cantWrite	✗ Can’t write to {name}, nothing changed. Probably open in Excel. Close it and try again ({e}).
+web.fill.done	✓ Filled {name}: {detail}
+web.fill.untouched	{name} unchanged: {detail}
+web.fill.allThere	Everything in this batch is already in {name}. Nothing added.
+web.fill.noPick	No book picked. Nothing written.
+web.fill.err	✗ Couldn’t fill: {e}
+web.fill.downloaded	This browser can’t edit files in place, so the filled {name} was downloaded. Swap it in for your original. {detail}
+web.fill.logRun	 ({run})
+web.fill.logDl	 (downloaded, {run})
+web.fill.rows	{sheet}{created} rows {from}{to} ({n})
+web.fill.created	 (new sheet)
+web.fill.updated	updated {n} from last time ({where})
+web.fill.where	{sheet} rows {rows}
+web.fill.dup	{n} already in the book, not repeated
+web.fill.kept	#{nos} filled before, but someone edited or deleted the row since, so left alone
+web.fill.twins	#{nos} are identical and both went in. Check it’s not one form shot twice
+web.fill.sep	; 
+web.fill.sep2	, 
+web.fill.bookType	Company book
+web.fill.errNs	Can’t read this workbook’s format (namespaced XML).
+web.fill.errNoData	Sheet has no sheetData
+web.fill.errNoRow	A row has no row number, can’t read it
+web.fill.errNotXlsx	This doesn’t look like an Excel workbook (.xlsx)
+web.fill.errNoMonth	No monthly sheets with DATE and MACHINE headers in here. Is this the company TOOL BROKEN RECORD book?
+web.fill.errClash	There’s already a sheet called “{name}” and it isn’t a record sheet
+web.phone.title	Send from phone
+web.phone.para	Scan with your phone’s camera. This box closes once the phone connects. Shoot, select all, send: work starts when they land, and you’re free to go.\nOne scan is enough. Add that page to your home screen and just tap the icon next time.
+web.phone.new	New code
+web.phone.ok	OK
+web.phone.qrAlt	QR code for sending photos from your phone
+web.phone.qrErr	Couldn’t draw the QR code: {e}
+web.phone.idle	Scan once with your phone, then just shoot and send
+web.phone.on	Paired. Send from the phone and it lands here.
+web.phone.connecting	Connecting to the relay…
+web.phone.off	Can’t reach the relay (offline, or blocked by your network). Retrying shortly.
+web.say.start	Started {d}/{t}
+web.say.tick	Working {d}/{t}
+web.say.stopped	Stopped. Someone hit Stop on the computer.
+web.say.halt	Stopped: {why}
+web.say.done	Done: {ok} ok · {bad} failed. Review it on the computer.
+web.log.notStashed	⚠ Couldn’t save photos in the browser ({e}). Keep this page open until it’s done, or you’ll have to add them again.
+web.log.backLeft	1 photo from last time is still in the list. Hit Start to read it. | {n} photos from last time are still in the list. Hit Start to read them.
+web.log.wokeNoKey	⚠ The page closed mid-batch last time. Add a key and hit Start to pick up where it left off.
+web.log.wokeStuck	⚠ Tried to resume 3 times and the page closed each time. Hit Start to try again; if it still dies, clear the list and add fewer photos.
+web.log.sheets	✗ 1 spreadsheet skipped. Spreadsheets go in through Add samples. | ✗ {n} spreadsheets skipped. Spreadsheets go in through Add samples.
+web.log.notPhotos	✗ Skipped 1 file that isn’t a photo | ✗ Skipped {n} files that aren’t photos
+web.log.more	1 more photo came in. It’s next after this batch. | {n} more photos came in. They’re next after this batch.
+web.log.unreadable	✗ Can’t read {name}: {e}
+web.log.doneBefore	↷ {name} was done before ({xlsx}, #{no}). Skipped.
+web.log.samePhoto	↷ {name} is the same photo as {other}. Skipped.
+web.log.redoing	↻ {n} done before. Redo old photos is on in ⚙, so they’re read again (on your quota): {names}
+web.log.what.builtin	, type: Tool breakage
+web.log.what.names	, roster: {n}
+web.log.what.noNames	, no roster
+web.log.what.cat	, type: {cat}
+web.log.what.open	 (no columns yet, reading everything)
+web.log.what.cols	 ({n} columns)
+web.log.noKey	✗ Add a key first. Don’t have one? Hit Get a key. Two minutes, zero dollars.
+web.log.sameKey	✗ Both boxes hold the same key. Quota is per project, so a second copy buys nothing.
+web.log.otherTab	⚠ Another tab is already working. This one sits tight until it’s done.
+web.log.lostBefore	⚠ The page closed before these {n} were saved. Add them again: {names}{more}
+web.log.noPhotos	No photos yet. Click Add photos…, or drag some in.
+web.log.wokeRestart	▶ The page closed right after starting last time. Starting over.
+web.log.autoGo	▶ Auto-start: photos are in, starting.
+web.log.nothingNew	Nothing new in the list. Done.
+web.log.start	▶ Starting (Luru Web v{v}): {n} photos, numbered 1–{n} by time taken, {batch} at a time, model {model}{twice}{what}
+web.log.twice	, each read twice and cross-checked
+web.log.resume	▶ {why}: {n} left, still writing to {xlsx} with the same numbers (model {model}{what})
+web.log.resumeWoke	The page closed mid-batch last time, resuming
+web.log.resumePrev	Last batch wasn’t finished, finishing it first
+web.log.cantSave	✗ Couldn’t save results: {e}
+web.log.stampSave	{tag} couldn’t save the numbered photo: {e}
+web.log.ledgerSave	{tag} couldn’t mark it as done: {e}
+web.log.ok	✓ {tag} {name} · 1 record | ✓ {tag} {name} · {n} records
+web.log.stopped	■ Stopped. The rest picks up next time.
+web.log.halted	■ Stopped: {why}
+web.log.lostLeft	⚠ {n} photos from the last batch weren’t saved before the page closed. Add them again.
+web.log.wasDone	✓ The last batch had actually finished: {xlsx} (hit Download, or get it from Review)
+web.log.sum	{mark} {ok} ok ({rec} records) · {bad} failed · {req} requests{used}
+web.log.sumXlsx	\nResult: {xlsx} (hit Download, or get it from Review)
+web.log.crash	✗ Something broke: {e}
+web.log.next	▶ Last batch done. Moving on to the other photos in the list (new sheet).
+web.log.xlsxErr	✗ Couldn’t build the sheet: {e}
+web.log.feedStart	Adding 1 sheet to the “{cat}” database… | Adding {n} sheets to the “{cat}” database…
+web.log.feedErr	✗ Adding samples failed: {e}
+web.log.namesSaved	✓ Roster saved: 1 person | ✓ Roster saved: {n} people
+web.log.namesEmpty	Roster is empty. That’s fine: SETTER gets copied as written.
+web.log.redoOn	↻ Redo old photos: on. Photos read before get read again, on your quota. Switch it off when you’re done testing.
+web.log.redoOff	Redo old photos: off. Repeats get skipped again.
+web.log.backup	✓ Backup downloaded: {n} records, {c} custom types (keys not included)
+web.log.backupFile	Luru-backup_{id}.json
+web.file.xlsx	Luru_{id}{cat}.xlsx
+web.log.restored	✓ Restored and merged, nothing deleted: +{r} records, +{p} people, +{c} custom types ({cr} records), {l} photos in history, {nm} roster lines
+web.log.undone	✓ {name} is back to how it was before {when}.
+web.log.deleted	Deleted {run}
+web.log.phoneGot	📱 Photo {i}/{n} from phone: {name}
+web.log.phoneAll	📱 All {n} photos in from the phone. Starting.
+web.log.phonePart	📱 Only {got}/{n} arrived and it’s been quiet for two minutes. Starting with what’s here.
+web.log.phoneJoined	📱 Phone connected, QR code put away. Shoot, send, and it starts here.
+web.log.qrNew	New QR code. Phones need to scan again.
+web.log.private	⚠ This browser won’t keep data (private window?). Works for now, but the database and results vanish with the page.
+web.log.first	First time? Add a key (Get a key shows how), add photos, hit Start.
+web.log.noResult	No results yet. Add photos and hit Start.
+web.log.downloaded	✓ Downloaded {xlsx} ({run}). Other batches are in Review.
+web.log.bootErr	✗ Failed to start: {e}
+web.log.phoneTakeErr	✗ Couldn’t fetch a photo from the phone: {e}
+web.log.phoneBad	✗ Couldn’t decrypt a photo from the phone (QR code changed? Rescan on the phone). Dropped it.
+web.eng.waitLong	⏸ {why}. Waiting until {when} for the quota to reset (about {h} h, keep this page open)
+web.eng.wait	⏸ {why}. Waiting {s}s
+web.eng.allKeys	All keys are out of quota
+web.eng.perMinute	Per-minute limit hit
+web.eng.dayOut	Key {i} is out of quota for today · {raw}
+web.eng.prepay	Key {i} · {raw} (prepaid billing balance is empty, waiting won’t help)
+web.eng.keyBad	Key {i} · {raw}
+web.eng.schema	Model rejected structured output, retrying with plain JSON · {raw}
+web.eng.retry	{name} · {raw} · retrying in {w}s
+web.eng.stampErr	{tag} couldn’t stamp the number: {e}
+web.eng.saveErr	✗ {tag} result not saved: {e}
+web.eng.used	key {i}×{n}
+web.eng.photo	photo
+web.kb.empty	Database is empty. Feed it a few corrected sheets with Add samples; the more it sees, the less it guesses.
+web.kb.sum	Database: {n} records · {m} machines · {p} parts · {d} tool descriptions · {people} people
+web.kb.fedTable	✓ Added {src}: {rows} rows read, {added} new (the rest were already in)
+web.kb.newCols	, new columns: {cols}
+web.kb.fed	✓ Took in {src}: {rows} rows read, {added} new (the rest were already in)
+web.kb.people	, {n} new people
+web.kb.lists	, learned {got}
+web.kb.list.machine	machine list ({n})
+web.kb.list.opr_no	process list ({n})
+web.kb.sheets	 ({s})
+web.kb.bad	✗ {src}: {why}
+web.kb.notTool	Doesn’t look like a tool breakage sheet (no DATE or MACHINE header), so nothing was taken. If it’s another form, add it to its own type.
+web.kb.noHead	No headers or rows found (headers must be in the first 15 rows, at least two columns).
+web.tbl.empty	“{name}” has no samples yet. It reads everything at first; fix the result, Add samples, and those headers become its columns.
+web.tbl.sum	“{name}” database: {n} records · {c} columns ({cols}{more})
+web.name.empty	Give it a name.
+web.name.long	Too long ({max} characters max).
+web.name.chars	No \ / : * ? " < > | in the name.
+web.name.taken	“{n}” already exists.
+web.sheet.unsupported	Only .xlsx, .xlsm, .xls and .csv. No photos, PDFs or Word files: the database only takes checked sheets.
+web.sheet.notExcel	Not an Excel file. Try opening it in Excel; if that works, save as .xlsx and add it again.
+web.sheet.locked	This sheet is password-protected. Remove the password in Excel, save a copy and add that.
+web.sheet.broken	This sheet is damaged. Try opening it in Excel; if that works, save as .xlsx and add it again.
+web.sheet.cant	Can’t read it: {e}
+web.img.libMissing	{g} didn’t load
+web.img.libOffline	{f} didn’t load (offline?)
+web.img.cantOpen	Can’t open this photo
+web.img.notPhoto	Can’t open this photo (damaged, or not a photo)
+web.img.heicLib	HEIC photos need a decoder that didn’t load. Try again online, or save the photo as JPG on your phone.
+web.img.heicBad	Can’t decode this HEIC photo. Save it as JPG on your phone and add it again.
+web.img.cantSave	Couldn’t save the photo
+web.store.notBackup	That’s not a Luru Web backup file.
+web.store.notWritten	Not written
+web.relay.http	Relay HTTP {s}
+web.send.title	Send to computer · Luru
+web.send.appTitle	Send
+web.send.h1	Send to computer
+web.send.sub	Luru · Snap the forms. Skip the typing.
+web.send.unpaired	Not paired yet
+web.send.unpairedTip	Open Luru Web on your computer, click From phone, and scan the QR code with your camera.
+web.send.connecting	Connecting to the relay…
+web.send.pcOn	Computer online. Work starts as photos land.
+web.send.pcOff	Computer’s offline. Photos wait until Luru opens there.
+web.send.pick	Take or choose photos
+web.send.tip	Shoot, select all, send. The computer takes it from there. Go take a break.
+web.send.tipWait	After you tap Add, the picker freezes for a bit while iPhone packs the photos. A big batch can take 10+ seconds. It’s not stuck, no need to keep tapping.
+web.send.home	In Safari, tap Share → Add to Home Screen. Next time just tap the icon, no scanning.
+web.send.foot	Photos are encrypted on your phone before they leave. The relay only holds encrypted data and deletes it once the computer picks it up.
+web.send.all	Computer has all {n}
+web.send.progress	Sent {sent}/{n} · received {got}/{n}
+web.send.tooBig	Too big to shrink
+web.send.item	#{i} ({name}): {e}
+web.send.failed	✗ 1 photo didn’t send. The computer waits two minutes, then starts with what it has. Just pick this one again:\n | ✗ {n} photos didn’t send. The computer waits two minutes, then starts with what it has. Just pick these again:\n
+web.send.waiting	Photos are waiting at the relay. The computer grabs them as soon as Luru Web opens there (kept 3 days).
+web.send.pc	Computer: {text}
+pc.name	Luru
+pc.sub	Snap the forms. Skip the typing.
+pc.title	QIANSHOU LAB · A thousand monks on the grind, so you don’t have to.
+pc.builtin	Tool breakage
+pc.list.sep	, 
+pc.empty	empty
+pc.lnk.desc	Turns photos of tool breakage records into Excel
+pc.ft.photos	Photos
+pc.ft.sheets	Spreadsheets (Excel, CSV)
+pc.ft.all	All files
+pc.app.cat	Form type
+pc.app.newcat	+ New type
+pc.app.folder	Photo folder
+pc.app.pick	Add photos…
+pc.app.key1	Key 1
+pc.app.key2	Key 2 (optional)
+pc.app.getKey	Get a key
+pc.app.getKey2	Get another
+pc.app.model	Model
+pc.app.auto	Auto-start
+pc.app.autoHint	(starts when photos land)
+pc.app.start	Start
+pc.app.stop	Stop
+pc.app.latest	Latest
+pc.app.all	All results
+pc.app.check	Review
+pc.app.feed	Add samples
+pc.app.statusHead	Status
+pc.app.update	Update
+pc.app.updateV	Update v{v}
+pc.app.names	Edit roster
+pc.st.queue	{n} photo queued | {n} photos queued
+pc.st.pages	{d}/{t} photos
+pc.st.copying	Copying…
+pc.st.stopping	Stopping… (waiting on the ones in flight)
+pc.st.done	Done: {ok} ok · {bad} failed
+pc.cat.hint.builtin	Built-in · tuned for it
+pc.cat.hint.cols	Custom · {c} columns · {n} records
+pc.cat.hint.empty	Custom · no samples yet
+pc.names.head	Roster: 1 person | Roster: {n} people
+pc.names.none	No roster
+pc.names.noneHint	Optional. Without one, SETTER is copied as written.
+pc.names.fromKb	{n} of them known from samples
+pc.names.cat	“{cat}” database: {n} records
+pc.names.catEmpty	“{cat}” has no samples yet
+pc.names.cols	Columns: {cols}
+pc.names.catEmptyHint	It reads everything at first. Fix the result, Add samples, and those headers become its columns.
+pc.pick.title	Choose photos (several is fine)
+pc.feed.pickTitle	Choose sheets for “{cat}” (several is fine)
+pc.log.copied	✓ Copied 1 photo into “{folder}”. The original stays put. Hit Start. | ✓ Copied {n} photos into “{folder}”. Originals stay put. Hit Start.
+pc.log.copiedRedo	↻ {n} of them were done before. Redo old photos is on in ⚙, so they went in anyway.
+pc.log.copiedHad	↷ {n} already in “{folder}”, not copied again
+pc.log.copiedDone	↷ {n} done before, not copied: {names}
+pc.log.copyBad	✗ {name}: {why}
+pc.log.copyMore	✗ {n} more not copied
+pc.copy.notPhoto	not a photo
+pc.copy.cant	can’t copy: {e}
+pc.log.copyFail	✗ Can’t copy into {folder}: {e}
+pc.log.moved	Moved over: {x}
+pc.log.oldMoved	Old folder moved to: {d}
+pc.log.oldStuck	Old folder not fully moved: {e}
+pc.log.updated	✓ Updated to v{v}
+pc.log.autoOn	Auto-start is on. Drop photos in the folder; it starts 30 seconds after the last one lands.
+pc.log.noKey	✗ Add a key first. Don’t have one? Hit Get a key. Two minutes, zero dollars.
+pc.log.sameKey	✗ Both boxes hold the same key. Quota is per project, so a second copy buys nothing.
+pc.log.autoGo	▶ Auto-start: new photos found, starting.
+pc.log.crash	✗ Something broke: {e}
+pc.log.noResult	No results yet. Click Add photos…, then Start.
+pc.log.feedStart	Adding 1 sheet to the “{cat}” database… | Adding {n} sheets to the “{cat}” database…
+pc.log.newCols	“{cat}” gained columns: {cols}
+pc.log.feedErr	✗ Adding samples failed: {e}
+pc.log.dropHere	 (or drop sheets into: {dir})
+pc.log.dbErr	Can’t open the “{cat}” database: {e}
+pc.log.checkedErr	✗ Couldn’t add the checked row to samples: {e}
+pc.log.hidden	Window tucked away; still watching the folder. To really quit, untick Auto-start and click × (or turn off “× just minimises” in ⚙).
+pc.log.bgErr	Background task failed: {e}
+pc.log.refused	The abbot’s drive isn’t taking uploads right now ({why}). Keeping things here and retrying later.
+pc.log.refusedFull	full for today
+pc.log.refusedToken	endpoint changed, waiting for an update
+pc.rep.status	Sent to the abbot this session: {n}. 
+pc.rep.left	{n} still queued
+pc.rep.none	Nothing pending
+pc.log.badNew	✗ The new version {name} won’t open, so no swap.
+pc.log.swapping	New version v{v} found. Swapping it in and restarting.
+pc.upd.dev	Latest on the site is v{v} (dev build, not downloading)
+pc.upd.downloaded	v{v} downloaded. It swaps in when things are quiet.
+pc.upd.latest	Already up to date (v{v})
+pc.upd.available	v{v} is available
+pc.upd.err	Couldn’t check for updates: {e}
+pc.upd.found	New version v{v} found, downloading…
+pc.upd.downloading	Downloading…
+pc.upd.progress	Downloading… {n} / {t} MB
+pc.upd.now	v{v} downloaded. Swapping in now (or right after the current batch).
+pc.upd.fail	Download failed: {e} (try again in a bit)
+pc.upd.devNo	Dev build, not downloading
+pc.log.redoOn	↻ Redo old photos: on. Photos read before get read again, on your quota. Switch it off when you’re done testing.
+pc.log.redoOff	Redo old photos: off. Repeats get skipped again.
+pc.log.reportOn	✓ Send data to the abbot: on. After each batch, the photos and how they were read go to the abbot’s drive. Fix cells in the sheet and save, and those fixes go too.
+pc.log.reportOff	Send data to the abbot: off. Nothing leaves this computer now.
+pc.log.pingOk	✓ Connected to the abbot’s drive
+pc.log.pingBad	Can’t reach the abbot’s drive ({why}). Keeping things here; they’ll go once it connects.
+pc.log.queued	↗ This batch’s photos and reading log are queued for the abbot’s drive (turn off in ⚙).
+pc.log.namesSaved	✓ Roster saved: 1 person | ✓ Roster saved: {n} people
+pc.log.namesEmpty	Roster is empty. That’s fine: SETTER gets copied as written.
+pc.log.autoUpdOn	Auto-update is on: new versions download and swap in when things are quiet (turn off in ⚙).
+pc.log.langBusy	Busy with a batch. Switch languages once it’s done.
+pc.eng.waitLong	⏸ {why}. Waiting until {when} for the quota to reset (about {h} h)
+pc.eng.wait	⏸ {why}. Waiting {s}s
+pc.eng.allKeys	All keys are out of quota
+pc.eng.perMinute	Per-minute limit hit
+pc.eng.dayOut	Key {i} is out of quota for today · {raw}
+pc.eng.prepay	Key {i} · {raw} (prepaid billing balance is empty, waiting won’t help)
+pc.eng.keyBad	Key {i} · {raw}
+pc.eng.schema	Model rejected structured output, retrying with plain JSON · {raw}
+pc.eng.retry	{name} · {raw} · retrying in {w}s
+pc.eng.noKey	✗ No key
+pc.eng.dbErr	Can’t open the database, skipping it this time: {e}
+pc.eng.tableDbErr	Can’t open the “{name}” database, skipping it this time: {e}
+pc.eng.dup	↷ {name} was done before ({xlsx}, #{no}). Moved to 已识别\{dup}
+pc.eng.redoing	↻ {n} done before. Redo old photos is on in ⚙, so they’re read again (on your quota): {names}
+pc.eng.nothing	No new photos in the folder. Done.
+pc.eng.what.builtin	, type: Tool breakage
+pc.eng.what.names	, roster: {n}
+pc.eng.what.noNames	, no roster found
+pc.eng.what.cat	, type: {cat}
+pc.eng.what.open	 (no columns yet, reading everything)
+pc.eng.what.cols	 ({n} columns)
+pc.eng.start	▶ Starting (Luru v{v}): {n} photos, numbered 1–{n} by time taken, {batch} at a time, model {model}{twice}{what}
+pc.eng.twice	, each read twice and cross-checked
+pc.eng.stampErr	{tag} couldn’t stamp the number: {e}
+pc.eng.ok	✓ {tag} {name} · 1 record | ✓ {tag} {name} · {n} records
+pc.eng.halted	■ Stopped: {why}
+pc.eng.stopped	■ Stopped. The rest picks up next time.
+pc.eng.reportErr	Couldn’t write the abbot’s report (work carries on): {e}
+pc.eng.used	key {i}×{n}
+pc.eng.sum	{mark} {ok} ok ({rec} records) · {bad} failed · {req} requests{used}
+pc.eng.sumXlsx	\nResult: {xlsx}
+pc.kb.empty	Database is empty. Feed it a few corrected sheets with Add samples; the more it sees, the less it guesses.
+pc.kb.sum	Database: {n} records · {m} machines · {p} parts · {d} tool descriptions · {people} people
+pc.kb.fed	✓ Took in {src}: {rows} rows read, {added} new (the rest were already in)
+pc.kb.people	, {n} new people
+pc.kb.lists	, learned {got}
+pc.kb.list.machine	machine list ({n})
+pc.kb.list.opr_no	process list ({n})
+pc.kb.sheets	 ({s})
+pc.kb.bad	✗ {src}: {why}
+pc.kb.notTool	Doesn’t look like a tool breakage sheet (no DATE or MACHINE header), so nothing was taken. If it’s another form, add it to its own type.
+pc.kb.noHead	No headers or rows found (headers must be in the first 15 rows, at least two columns).
+pc.tbl.empty	“{name}” has no samples yet. It reads everything at first; fix the result, Add samples, and those headers become its columns.
+pc.tbl.sum	“{name}” database: {n} records · {c} columns ({cols}{more})
+pc.name.empty	Give it a name.
+pc.name.long	Too long ({max} characters max).
+pc.name.chars	No \ / : * ? " < > | in the name.
+pc.name.reserved	Windows won’t allow that name.
+pc.name.taken	“{n}” already exists.
+pc.sheet.unsupported	Only .xlsx, .xlsm, .xls and .csv. No photos, PDFs or Word files: the database only takes checked sheets.
+pc.sheet.notExcel	Not an Excel file. Try opening it in Excel; if that works, save as .xlsx and add it again.
+pc.sheet.web	This is really a web export (HTML/XML), not Excel. Open it in Excel, save as .xlsx and add it again.
+pc.sheet.locked	This sheet is password-protected. Remove the password in Excel, save a copy and add that.
+pc.sheet.broken	This sheet is damaged. Try opening it in Excel; if that works, save as .xlsx and add it again.
+pc.sheet.cant	Can’t read it: {e}
+pc.set.title	Settings
+pc.set.lang	Language
+pc.set.langD	Takes effect right away, or after the current batch
+pc.set.ver	Luru v{v}
+pc.set.sign	Made by Abbot Shishou
+pc.set.contact	Feature ideas, complaints or business inquiries? Send the abbot a carrier pigeon: {mail}
+pc.set.hubLine	More monks at 
+pc.set.copied	{mail} copied. Paste it into an email and give the abbot an earful.
+pc.set.done	Done
+pc.set.check	Check for updates
+pc.set.mail	Email the abbot
+pc.set.hub	QIANSHOU LAB
+pc.set.checking	Checking…
+pc.row.startup	Start with Windows
+pc.row.startup.d	Runs in the background after boot (in the taskbar), so Auto-start works without opening it.
+pc.row.hide_on_close	× just minimises
+pc.row.hide_on_close.d	With Auto-start on, × tucks it into the taskbar and it keeps watching the folder.
+pc.row.auto_open	Open review when done
+pc.row.auto_open.d	After a batch you started yourself, the review window opens. Click any cell to fix it.
+pc.row.keep_originals	Keep originals
+pc.row.keep_originals.d	Originals stay in 已识别 › batch › 原图. Off sends them to the Recycle Bin and saves half the disk.
+pc.row.auto_update	Auto-update
+pc.row.auto_update.d	On: new versions download and swap in when idle. Off: you hear what’s new and update when you say so.
+pc.row.remember_keys	Remember keys
+pc.row.remember_keys.d	Keys stay on this computer so you don’t paste them again. Turn off on shared computers.
+pc.row.shortcuts	Desktop & Start menu icons
+pc.row.shortcuts.d	Puts a Luru icon on the desktop and in the Start menu.
+pc.row.redo	Redo old photos
+pc.row.redo.d	For testing: photos read before get read again, on your quota. Off means repeats are skipped.
+pc.row.report	Send data to the abbot
+pc.row.report.d	After each batch, photos, the reading log and your fixes go to the abbot’s drive. He checks the answers in monk mode, so it misreads less next time.
+pc.cancel	Cancel
+pc.save	Save
+pc.done	Done
+pc.new.title	New form type
+pc.new.name	Name
+pc.new.para	Like “QC check” or “Delivery note”. It gets its own folder, {root}\<name>, with its own database and feed folder, kept apart from tool breakage.
+pc.new.ok	Create
+pc.new.err	Can’t create it: {e}
+pc.names.title	Roster
+pc.names.para	One “ID/Name” per line, like 639/Lee Ah Kow. When a form only has the ID, the monk fills in the name. Optional.
+pc.names.err	Can’t save: {e}
+pc.res.title	All results
+pc.res.empty	No results yet. Click Add photos…, then Start.
+pc.res.tag	{cat} · 1 photo | {cat} · {n} photos
+pc.res.latest	 · latest
+pc.res.check	Review
+pc.res.open	Open sheet
+pc.res.older	1 older batch is in the results folder. | {n} older batches are in the results folder.
+pc.res.folder	Open results folder
+pc.feed.title	Add samples
+pc.feed.into	Into
+pc.feed.go	Choose sheets
+pc.feed.desc.builtin	Corrected tool breakage sheets, typed by hand or fixed after Luru read them. Several at once is fine.\nExcel (.xlsx, .xls) or CSV.\nSheets without DATE and MACHINE headers are ignored, so other forms don’t leak in.\n
+pc.feed.desc.cat	Corrected “{cat}” result sheets (the one Luru made is fine). Several at once is fine.\nExcel (.xlsx, .xls) or CSV.\n
+pc.feed.desc.cols	Current columns: {cols}. Extra columns get added at the end.\n
+pc.feed.desc.first	The first sheet’s headers become the “{cat}” columns.\n
+pc.feed.desc.drop	Or drop sheets straight into {dir}; they’re taken in before each run.
+pc.upd.title	Luru v{v} is out
+pc.upd.old	(Your v{v} has had a good run.)
+pc.upd.what	What’s new:
+pc.upd.fetching	Fetching the notes…
+pc.upd.calm	Updating won’t touch your settings, database or photos. It restarts itself when done.\nWant something new, or found something that drives you up the wall? Email me and let me have it:
+pc.upd.btnNow	Update now
+pc.upd.btnAlways	Always update
+pc.upd.btnLater	Later
+pc.upd.noNotes	No notes this time.
+pc.view.title	Review
+pc.view.titleN	Review · {no} of {n}
+pc.view.none	No numbered photos yet. Hit Start to run a batch.
+pc.view.run	{when} · 1 photo | {when} · {n} photos
+pc.view.prev	◀ Prev
+pc.view.go	Go
+pc.view.next	Next ▶
+pc.view.open	Open sheet
+pc.view.gone	Can’t find this batch’s sheet (moved or deleted?)
+pc.view.noSuch	No #{t} here (this batch is {a}–{b})
+pc.view.typeNo	Type a number first
+pc.view.pos	{no} of {n} · ←→ flip · click a cell to edit
+pc.view.cantOpen	Can’t open #{no}: {e}
+pc.view.rotErr	Couldn’t rotate: {e}
+pc.view.noRec	No rows for this number.
+pc.view.recN	 · record {k}
+pc.view.busy	This batch is still running. Edit once it’s done (the sheet gets rewritten when it finishes).
+pc.view.save	Save
+pc.view.right	Correct
+pc.view.locked	✗ The sheet is open in Excel, can’t write. Close Excel and hit Save again.
+pc.view.err	✗ Couldn’t edit: {e}
+pc.view.still	{label} {v} still looks off: {why}
+pc.view.checked	{label} confirmed
+pc.view.changed	{label} → {v}
+pc.view.shiftToo	, SHIFT guessed as {s} from {id}’s past shifts
+pc.view.fedRow	, row added to samples
+pc.view.sheetToo	. Sheet updated

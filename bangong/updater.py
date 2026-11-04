@@ -10,6 +10,7 @@ import re
 import urllib.request
 
 from . import autopilot, engine
+from .strings import T
 
 REPO = 'QIANSHOULAB/luruseng'
 SITE_URL = 'https://qianshoulab.github.io/luruseng/'          # 录入僧的网站：下载、怎么用
@@ -20,6 +21,7 @@ LATEST = os.environ.get('BANGONG_UPDATE', f'https://github.com/{REPO}/releases/l
 EXE_ASSET = 'luruseng.exe'
 VERSION_ASSET = 'version.txt'
 CHANGES_ASSET = 'changes.md'           # 更新说明：每个版本一段「## 1.9.1」
+CHANGES_ASSET_EN = 'changes.en.md'     # 英文界面看这份（v1.11.3 起有；拿不到就退回中文那份）
 CONTACT = 'oilsongchengmin@gmail.com'  # 制作人：修改建议、想要的功能
 CHECK_EVERY = 6 * 3600                  # 每 6 小时查一次
 MIN_SIZE = 5 * 1024 * 1024              # 正经的 exe 起码这么大；小于这个就是下坏了（或者下到一张网页）
@@ -88,14 +90,18 @@ def notes_since(text: str, since: str = engine.VERSION, limit: int = 40) -> str:
     return '\n'.join(out[:limit])
 
 
-def notes(since: str = engine.VERSION, timeout: float = 15) -> str:
-    """网站上的更新说明里，比 since 新的部分。拿不到就是 ''（不耽误更新）。"""
-    try:
-        with _open(f'{LATEST}/{CHANGES_ASSET}', timeout) as r:
-            text = r.read(200_000).decode('utf-8', 'replace').lstrip('\ufeff')
-        return notes_since(text, since)
-    except Exception:
-        return ''
+def notes(since: str = engine.VERSION, timeout: float = 15, lang: str = 'zh') -> str:
+    """网站上的更新说明里，比 since 新的部分。英文界面先拿英文那份，拿不到用中文那份。拿不到就是 ''（不耽误更新）。"""
+    for asset in ([CHANGES_ASSET_EN] if lang == 'en' else []) + [CHANGES_ASSET]:
+        try:
+            with _open(f'{LATEST}/{asset}', timeout) as r:
+                text = r.read(200_000).decode('utf-8', 'replace').lstrip('\ufeff')
+            got = notes_since(text, since)
+            if got:
+                return got
+        except Exception:
+            continue
+    return ''
 
 
 def check(app_dir: str, log=lambda m: None, skip: str = '') -> str:
@@ -107,8 +113,8 @@ def check(app_dir: str, log=lambda m: None, skip: str = '') -> str:
     dst = os.path.join(app_dir, autopilot.UPDATE_NAME)
     if os.path.exists(dst):                         # 已经下好了，等着空闲时换
         return remote
-    log(f'发现新版 v{remote}，正在下载…')
+    log(T('upd.found', v=remote))
     size = download(f'{LATEST}/{EXE_ASSET}', dst)
     autopilot.log_update(app_dir, f'下载好新版 v{remote}（{size // 1024 // 1024} MB），空闲时换上')
-    log(f'新版 v{remote} 下载好了，空闲时自己换上')
+    log(T('upd.downloaded', v=remote))
     return remote

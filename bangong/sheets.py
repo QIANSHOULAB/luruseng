@@ -16,14 +16,20 @@ import csv
 import io
 import os
 
+from .strings import T
+
 EXTS = ('.xlsx', '.xlsm', '.xls', '.csv')
-FILETYPES = [('表格（Excel、CSV）', '*.xlsx *.xlsm *.xls *.csv'), ('全部', '*.*')]
-UNSUPPORTED = '只认 .xlsx、.xlsm、.xls 和 .csv（照片、PDF、Word 不吃：数据库只认人核对过的表）'
 OLE2 = b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'      # 老 .xls 的文件头（加了密码的 .xlsx 也是这个头）
-NOT_EXCEL = '不是 Excel 文件，打不开：用 Excel 打开看看，能打开就另存为 .xlsx 再放'
-WEB = '这个文件其实是网页导出的（HTML/XML），不是真 Excel：用 Excel 打开，另存为 .xlsx 再放'
-LOCKED = '这本表加了密码，打不开：用 Excel 打开、去掉密码另存一份再放'
-BROKEN = '这本表坏了，打不开：用 Excel 打开看看，能打开就另存为 .xlsx 再放'
+# 读不了的时候说的那几句：字在 strings.py，这里只放键（抛错的时候按当时的语言取字）
+UNSUPPORTED = 'sheet.unsupported'
+NOT_EXCEL = 'sheet.notExcel'
+WEB = 'sheet.web'
+LOCKED = 'sheet.locked'
+BROKEN = 'sheet.broken'
+
+
+def filetypes():
+    return [(T('ft.sheets'), '*.xlsx *.xlsm *.xls *.csv'), (T('ft.all'), '*.*')]
 
 
 class SheetError(ValueError):
@@ -31,7 +37,7 @@ class SheetError(ValueError):
 
 
 def why(e: Exception) -> str:
-    return str(e) if isinstance(e, SheetError) else f'读不了：{type(e).__name__}：{e}'
+    return str(e) if isinstance(e, SheetError) else T('sheet.cant', e=f'{type(e).__name__}: {e}')
 
 
 def supported(path: str) -> bool:
@@ -41,7 +47,7 @@ def supported(path: str) -> bool:
 def read_sheets(path: str) -> list[tuple[str, list[tuple]]]:
     ext = os.path.splitext(path)[1].lower()
     if ext not in EXTS:
-        raise SheetError(UNSUPPORTED)
+        raise SheetError(T(UNSUPPORTED))
     with open(path, 'rb') as f:
         raw = f.read()
     if ext == '.csv':                            # CSV 只当文字读（第一格是 PKG 之类的也不会认错）
@@ -52,9 +58,9 @@ def read_sheets(path: str) -> list[tuple[str, list[tuple]]]:
         return _xls(raw)
     text = _decode(raw, strict=True)             # 都不是：多半是别的系统导出的文字表
     if text is None or not text.strip():
-        raise SheetError(NOT_EXCEL)
+        raise SheetError(T(NOT_EXCEL))
     if text.lstrip()[:1] == '<':
-        raise SheetError(WEB)
+        raise SheetError(T(WEB))
     return _table(text, path)
 
 
@@ -74,7 +80,7 @@ def _xls(raw: bytes) -> list[tuple[str, list[tuple]]]:
     except Exception as e:
         msg = str(e).lower()
         # 老 .xls 加密码：「Workbook is encrypted」；新 .xlsx 加密码：外面包一层老格式，里面找不到表
-        raise SheetError(LOCKED if 'encrypt' in msg or "can't find workbook" in msg else BROKEN) from e
+        raise SheetError(T(LOCKED if 'encrypt' in msg or "can't find workbook" in msg else BROKEN)) from e
     try:
         out = []
         for i in range(book.nsheets):

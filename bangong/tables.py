@@ -25,6 +25,7 @@ from openpyxl.utils import get_column_letter
 from . import engine
 from . import sheets
 from .kb import FeedResult, cell_text, ckey, lev1, nkey
+from .strings import T, join
 
 BUILTIN = '刀单'                    # 内置的那一个：公司的 TOOL BROKEN RECORD
 CAT_DIR = '类别'
@@ -63,15 +64,15 @@ def check_name(name: str, app_dir: str) -> str:
     """新类别的名字行不行：行就返回 ''，不行返回原因。"""
     n = (name or '').strip()
     if not n:
-        return '名字不能空着'
+        return T('name.empty')
     if len(n) > MAX_NAME:
-        return f'名字太长了（最多 {MAX_NAME} 个字）'
+        return T('name.long', max=MAX_NAME)
     if BAD_CHARS.search(n) or n.endswith('.'):
-        return '名字里不能有 \\ / : * ? " < > | 这些符号'
+        return T('name.chars')
     if n.upper() in RESERVED:
-        return 'Windows 不让用这个名字'
+        return T('name.reserved')
     if n.casefold() in {x.casefold() for x in names(app_dir)}:
-        return f'已经有「{n}」了'
+        return T('name.taken', n=n)
     return ''
 
 
@@ -179,7 +180,7 @@ class TableDB:
     def feed(self, path: str) -> FeedResult:
         res = FeedResult(path)
         if not sheets.supported(path):
-            res.error = sheets.UNSUPPORTED
+            res.error = T(sheets.UNSUPPORTED)
             return res
         try:
             cols, recs, used = read_book(path)
@@ -187,7 +188,7 @@ class TableDB:
             res.error = sheets.why(e)
             return res
         if not recs:
-            res.error = '没找到表头和记录（表头要在前 15 行，至少两列）'
+            res.error = T('kb.noHead')
             return res
         now = datetime.now().isoformat(timespec='seconds')
         with self._conn() as c:
@@ -261,8 +262,8 @@ class TableDB:
     def summary(self, name: str) -> str:
         cols, n = self.columns(), self.count()
         if not cols:
-            return f'「{name}」还没放过表：先认全部内容，改对了点「放入样板资料」，表头就定成这个类别的列'
-        return f'「{name}」数据库：{n} 条记录 · {len(cols)} 列（{"、".join(cols[:8])}{"…" if len(cols) > 8 else ""}）'
+            return T('tbl.empty', name=name)
+        return T('tbl.sum', name=name, n=n, c=len(cols), cols=join(cols[:8]), more='…' if len(cols) > 8 else '')
 
     def load(self) -> 'TableSnapshot':
         with self._conn() as c:
@@ -413,7 +414,7 @@ class TableSpec:
             self.columns = list(self.snapshot.columns)
             log(db.summary(self.name))
         except Exception as e:
-            log(f'「{self.name}」的数据库打不开，这次不用它：{type(e).__name__}：{e}')
+            log(T('eng.tableDbErr', name=self.name, e=f'{type(e).__name__}: {e}'))
             self.snapshot, self.columns = None, []
         self.reg = {colkey(c): c for c in self.columns}
 

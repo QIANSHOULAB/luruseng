@@ -147,8 +147,11 @@ def _fresh():
 
 
 def family(root) -> str:
+    """界面字体。英文界面西文字体排前面（Segoe UI 里没有的汉字，Windows 自己拿雅黑补）；中文照旧雅黑打头。"""
+    from .strings import lang
     have = set(tkfont.families(root))
-    for f in ('Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Noto Sans CJK SC', 'Noto Sans SC'):
+    latin = ('Segoe UI Variable Text', 'Segoe UI', 'SF Pro Text', 'Helvetica Neue') if lang() == 'en' else ()
+    for f in latin + ('Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Noto Sans CJK SC', 'Noto Sans SC'):
         if f in have:
             return f
     return 'TkDefaultFont'

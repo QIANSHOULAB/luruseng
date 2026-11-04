@@ -1,4 +1,5 @@
 // 填进公司表（web/fill.js）：拿一本照公司那本的样子手搭的假表（名字、零件、机台全是编的）来填，查只动该动的地方。
+import './zh.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
