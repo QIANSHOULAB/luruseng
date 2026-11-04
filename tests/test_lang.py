@@ -118,9 +118,10 @@ def test_english_rows_fit_at_100_percent(tmp_path, monkeypatch, english):
     root, app, a = make_app(tmp_path, monkeypatch)
     try:
         root.update()
-        g = a.start_btn.master.master
+        g = a.start_btn.master.master                 # 照设计的 1120 宽算（CI 的屏幕可能比这窄，窗口跟着窄，不算数）
+        room = ui.px(1120) - 2 * ui.px(9) - ui.px(300) - ui.px(4) - 2 * (ui.px(ui.LIFT[1]) + ui.px(18))
         for row in g.winfo_children():
-            assert row.winfo_reqwidth() <= g.winfo_width() + 1, (row, row.winfo_reqwidth(), g.winfo_width())
+            assert row.winfo_reqwidth() <= room, (row, row.winfo_reqwidth(), room)
         a.open_settings()
         root.update()
         body = a.settings_win.card.body
