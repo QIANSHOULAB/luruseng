@@ -1,6 +1,7 @@
 // 干活的那一套：一批 5 张同时认，每张认两遍对答案，对不上认第三遍；钥匙额度用完自己换、自己等（跟电脑版 engine.Engine 一样）
 import './strings.js';
 import * as C from './core.js';
+import { Miss } from './dagj.js';
 
 const t = (k, v) => globalThis.LURU_I18N.t(k, v);
 
@@ -14,7 +15,7 @@ function when(ms) { const d = new Date(ms); return `${two(d.getMonth() + 1)}-${t
 export class Engine {
   // prepare(file, enhance) -> base64 JPG；stampIt(file, no, side) -> 印好编号的照片（可空）
   constructor({ keys, model, spec = null, names = [], hints = '', reads = C.READS, log = () => {}, base,
-    fetchImpl, clock = () => Date.now(), sleep = null, prepare, stampIt = null }) {
+    fetchImpl, clock = () => Date.now(), sleep = null, prepare, stampIt = null, butler = null }) {
     this.keys = new C.Keys(keys, clock);
     this.model = C.modelName(model);
     this.spec = spec;
@@ -28,6 +29,8 @@ export class Engine {
     this._sleep = sleep;
     this.prepare = prepare;
     this.stampIt = stampIt;
+    this.butler = butler;                      // 089 dagj.Butler：配上了就每张先问大管家，问不成跳回 Gemini
+    this.by = new Map();                       // 照片 -> 谁认的（'dagj' / 'gemini'）
     this.useSchema = true;
     this.fatal = '';
     this.res = new Result();
@@ -134,14 +137,46 @@ export class Engine {
     }
   }
 
+  // 089：配上了大管家、它也没在歇着，先整张交给大管家认（跟 Gemini 一样两遍对答案）；哪一遍没成（没连上、不在、
+  // 60 秒没回、回了错）整张换 Gemini 重认。连着 3 张没成，5 分钟里直接走 Gemini。
   async _recognize(file) {
+    const b = this.butler;
+    const name = file.name || t('eng.photo');
+    if (b && b.ready()) {
+      try {
+        const out = await this._recognizeWith(file, (img, nm) => this.dagjRead(img, nm));
+        b.hit();
+        this.by.set(file, 'dagj');
+        return out;
+      } catch (e) {
+        if (e instanceof C.Stopped || e instanceof C.Fatal || this.stopped) throw e instanceof C.Fatal ? e : new C.Stopped('stopped');
+        const rest = b.miss();
+        this.log(t('eng.dagjMiss', { name, why: String(e.message || e).slice(0, 80) }));
+        if (rest) this.log(t('eng.dagjRest'));
+      }
+    }
+    if (!this.keys.keys.length) throw new Error(t('eng.noKeyFallback'));
+    const out = await this._recognizeWith(file, (img, nm) => this.read(img, nm));
+    this.by.set(file, 'gemini');
+    return out;
+  }
+
+  async dagjRead(b64, name) {                  // 大管家认一遍：交的就是要发给 Gemini 的那个请求，回来的也是 Gemini 的样子
+    const data = await this.butler.read(this.body(b64, true), this.halt.signal);
+    if (this.stopped) throw new C.Stopped('stopped');
+    try {
+      return this.spec ? this.spec.parse(data) : C.parseResponse(data);
+    } catch (e) { throw new Miss(`回的认不出：${e.message}`); }
+  }
+
+  async _recognizeWith(file, reader) {
     const name = file.name || t('eng.photo');
     const clean = this.spec ? (r) => this.spec.clean(r) : C.cleanRecord;
     const agree = this.spec ? (a, b) => this.spec.agree(a, b) : (a, b) => C.recordsAgree(a, b);
     const vote = this.spec ? (r) => this.spec.vote(r) : (r) => C.vote(r);
     const jpeg = await this.prepare(file, false);
     if (this.reads === 1) {
-      const [recs, side] = await this.read(jpeg, name);
+      const [recs, side] = await reader(jpeg, name);
       return [vote([recs.map(clean)]), side];
     }
     const plan = [jpeg, await this.prepare(file, true)];
@@ -149,11 +184,12 @@ export class Engine {
     while (plan.length) {
       const img = plan.shift();
       try {
-        const [recs, side] = await this.read(img, name);
+        const [recs, side] = await reader(img, name);
         reads.push(recs.map(clean));
         sides.push(side);
       } catch (e) {
         if (e instanceof C.Stopped || e instanceof C.Fatal) throw e;
+        if (e instanceof Miss) throw e;        // 大管家那头没成：整张换 Gemini，不在大管家这儿补
         errs.push(e);                          // 某一遍没认成：再补一遍，凑够两遍对答案
         if (errs.length === 1 && reads.length + plan.length < 2) plan.push(jpeg);
         continue;
@@ -183,14 +219,14 @@ export class Engine {
       if (this.stampIt) {                      // 认完了才印编号：送去认的永远是原图
         try { stamped = await this.stampIt(it.file, it.no, side); } catch (e) { this.log(t('eng.stampErr', { tag: two(it.no), e: e.message })); }
       }
-      return { recs, side, err, stamped };
+      return { recs, side, err, stamped, by: this.by.get(it.file) || '' };
     };
     for (let b = 0; b < items.length; b += C.BATCH) {
       const batch = items.slice(b, b + C.BATCH);
       const settled = await Promise.allSettled(batch.map(async (it) => {
-        const { recs, side, err, stamped } = await one(it);
+        const { recs, side, err, stamped, by } = await one(it);
         if (recs) { res.ok++; res.records += recs.length; } else { res.failed++; res.errors.push([it.file.name, err]); }
-        try { await onPhoto(it, recs, err, side, stamped); } catch (e) { this.log(t('eng.saveErr', { tag: two(it.no), e: e.message })); }
+        try { await onPhoto(it, recs, err, side, stamped, by); } catch (e) { this.log(t('eng.saveErr', { tag: two(it.no), e: e.message })); }
         progress(++done, items.length);        // 认完一张就报一声，别等一整批（3 张照片也能看见 1、2、3 往上跳）
       }));
       let halt = null;

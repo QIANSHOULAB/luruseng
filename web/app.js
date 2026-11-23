@@ -9,6 +9,7 @@ import * as F from './fill.js';
 import { Engine } from './engine.js';
 import * as PR from './pair.js';
 import { Inbox } from './inbox.js';
+import { Butler } from './dagj.js';
 
 const $ = (s) => document.querySelector(s);
 const I18N = globalThis.LURU_I18N;
@@ -469,7 +470,7 @@ async function reopen(run, work) {
 async function start(auto = false, woke = false) {     // woke：打开页面时发现上回干到一半被关了，自己接着干
   if (S.busy) return;
   const k1 = $('#key1').value.trim(), k2 = $('#key2').value.trim();
-  if (!k1 && !k2) { log(t('log.noKey')); return; }
+  if (!k1 && !k2 && !S.dagj.paired) { log(t('log.noKey')); return; }   // 089：连着大管家的，没钥匙也能干
   if (k1 && k1 === k2) { log(t('log.sameKey')); return; }
   setBusy(true);                                 // 马上占住：下面要等，别让人连点两下开出两批
   S.fresh = 0;
@@ -540,7 +541,7 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
 
     const base = total - items.length;             // 接着干的：之前已经干完（或者记过）几张
     eng = S.eng = new Engine({
-      keys: [k1, k2], model, spec, names, hints,
+      keys: [k1, k2], model, spec, names, hints, butler: S.dagj,
       log: (m, wait) => { log(m); if (wait) { const [k, v] = waitLine(wait); slogan(k, v); phoneSay(t(k, v), true); } },
       prepare: (file, enhance) => exclusive(async () => I.prepare(await openFor(file, !enhance), enhance)),
       stampIt: (file, no, side) => exclusive(async () => I.stamp(await openFor(file, false), no, side)),
@@ -559,7 +560,7 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
         onUnfinished: async (it, why) => {
           C.placeRows(run.rows, [{ no: it.no, kind: 'blank', fill: 'grey', left: true, note: `未完成：${why}（照片还在列表里，再点开始接着干）` }]);
         },
-        onPhoto: async (it, recs, err, side, stamped) => {   // 认完一张马上存：表、编号照片、干过的记录，最后清掉存的原照片
+        onPhoto: async (it, recs, err, side, stamped, by) => {   // 认完一张马上存：表、编号照片、干过的记录，最后清掉存的原照片
           const tag = tagOf(it.no), name = it.file.name;
           if (recs === null) {
             C.placeRows(run.rows, [{ no: it.no, kind: 'blank', fill: 'red', retry: true, note: `✗ 识别失败：${err}（照片还在列表里，再点开始会重干）` }]);
@@ -582,7 +583,7 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
             try { await S.st.put('ledger', it.q.hash, { file: name, no: it.no, xlsx: run.xlsx, at: nowIso(), ms: Date.now() }); } catch (e) { log(t('log.ledgerSave', { tag, e: e.message })); }
           }
           drop(it.q);
-          log(t('log.ok', { tag, name, n: recs.length }));
+          log(t('log.ok', { tag, name, n: recs.length }) + (by ? ' · ' + (by === 'dagj' ? t('eng.by.dagj') : t('eng.by.gemini')) : ''));   // 089：谁认的，一个字
         },
         onBatch: saveRun,
       });
@@ -764,6 +765,44 @@ function setupNew() {
     refreshCategory(true);
     if (afterNew) afterNew(name);
   };
+}
+
+// ---------------------------------------------------------------- 089 连接大管家
+function refreshDagj() {
+  const on = S.dagj.paired;
+  $('#dagj').hidden = on;
+  $('#dagjon').hidden = !on;
+}
+
+function setupDagj() {
+  S.dagj = new Butler();
+  let was = S.dagj.paired;
+  S.dagj.onChange = () => {
+    refreshDagj();
+    if (was && !S.dagj.paired) log(t('log.dagjGone'));
+    was = S.dagj.paired;
+  };
+  refreshDagj();
+  const dlg = $('#dlg-dagj');
+  const code = $('#dagjcode'), err = $('#dagjerr'), ok = $('#dagjok');
+  $('#dagj').onclick = () => { code.value = ''; err.textContent = ''; dlg.showModal(); code.focus(); };
+  let busy = false;
+  const go = async () => {
+    const c = code.value.trim();
+    if (!c || busy) return;
+    busy = true;
+    ok.disabled = true;
+    err.textContent = t('dagj.busy');
+    let r;
+    try { r = await S.dagj.pair(c); } catch (e) { r = { error: `${e.name || 'Error'}: ${e.message}` }; }
+    busy = false;
+    ok.disabled = false;
+    if (r.ok) { dlg.close(); log(t('log.dagjOn')); return; }
+    err.textContent = r.locked ? t('dagj.locked') : r.wrong ? t('dagj.wrong') : r.off ? t('dagj.off') : t('dagj.err', { e: r.error || '' });
+    if (r.wrong) code.value = '';
+  };
+  ok.onclick = go;
+  code.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
 }
 
 // ---------------------------------------------------------------- 名单
@@ -1492,6 +1531,7 @@ async function boot() {
   setupFeed();
   setupNew();
   setupNames();
+  setupDagj();
   setupSettings();
   setupViewer();
   setupCompany();
@@ -1499,7 +1539,7 @@ async function boot() {
   document.addEventListener('visibilitychange', () => { if (S.busy) keepAwake(true); });
   refreshQueue();
   if (S.st.kind === 'memory') log(t('log.private'));
-  if (!S.cfg.key1 && !S.cfg.key2) log(t('log.first'));
+  if (!S.cfg.key1 && !S.cfg.key2 && !S.dagj.paired) log(t('log.first'));
   await refreshCategory(true);
   const back = await restore();                    // 上回的照片还在浏览器里：放回列表
   if (back) refreshQueue();

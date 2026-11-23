@@ -14,7 +14,7 @@ from datetime import datetime
 from tkinter import filedialog
 from tkinter import font as tkfont
 
-from . import autopilot, engine, report, settings, sheets, strings, tables, updater
+from . import autopilot, dagj, engine, report, settings, sheets, strings, tables, updater
 from . import macui as ui
 from .strings import T
 
@@ -292,6 +292,8 @@ class App:
         self.viewer = None
         self.settings_win = None
         self.dialog = None
+        self.butler = dagj.Butler(os.path.join(config_dir(), 'dagj.json'))   # 089 大管家：配过就一直连着
+        self.butler.on_change = lambda: self.q.put(('dagj', None))
         cfg = load_config()
         self.cfg = cfg
         strings.init(cfg.get('lang'))           # 默认英文；老电脑照旧中文（settings.upgrade）；BANGONG_LANG 盖过设置
@@ -432,6 +434,14 @@ class App:
         self.names_btn = ui.Pill(s_, T('app.names'), command=self.edit_names, font=(fam, size - 1), bg=ui.CARD, height=32,
                                  radius=8, padx=12)
         self.names_btn.pack(anchor='w', pady=(10, 0))           # 名单在窗口里改，不用去找 名单.txt
+        # 089：右边卡片最底下只多一样：没连上是「连接大管家」，连上了是一句话（Song 定的原话）
+        self.dagj_box = tk.Frame(s_, bg=ui.CARD)
+        self.dagj_box.pack(side='bottom', fill='x')
+        self.dagj_btn = ui.Pill(self.dagj_box, T('app.dagj'), command=self.open_dagj, font=(fam, size - 1), bg=ui.CARD,
+                                height=32, radius=8, padx=12)
+        self.dagj_on = tk.Label(self.dagj_box, text=T('app.dagjOn'), bg=ui.CARD, fg=ui.GREY, font=(fam, size - 1),
+                                anchor='w', justify='left', wraplength=px(260))
+        self.refresh_dagj()
 
         # ---- 下面：日志
         logcard = ui.Card(f, pad=14, radius=14, stretch=True)
@@ -542,7 +552,7 @@ class App:
             return
         self.auto_run = auto
         k1, k2 = self.key1.get().strip(), self.key2.get().strip()
-        if not k1 and not k2:
+        if not k1 and not k2 and not self.butler.paired:     # 089：连着大管家的，没钥匙也能干（大管家不在的那几张会挂）
             self.write(T('log.noKey'))
             return
         if k1 and k1 == k2:
@@ -558,7 +568,7 @@ class App:
         cat = self.category.get()
         common = dict(log=self.log, progress=lambda d, t: self.q.put(('prog', (d, t))), stop=self.stop,
                       keep_originals=self.cfg.get('keep_originals', True), collect=bool(self.cfg.get('report')),
-                      redo=bool(self.cfg.get('redo')))
+                      redo=bool(self.cfg.get('redo')), butler=self.butler)
         if cat == tables.BUILTIN:                    # 刀单：专门的那一套
             eng = engine.Engine(self.folder.get(), [k1, k2], self.model.get(), names_path=names_path(),
                                 kb_path=kb_path(), feed_dir=feed_dir(), **common)
@@ -647,6 +657,14 @@ class App:
             self.dialog.destroy()
         self.dialog = cls(self, *args)
         return self.dialog
+
+    def refresh_dagj(self):
+        for w in (self.dagj_btn, self.dagj_on):
+            w.pack_forget()
+        (self.dagj_on if self.butler.paired else self.dagj_btn).pack(anchor='w', pady=(14, 0))
+
+    def open_dagj(self):
+        self._dialog(DagjCard)
 
     def new_category(self, then=None):
         def made(name):
@@ -792,7 +810,7 @@ class App:
             self.check_update()                     # 自动更新开着：自己下、空闲时换；关着：只提醒
         if self.cfg.get('report') and not self.sending and time.time() >= self.next_send:
             self.send_reports()                     # 发数据给方丈：闲着的时候才发，不跟认照片抢网
-        if self.auto.get() and (self.key1.get().strip() or self.key2.get().strip()):
+        if self.auto.get() and (self.key1.get().strip() or self.key2.get().strip() or self.butler.paired):
             snap = autopilot.image_snapshot(self.folder.get())
             if self.watcher.poll(snap):
                 self.watcher.started(snap)
@@ -1052,6 +1070,12 @@ class App:
                     self.status.set(T('st.pages', d=d, t=t))
                 elif kind == 'call':
                     val()
+                elif kind == 'dagj':                    # 089：配上了 / 被撤了，按钮跟着换
+                    was = getattr(self, '_dagj_was', self.butler.paired)
+                    self._dagj_was = self.butler.paired
+                    self.refresh_dagj()
+                    if was and not self.butler.paired:
+                        self.write(T('log.dagjGone'))
                 elif kind == 'fed':
                     self.feeding = False
                     self.feed_btn.config(state='normal')
@@ -1276,6 +1300,61 @@ class CardDialog(tk.Toplevel):
             self.focus_force()
         except tk.TclError:
             pass
+
+
+class DagjCard(CardDialog):
+    """089 连接大管家：输一次暗号。输错就在框里说一句；锁了说「歇一小时再来」。不弹窗、不讲道理。"""
+
+    def __init__(self, app: App):
+        super().__init__(app, T('dagj.title'), 420)
+        b = self.body
+        tk.Label(b, text=T('dagj.para'), font=self.bf, bg=ui.CARD, fg=ui.TEXT, anchor='w', justify='left',
+                 wraplength=ui.px(400)).pack(anchor='w')
+        self.code = tk.StringVar()
+        self.field = ui.Field(b, self.code, font=(self.fam, 14))
+        self.field.pack(fill='x', pady=(10, 0))
+        self.err = tk.StringVar()
+        tk.Label(b, textvariable=self.err, font=(self.fam, 10), bg=ui.CARD, fg='#C0392B', anchor='w').pack(
+            anchor='w', pady=(6, 0))
+        f = self.footer()
+        self.ok_btn = self.button(f, T('dagj.ok'), self.ok, primary=True)
+        self.button(f, T('cancel'), self.destroy)
+        self.field.entry.bind('<Return>', lambda e: self.ok())
+        self.after(60, lambda: self.field.entry.focus_set())
+        self.busy = False
+
+    def ok(self):
+        code = self.code.get().strip()
+        if not code or self.busy:
+            return
+        self.busy = True
+        self.err.set(T('dagj.busy'))
+        self.ok_btn.config(state='disabled')
+
+        def go():
+            try:
+                r = self.app.butler.pair(code)
+            except Exception as e:
+                r = {'error': f'{type(e).__name__}: {e}'}
+            self.app.q.put(('call', lambda: self.done(r)))
+        threading.Thread(target=go, daemon=True).start()
+
+    def done(self, r):
+        self.busy = False
+        try:
+            if not self.winfo_exists():
+                return
+        except tk.TclError:
+            return
+        self.ok_btn.config(state='normal')
+        if r.get('ok'):
+            self.app.write(T('log.dagjOn'))
+            self.destroy()
+            return
+        self.err.set(T('dagj.locked') if r.get('locked') else T('dagj.wrong') if r.get('wrong')
+                     else T('dagj.off') if r.get('off') else T('dagj.err', e=r.get('error', '')))
+        if r.get('wrong'):
+            self.code.set('')
 
 
 class NewCategoryCard(CardDialog):

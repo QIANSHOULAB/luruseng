@@ -153,6 +153,9 @@
   .nhead { font-size: 16px; }
   .npath { color: var(--grey); font-size: 13.5px; margin-top: 4px; overflow-wrap: anywhere; }   /* 长路径照断，英文单词不从中间劈开 */
   .side .more { margin-top: 10px; align-self: flex-start; }
+  .side .dagj { margin-top: auto; padding-top: 18px; }
+  .dagjon { color: var(--grey); font-size: 13.5px; line-height: 1.45; }
+  #dagjcode { font-size: 20px; letter-spacing: .12em; margin-top: 10px; }
 
   .logcard > svg { width: 26px; height: 26px; margin: 10px 4px 0 10px; color: #8E8E93; flex: none; }
   .log { flex: 1; overflow-y: auto; padding: 4px 10px; max-height: 46vh; min-height: 150px; }
@@ -351,6 +354,10 @@
     <div class="nhead" id="nhead"></div>
     <div class="npath" id="npath"></div>
     <button type="button" class="pill small more" id="names" data-i18n="app.names">Edit roster</button>
+    <div class="dagj">
+      <button type="button" class="pill small" id="dagj" data-i18n="app.dagj">Connect the Butler</button>
+      <span class="dagjon" id="dagjon" hidden data-i18n="app.dagjOn">The Abbot’s own butler, at your service.</span>
+    </div>
   </aside>
 
   <section class="card logcard">
@@ -383,6 +390,14 @@
 </div></dialog>
 
 <!-- 名单 -->
+<dialog id="dlg-dagj"><div class="dcard" style="width:400px">
+  <h2 data-i18n="dagj.title">Connect the Butler</h2><div class="sep1"></div>
+  <p class="para" data-i18n="dagj.para"></p>
+  <input id="dagjcode" class="field" inputmode="numeric" autocomplete="off" spellcheck="false">
+  <div class="err" id="dagjerr"></div>
+  <div class="foot2"><button type="button" class="pill" data-close data-i18n="cancel">Cancel</button><button type="button" class="pill primary" id="dagjok" data-i18n="dagj.ok">Connect</button></div>
+</div></dialog>
+
 <dialog id="dlg-names"><div class="dcard" style="width:560px">
   <h2 data-i18n="names.title">Roster</h2><div class="sep1"></div>
   <textarea id="namestxt" class="field" spellcheck="false" placeholder="639/Lee Ah Kow&#10;232/Tan Mei Ling"></textarea>
@@ -462,7 +477,7 @@
   // 不然刚更新那十分钟，浏览器会拿新页面配缓存里的旧代码（按钮在、点了没反应）。
   (() => {
     const v = Date.parse(document.lastModified) || Date.now();
-    const mods = ['app', 'strings', 'core', 'sheets', 'store', 'image', 'book', 'engine', 'pair', 'inbox', 'fill'];
+    const mods = ['app', 'strings', 'core', 'sheets', 'store', 'image', 'book', 'engine', 'pair', 'inbox', 'fill', 'dagj'];
     const map = document.createElement('script');
     map.type = 'importmap';
     map.textContent = JSON.stringify({ imports: Object.fromEntries(mods.map((m) => [`./${m}.js`, `./${m}.js?v=${v}`])) });

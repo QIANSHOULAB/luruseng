@@ -1131,8 +1131,10 @@ class Engine:
                  clock=time.time, sleep=None, names_path: str | None = None,
                  kb_path: str | None = None, feed_dir: str | None = None, reads: int | None = None,
                  keep_originals: bool = True, discard=recycle, spec=None, collect: bool = False,
-                 redo: bool = False):
+                 redo: bool = False, butler=None):
         self.folder = folder
+        self.butler = butler        # 089 dagj.Butler：配上了就每张先问大管家，问不成跳回 Gemini
+        self.by: dict[str, str] = {}   # 照片 -> 谁认的（'dagj' / 'gemini'）
         self.redo = redo            # ⚙「干过的照片也重干」（测试用）：账本里有的也照样认，不挪进 已识别\重复
         self.collect = collect      # ⚙「发数据给方丈」开着：每张怎么认的都记下来，干完写进 识别结果\.回传（见 report.py）
         self.collect_photos = False
@@ -1189,6 +1191,41 @@ class Engine:
             raise
 
     def _recognize(self, path: str) -> tuple[list[dict], str]:
+        """089：配上了大管家、它也没在歇着，先整张交给大管家认（跟 Gemini 一样两遍对答案）；哪一遍没成（没连上、
+        不在、60 秒没回、回了错）整张换 Gemini 重认。连着 3 张没成，5 分钟里直接走 Gemini。"""
+        from . import dagj
+        b = self.butler
+        if b is not None and b.ready():
+            try:
+                out = self._recognize_with(path, self._dagj_read)
+                b.hit()
+                self.by[path] = 'dagj'
+                return out
+            except (Stopped, Fatal):
+                raise
+            except Exception as e:
+                rest = b.miss()
+                self.log(T('eng.dagjMiss', name=os.path.basename(path), why=str(e)[:80]))
+                if rest:
+                    self.log(T('eng.dagjRest'))
+        if not self.keys.keys:
+            raise RuntimeError(T('eng.noKeyFallback'))
+        out = self._recognize_with(path, self._read)
+        self.by[path] = 'gemini'
+        return out
+
+    def _dagj_read(self, jpeg: bytes, path: str) -> tuple[list[dict], str]:
+        """大管家认一遍：交的就是要发给 Gemini 的那个请求，回来的也是 Gemini 的样子。认不出的一律算没成（换 Gemini）。"""
+        from . import dagj
+        data = self.butler.read(self._body(jpeg, True), self.stop)
+        if self.stop.is_set():
+            raise Stopped()
+        try:
+            return self.spec.parse(data) if self.spec else parse_response(data)
+        except Exception as e:
+            raise dagj.Miss(f'回的认不出：{e}') from None
+
+    def _recognize_with(self, path: str, reader) -> tuple[list[dict], str]:
         """认一张：先认两遍（第二遍用拉过对比度的图），对得上就收；对不上认第三遍，按多数定。
         顺便按多数定单子标题在照片哪一边（印编号的那份照片拿它转正）。"""
         jpeg = prepare_image(path)
@@ -1196,19 +1233,21 @@ class Engine:
         agree = self.spec.agree if self.spec else records_agree
         vote_ = self.spec.vote if self.spec else vote
         if self.reads == 1:
-            recs, side = self._traced_read(jpeg, path, '原图')
+            recs, side = self._traced_read(jpeg, path, '原图', reader)
             return vote_([[clean(r) for r in recs]]), side
         plan = [(jpeg, '原图'), (prepare_image(path, enhance=True), '加强')]
         reads, errs, sides = [], [], []
         while plan:
             img, what = plan.pop(0)
             try:
-                recs, side = self._traced_read(img, path, what)
+                recs, side = self._traced_read(img, path, what, reader)
                 reads.append([clean(r) for r in recs])
                 sides.append(side)
             except (Stopped, Fatal):
                 raise
             except Exception as e:              # 某一遍没认成：再补一遍，凑够两遍对答案
+                if reader != self._read:        # 大管家那头没成：整张换 Gemini，不在大管家这儿补
+                    raise
                 errs.append(e)
                 if len(errs) == 1 and len(reads) + len(plan) < 2:
                     plan.append((jpeg, '原图'))
@@ -1229,11 +1268,12 @@ class Engine:
             side = known[0] if c[known[0]] == top else c.most_common(1)[0][0]
         return out, side
 
-    def _traced_read(self, img: bytes, path: str, what: str) -> tuple[list[dict], str]:
+    def _traced_read(self, img: bytes, path: str, what: str, reader=None) -> tuple[list[dict], str]:
         """认一遍；开着「发数据给方丈」就把这一遍认成什么（模型原话，整理之前）、花了多久记下来。"""
         t0 = time.time()
+        reader = reader or self._read
         try:
-            recs, side = self._read(img, path)
+            recs, side = reader(img, path)
         except (Stopped, Fatal):
             raise
         except Exception as e:
@@ -1326,7 +1366,7 @@ class Engine:
 
     def run(self) -> Result:
         res = self.res
-        if not self.keys.keys:
+        if not self.keys.keys and not (self.butler is not None and self.butler.paired):
             res.stopped_reason = '没填钥匙'
             self.log(T('eng.noKey'))
             return res
@@ -1483,7 +1523,8 @@ class Engine:
                                 os.replace(p, unique_dest(orig_dir, f'{tag}_{name}'))
                             ledger[h] = {'file': name, 'no': no, 'xlsx': os.path.basename(book.path),
                                          'at': datetime.now().isoformat(timespec='seconds')}
-                            self.log(T('eng.ok', tag=tag, name=name, n=len(recs)))
+                            self.log(T('eng.ok', tag=tag, name=name, n=len(recs))
+                                     + (' · ' + T('eng.by.dagj' if self.by[p] == 'dagj' else 'eng.by.gemini') if p in self.by else ''))
                         else:
                             res.failed += 1
                             res.errors.append((name, err))

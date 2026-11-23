@@ -262,3 +262,89 @@ test('saving a photo blows up: logged, the rest still go on', async () => {
   assert.deepEqual(got.sort(), [1, 3]);
   assert.ok(logs.some((m) => m === '✗ 02 结果没存上：QuotaExceededError'), logs);
 });
+
+// ---------------------------------------------------------------- 089 先问大管家，问不成跳回 Gemini
+import { Butler, Miss } from '../dagj.js';
+
+function butler(answer) {                        // 真的 Butler（歇不歇照它自己的算），只把「交给中转站」换成假的
+  const mem = new Map();
+  const b = new Butler({ storage: { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, v), removeItem: (k) => mem.delete(k) } });
+  b.info = { cid: 'c'.repeat(22), key: 'k', at: '' };
+  b.calls = 0;
+  b.read = async (body) => { b.calls++; return answer(body, b.calls); };
+  return b;
+}
+const fromSrv = (srv) => async (body) => { const [, obj] = srv.answer('ok', body); return obj; };
+async function goB(items, srv, b, opts = {}) {
+  const logs = [], out = [];
+  const eng = new Engine({ keys: [K1], model: C.DEFAULT_MODEL, reads: 1, log: (m) => logs.push(m), fetchImpl: srv.fetch,
+    prepare, sleep: async () => {}, butler: b, ...opts });
+  const res = await eng.run(items, {
+    onPhoto: async (it, recs, err, side, stamped, by) => { out.push({ no: it.no, recs, err, by }); },
+    onUnfinished: async () => {}, onBatch: async () => {}, progress: () => {},
+  });
+  return { res, logs, out };
+}
+
+test('089 paired: every photo goes to the butler, Gemini is never asked, each says who read it', async () => {
+  const srv = server();
+  const b = butler(fromSrv(srv));
+  const { res, out } = await goB(photos(6), srv, b, { reads: 2 });
+  assert.equal(res.ok, 6);
+  assert.equal(res.requests, 0);
+  assert.equal(b.calls, 12);
+  assert.ok(out.every((p) => p.by === 'dagj'));
+  assert.deepEqual(out.map((p) => p.recs[0].opr_no).sort(), [...Array(6).keys()].map((i) => String(800 + i)));
+});
+
+test('089 the butler misses one: that photo goes to Gemini whole, the rest stay with the butler', async () => {
+  const srv = server();
+  const b = butler(async (body, n) => { if (n === 1) throw new Miss('大管家不在'); return fromSrv(srv)(body); });
+  const { res, out, logs } = await goB(photos(1), srv, b, { reads: 2 });
+  assert.equal(res.ok, 1);
+  assert.equal(out[0].by, 'gemini');
+  assert.equal(res.requests, 2);
+  assert.ok(logs.some((m) => m.includes('大管家没认成') && m.includes('大管家不在')));
+  const again = await goB(photos(2), srv, b, { reads: 1 });
+  assert.ok(again.out.every((p) => p.by === 'dagj'));
+});
+
+test('089 three misses in a row: five minutes straight to Gemini, then the butler again', async () => {
+  const srv = server();
+  let t = 1_000_000;
+  const b = butler(async () => { throw new Miss('60 秒没回'); });
+  b.clock = () => t;
+  const { res, out, logs } = await goB(photos(7), srv, b);
+  assert.equal(res.ok, 7);
+  assert.ok(out.every((p) => p.by === 'gemini'));
+  assert.equal(b.calls, 5);                      // 头一批 5 张同时问了；第二批 2 张直接 Gemini
+  assert.equal(logs.filter((m) => m.includes('5 分钟')).length, 1);
+  t += 300_001;
+  b.read = async (body) => { b.calls++; return fromSrv(srv)(body); };
+  const later = await goB(photos(1), srv, b);
+  assert.equal(later.out[0].by, 'dagj');
+});
+
+test('089 no key at all: the butler still works; a photo it misses fails, the run goes on', async () => {
+  const srv = server();
+  const b = butler(async (body, n) => { if (n === 2) throw new Miss('大管家没回'); return fromSrv(srv)(body); });
+  const { res, out } = await goB(photos(3), srv, b, { keys: [] });
+  assert.equal(res.ok, 2);
+  assert.equal(res.failed, 1);
+  assert.match(out.find((p) => !p.recs).err, /没填钥匙/);
+});
+
+test('089 revoked (403): the butler forgets the pairing, the photo goes to Gemini', async () => {
+  const srv = server();
+  const mem = new Map([['luru.dagj', JSON.stringify({ cid: 'c'.repeat(22), key: 'A'.repeat(43), at: '' })]]);
+  let changed = 0;
+  const b = new Butler({ storage: { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, v), removeItem: (k) => mem.delete(k) },
+    fetchImpl: async () => new Response(JSON.stringify({ revoked: true }), { status: 403 }) });
+  b.onChange = () => changed++;
+  assert.equal(b.paired, true);
+  const { out } = await goB(photos(1), srv, b);
+  assert.equal(out[0].by, 'gemini');
+  assert.equal(b.paired, false);
+  assert.equal(mem.has('luru.dagj'), false);
+  assert.equal(changed, 1);
+});
