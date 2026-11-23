@@ -2,6 +2,9 @@
 
 When there's a new version, the app shows you the sections newer than the one you have.
 
+## 1.12.3
+- Bigger batches, no traffic jam: the first read leaves as soon as its photo is ready instead of waiting on the second copy.
+
 ## 1.12.2
 - Two Butlers, one queue: the desk and the handheld both read now, and whoever's free gets the next photo. Time in line doesn't count as the Butler dawdling.
 

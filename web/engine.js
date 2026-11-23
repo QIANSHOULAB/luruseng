@@ -183,10 +183,13 @@ export class Engine {
       const [recs, side] = await reader(jpeg, name);
       return [vote([recs.map(clean)]), side];
     }
-    const plan = [jpeg, await this.prepare(file, true)];
+    const enh = this.prepare(file, true);      // 093：加强那张边认第一遍边做，第一遍不等它（一批交得多，别都堵在做图上）
+    enh.catch(() => {});
+    const plan = [jpeg, enh];
     const reads = [], errs = [], sides = [];
     while (plan.length) {
-      const img = plan.shift();
+      let img = plan.shift();
+      if (img === enh) img = await enh;
       try {
         const [recs, side] = await reader(img, name);
         reads.push(recs.map(clean));

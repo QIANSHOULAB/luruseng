@@ -33,7 +33,7 @@ from openpyxl.utils import get_column_letter
 
 from .strings import T, join
 
-VERSION = '1.12.2'
+VERSION = '1.12.3'
 APP_NAME = '录入僧'
 SUBTITLE = '施主去玩，贫僧填表'
 TITLE = '入我千手院，凡事尽释手；千僧替牛马，施主自风流。'      # 窗口标题栏只写这一句（Song 定的）
@@ -1238,10 +1238,12 @@ class Engine:
         if self.reads == 1:
             recs, side = self._traced_read(jpeg, path, '原图', reader)
             return vote_([[clean(r) for r in recs]]), side
-        plan = [(jpeg, '原图'), (prepare_image(path, enhance=True), '加强')]
+        plan = [(jpeg, '原图'), (None, '加强')]       # 093：加强那张轮到了再做，第一遍不等它
         reads, errs, sides = [], [], []
         while plan:
             img, what = plan.pop(0)
+            if img is None:
+                img = prepare_image(path, enhance=True)
             try:
                 recs, side = self._traced_read(img, path, what, reader)
                 reads.append([clean(r) for r in recs])
