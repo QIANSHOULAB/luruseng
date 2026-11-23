@@ -264,7 +264,7 @@ test('saving a photo blows up: logged, the rest still go on', async () => {
 });
 
 // ---------------------------------------------------------------- 089 先问大管家，问不成跳回 Gemini
-import { Butler, Miss } from '../dagj.js';
+import { Butler, Miss, BATCH as DAGJ_BATCH } from '../dagj.js';
 
 function butler(answer) {                        // 真的 Butler（歇不歇照它自己的算），只把「交给中转站」换成假的
   const mem = new Map();
@@ -314,10 +314,11 @@ test('089 three misses in a row: five minutes straight to Gemini, then the butle
   let t = 1_000_000;
   const b = butler(async () => { throw new Miss('60 秒没回'); });
   b.clock = () => t;
-  const { res, out, logs } = await goB(photos(7), srv, b);
-  assert.equal(res.ok, 7);
+  const n = DAGJ_BATCH + 3;
+  const { res, out, logs } = await goB(photos(n), srv, b);
+  assert.equal(res.ok, n);
   assert.ok(out.every((p) => p.by === 'gemini'));
-  assert.equal(b.calls, 5);                      // 头一批 5 张同时问了；第二批 2 张直接 Gemini
+  assert.equal(b.calls, DAGJ_BATCH);             // 093：头一批 12 张同时问了；第二批 3 张直接 Gemini
   assert.equal(logs.filter((m) => m.includes('5 分钟')).length, 1);
   t += 300_001;
   b.read = async (body) => { b.calls++; return fromSrv(srv)(body); };
