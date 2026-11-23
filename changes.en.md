@@ -2,6 +2,9 @@
 
 When there's a new version, the app shows you the sections newer than the one you have.
 
+## 1.12.1
+- A slow Butler is a Butler. Luru now waits instead of bolting for Gemini. Only a missing, unreachable, or busy Butler gets skipped.
+
 ## 1.12.0
 - Photos go to the Abbot’s own butler first: hit Connect the Butler at the bottom of the right card, say the magic word once, and every photo goes there. No Gemini quota spent. Butler out, or silent for a minute? Luru turns to Gemini by itself.
 - Each photo’s line now ends with who read it: Butler or G.

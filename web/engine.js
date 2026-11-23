@@ -138,7 +138,7 @@ export class Engine {
   }
 
   // 089：配上了大管家、它也没在歇着，先整张交给大管家认（跟 Gemini 一样两遍对答案）；哪一遍没成（没连上、不在、
-  // 60 秒没回、回了错）整张换 Gemini 重认。连着 3 张没成，5 分钟里直接走 Gemini。
+  // 明说接不了；慢到 2 次 5 分钟都没回、回错 2 次）整张换 Gemini 重认。连着 3 张是「用不了」，5 分钟里直接走 Gemini。
   async _recognize(file) {
     const b = this.butler;
     const name = file.name || t('eng.photo');
@@ -150,7 +150,7 @@ export class Engine {
         return out;
       } catch (e) {
         if (e instanceof C.Stopped || e instanceof C.Fatal || this.stopped) throw e instanceof C.Fatal ? e : new C.Stopped('stopped');
-        const rest = b.miss();
+        const rest = e && e.down === false ? false : b.miss();     // 092：慢、回错换一张，不算「用不了」
         this.log(t('eng.dagjMiss', { name, why: String(e.message || e).slice(0, 80) }));
         if (rest) this.log(t('eng.dagjRest'));
       }
@@ -162,11 +162,15 @@ export class Engine {
   }
 
   async dagjRead(b64, name) {                  // 大管家认一遍：交的就是要发给 Gemini 的那个请求，回来的也是 Gemini 的样子
-    const data = await this.butler.read(this.body(b64, true), this.halt.signal);
-    if (this.stopped) throw new C.Stopped('stopped');
-    try {
-      return this.spec ? this.spec.parse(data) : C.parseResponse(data);
-    } catch (e) { throw new Miss(`回的认不出：${e.message}`); }
+    let err;
+    for (let i = 0; i < 2; i++) {                // 092：回的认不出，先让大管家再认一次，第二次还错才换 Gemini
+      const data = await this.butler.read(this.body(b64, true), this.halt.signal);
+      if (this.stopped) throw new C.Stopped('stopped');
+      try {
+        return this.spec ? this.spec.parse(data) : C.parseResponse(data);
+      } catch (e) { err = e; }
+    }
+    throw new Miss(`回的认不出：${err.message}`, false);
   }
 
   async _recognizeWith(file, reader) {

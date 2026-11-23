@@ -33,7 +33,7 @@ from openpyxl.utils import get_column_letter
 
 from .strings import T, join
 
-VERSION = '1.12.0'
+VERSION = '1.12.1'
 APP_NAME = '录入僧'
 SUBTITLE = '施主去玩，贫僧填表'
 TITLE = '入我千手院，凡事尽释手；千僧替牛马，施主自风流。'      # 窗口标题栏只写这一句（Song 定的）
@@ -1192,7 +1192,7 @@ class Engine:
 
     def _recognize(self, path: str) -> tuple[list[dict], str]:
         """089：配上了大管家、它也没在歇着，先整张交给大管家认（跟 Gemini 一样两遍对答案）；哪一遍没成（没连上、
-        不在、60 秒没回、回了错）整张换 Gemini 重认。连着 3 张没成，5 分钟里直接走 Gemini。"""
+        不在、明说接不了；慢到 2 次 5 分钟都没回、回错 2 次）整张换 Gemini 重认。连着 3 张是「用不了」，5 分钟里直接走 Gemini。"""
         from . import dagj
         b = self.butler
         if b is not None and b.ready():
@@ -1204,7 +1204,7 @@ class Engine:
             except (Stopped, Fatal):
                 raise
             except Exception as e:
-                rest = b.miss()
+                rest = b.miss() if getattr(e, 'down', True) else False     # 092：慢、回错换一张，不算「用不了」，不进连着 3 张
                 self.log(T('eng.dagjMiss', name=os.path.basename(path), why=str(e)[:80]))
                 if rest:
                     self.log(T('eng.dagjRest'))
@@ -1217,13 +1217,16 @@ class Engine:
     def _dagj_read(self, jpeg: bytes, path: str) -> tuple[list[dict], str]:
         """大管家认一遍：交的就是要发给 Gemini 的那个请求，回来的也是 Gemini 的样子。认不出的一律算没成（换 Gemini）。"""
         from . import dagj
-        data = self.butler.read(self._body(jpeg, True), self.stop)
-        if self.stop.is_set():
-            raise Stopped()
-        try:
-            return self.spec.parse(data) if self.spec else parse_response(data)
-        except Exception as e:
-            raise dagj.Miss(f'回的认不出：{e}') from None
+        err = None
+        for _ in range(2):                                 # 092：回的认不出，先让大管家再认一次，第二次还错才换 Gemini
+            data = self.butler.read(self._body(jpeg, True), self.stop)
+            if self.stop.is_set():
+                raise Stopped()
+            try:
+                return self.spec.parse(data) if self.spec else parse_response(data)
+            except Exception as e:
+                err = e
+        raise dagj.Miss(f'回的认不出：{err}', down=False) from None
 
     def _recognize_with(self, path: str, reader) -> tuple[list[dict], str]:
         """认一张：先认两遍（第二遍用拉过对比度的图），对得上就收；对不上认第三遍，按多数定。

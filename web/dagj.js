@@ -2,19 +2,25 @@
 // - 配对：点「连接大管家」输一次暗号。暗号用大管家的公钥加密着发过去（中转站看不见）；对了，大管家回一把这个浏览器
 //   自己的钥匙，存在这个浏览器里（localStorage），关了再开、隔天再开都还连着。
 // - 认一张：把本来要发给 Gemini 的那个请求加密交给中转站 /lr/ask，大管家认完照 Gemini 的样子回来。
-// - 跳回 Gemini：没配对、连不上、大管家不在、60 秒没回、回了错。连着 3 张没成，5 分钟里直接走 Gemini，5 分钟后再试。
+// - 跳回 Gemini（092 Song 11-23：「如果不是大管家用不了，不用 Gemini」）：只有没配对、连不上（隔 5 秒再试还不行）、大管家不在、
+//   明说接不了、被撤，才直接换；慢不算：交过去就一直等，一遍最多 5 分钟，没回再交一次，第二次也没回才换；回了错也先再认一次。
+//   连着 3 张是「用不了」才 5 分钟里直接走 Gemini，5 分钟后再试；因为慢、因为错换的不算进去。
 // - 撤掉了（403）或者大管家拆不开（forget）：忘掉这次配对，按钮回到「连接大管家」。
 
 export const RELAY = 'https://luruseng-relay.lunzigeju.workers.dev';
-export const WAIT = 60_000;
+export const WAIT = 305_000;          // 一次交过去最多等多久（fetch 超时）
+export const ROUND = 300_000;         // 092：一遍最多等 5 分钟，没回再交一次，第二次也没回才换 Gemini
 export const MISSES = 3;
 export const REST = 300_000;
-export const PARALLEL = 3;
+export const PARALLEL = 4;            // 092：大管家那头 parallel 也是 4
 const STORE = 'luru.dagj';
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
-export class Miss extends Error {}
+/** down=true：大管家真的用不了（没配对、连不上、不在、明说接不了、被撤），才算进「连着 3 张」；慢、回错（false）只换这一张 */
+export class Miss extends Error {
+  constructor(msg, down = true) { super(msg); this.down = down; }
+}
 
 export const b64u = (buf) => {
   const u8 = new Uint8Array(buf);
@@ -48,11 +54,13 @@ function loadPair(storage) {
 }
 
 export class Butler {
-  constructor({ relay = RELAY, fetchImpl, clock = () => Date.now(), wait = WAIT, storage } = {}) {
+  constructor({ relay = RELAY, fetchImpl, clock = () => Date.now(), wait = WAIT, round = ROUND, sleep = (ms) => new Promise((ok) => setTimeout(ok, ms)), storage } = {}) {
     this.relay = relay.replace(/\/$/, '') + '/lr';
     this.fetch = fetchImpl || globalThis.fetch.bind(globalThis);
     this.clock = clock;
     this.wait = wait;
+    this.round = round;
+    this.sleep = sleep;
     try { this.storage = storage || globalThis.localStorage; } catch (e) { this.storage = null; }
     this.info = this.storage ? loadPair(this.storage) : null;
     this.misses = 0;
@@ -140,32 +148,67 @@ export class Butler {
   }
   _free() { const next = this.queue.shift(); if (next) next(); else this.active--; }
 
-  /** 一个 Gemini 请求交给大管家 -> 照 Gemini 的样子回来的 data；没成抛 Miss */
+  async _askOnce(p, key, body, signal) {
+    const n = rand(12);
+    const pt = enc.encode(JSON.stringify({ v: 1, id: b64u(rand(9)), body }));
+    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: n, additionalData: enc.encode('luru/ask/' + p.cid) }, key, pt);
+    return this._json('/ask', { method: 'POST', ms: this.wait, signal, body: { cid: p.cid, n: b64u(n), ct: b64u(ct) } });
+  }
+
+  /** 一遍：等大管家认完，最多 round 毫秒。中转站自己先喊「超时」（504）不算它放弃，接着等。-> [状态码, 回的]；一遍都没回 -> null（慢，不是不在） */
+  async _round(p, key, body, signal) {
+    const end = this.clock() + this.round;
+    for (let i = 0; i < 8; i++) {
+      if (signal && signal.aborted) throw new Miss('停了', false);
+      let [st, r] = await this._askOnce(p, key, body, signal);
+      if (st === 0 && r.error !== 'timeout') {           // 连不上：隔 5 秒再试一次
+        await this.sleep(5000);
+        [st, r] = await this._askOnce(p, key, body, signal);
+        if (st === 0 && r.error !== 'timeout') throw new Miss('连不上');
+      }
+      if (st === 504 || st === 0) {
+        if (this.clock() < end - 1000) continue;
+        return null;
+      }
+      return [st, r];
+    }
+    return null;
+  }
+
+  /** 一个 Gemini 请求交给大管家 -> 照 Gemini 的样子回来的 data；没成抛 Miss。
+   *  092：慢不算用不了（一遍最多 5 分钟，没回再交一次，第二次也没回才 Miss，down=false）；回了错先再认一次。 */
   async read(body, signal) {
     const p = this.info;
     if (!p) throw new Miss('没配对');
     await this._slot();
-    let st, r, key;
     try {
-      if (signal && signal.aborted) throw new Miss('停了');
-      key = await crypto.subtle.importKey('raw', unb64u(p.key), 'AES-GCM', false, ['encrypt', 'decrypt']);
-      const n = rand(12);
-      const pt = enc.encode(JSON.stringify({ v: 1, id: b64u(rand(9)), body }));
-      const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: n, additionalData: enc.encode('luru/ask/' + p.cid) }, key, pt);
-      [st, r] = await this._json('/ask', { method: 'POST', ms: this.wait, signal, body: { cid: p.cid, n: b64u(n), ct: b64u(ct) } });
+      if (signal && signal.aborted) throw new Miss('停了', false);
+      const key = await crypto.subtle.importKey('raw', unb64u(p.key), 'AES-GCM', false, ['encrypt', 'decrypt']);
+      let slow = 0, errs = 0;
+      for (;;) {
+        const got = await this._round(p, key, body, signal);
+        if (!got) {
+          if (++slow >= 2) throw new Miss('大管家 2 次都没回，换 Gemini', false);
+          continue;
+        }
+        const [st, r] = got;
+        if (st === 403 && (r.revoked || r.unknown)) { this.forget(); throw new Miss('配对被撤了'); }
+        if (st === 503) throw new Miss('大管家不在');
+        if (st !== 200) throw new Miss(`中转站 ${st}`);
+        if (!r.ok) {
+          if (r.forget) { this.forget(); throw new Miss('大管家拆不开'); }
+          if (++errs >= 2) throw new Miss('大管家回错 2 次', false);
+          continue;
+        }
+        let ans;
+        try {
+          const out = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64u(r.n), additionalData: enc.encode('luru/ans/' + p.cid) }, key, unb64u(r.ct));
+          ans = JSON.parse(dec.decode(out));
+        } catch (e) { throw new Miss('回的拆不开', false); }
+        if (ans.ok) return ans.data;
+        if (ans.cant) throw new Miss('大管家：' + String(ans.error || '').slice(0, 120));     // 明说接不了（陪玩）：算不在
+        if (++errs >= 2) throw new Miss('大管家：' + String(ans.error || '').slice(0, 120), false);
+      }
     } finally { this._free(); }
-    if (st === 403 && (r.revoked || r.unknown)) { this.forget(); throw new Miss('配对被撤了'); }
-    if (st === 0) throw new Miss(r.error === 'timeout' ? '60 秒没回' : '连不上');
-    if (st === 503) throw new Miss('大管家不在');
-    if (st === 504) throw new Miss('大管家没回');
-    if (st !== 200) throw new Miss(`中转站 ${st}`);
-    if (!r.ok) { if (r.forget) this.forget(); throw new Miss('大管家拆不开'); }
-    let ans;
-    try {
-      const out = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64u(r.n), additionalData: enc.encode('luru/ans/' + p.cid) }, key, unb64u(r.ct));
-      ans = JSON.parse(dec.decode(out));
-    } catch (e) { throw new Miss('回的拆不开'); }
-    if (!ans.ok) throw new Miss('大管家：' + String(ans.error || '').slice(0, 120));
-    return ans.data;
   }
 }
