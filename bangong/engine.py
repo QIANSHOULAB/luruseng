@@ -33,7 +33,7 @@ from openpyxl.utils import get_column_letter
 
 from .strings import T, join
 
-VERSION = '1.12.1'
+VERSION = '1.12.2'
 APP_NAME = '录入僧'
 SUBTITLE = '施主去玩，贫僧填表'
 TITLE = '入我千手院，凡事尽释手；千僧替牛马，施主自风流。'      # 窗口标题栏只写这一句（Song 定的）
@@ -1219,7 +1219,7 @@ class Engine:
         from . import dagj
         err = None
         for _ in range(2):                                 # 092：回的认不出，先让大管家再认一次，第二次还错才换 Gemini
-            data = self.butler.read(self._body(jpeg, True), self.stop)
+            data = self.butler.read(self._body(dagj.fit(jpeg), True), self.stop)   # 093：缩到大脑自己会缩到的尺寸
             if self.stop.is_set():
                 raise Stopped()
             try:
@@ -1497,9 +1497,13 @@ class Engine:
             return no, p, h, recs, ''
 
         try:
-            with ThreadPoolExecutor(BATCH) as pool:
-                for b in range(0, total, BATCH):
-                    batch = items[b:b + BATCH]
+            n = BATCH
+            if self.butler is not None and self.butler.ready():     # 093：交大管家的，一批多交几张，中转站分给电脑、掌机
+                from . import dagj
+                n = max(BATCH, dagj.BATCH)
+            with ThreadPoolExecutor(n) as pool:
+                for b in range(0, total, n):
+                    batch = items[b:b + n]
                     futures = [(it, pool.submit(one, it)) for it in batch]
                     halt = None
                     for (no, p, h), f in futures:          # 按编号顺序写进表

@@ -62,13 +62,14 @@ def test_a_miss_goes_to_gemini_whole(tmp_path):
 
 
 def test_three_misses_rest_five_minutes(tmp_path):
-    make_images(tmp_path / 'in', 7)
+    n = dagj.BATCH + 3
+    make_images(tmp_path / 'in', n)
     t = [1_000_000.0]
     b = fake(tmp_path, lambda body, n: (_ for _ in ()).throw(dagj.Miss('60 秒没回')))
     b.clock = lambda: t[0]
     res, logs, _ = run(tmp_path / 'in', b)
-    assert res.ok == 7
-    assert b.calls == 5                                              # 头一批 5 张同时问了；第二批直接 Gemini
+    assert res.ok == n
+    assert 3 <= b.calls <= dagj.BATCH                                # 093：头一批 12 张同时问（歇了以后起头的不问）；第二批直接 Gemini
     assert sum('5 分钟' in m for m in logs) == 1
     t[0] += 301
     assert b.ready()
@@ -140,7 +141,8 @@ def test_pairing_round_trip_with_a_fake_butler(tmp_path, monkeypatch):
 
 
 def test_slow_is_not_down_092(tmp_path, monkeypatch):
-    """092：慢不算用不了：504 接着等；一遍没回再交一次；两次都没回才 Miss，而且 down=False（不进连着 3 张）。"""
+    """092：慢不算用不了：一遍没回再交一次；两次都没回才 Miss，而且 down=False（不进连着 3 张）。
+    093：一遍就是一次请求，中转站从大管家取走起管 5 分钟，过了回 504（排队不算）。"""
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     ck = os.urandom(32)
     t = [0.0]
@@ -151,7 +153,7 @@ def test_slow_is_not_down_092(tmp_path, monkeypatch):
 
     def post(url, body, timeout):
         calls.append(t[0])
-        t[0] += 75                                        # 中转站 75 秒喊一次超时
+        t[0] += 300                                       # 中转站：大管家取走 5 分钟没回，喊超时
         return 504, {'timeout': True}
     monkeypatch.setattr(dagj, '_post', post)
     b = dagj.Butler(str(tmp_path / 'c' / 'dagj.json'), clock=lambda: t[0], sleep=sleep)
@@ -161,7 +163,7 @@ def test_slow_is_not_down_092(tmp_path, monkeypatch):
         raise AssertionError('should miss')
     except dagj.Miss as e:
         assert e.down is False and '2 次都没回' in str(e)
-    assert len(calls) == 8 and t[0] >= 600                # 两遍，每遍 4 次 × 75 秒
+    assert len(calls) == 2 and t[0] >= 600                # 两遍，每遍一次
 
 
 def test_down_and_error_092(tmp_path, monkeypatch):
@@ -196,6 +198,12 @@ def test_down_and_error_092(tmp_path, monkeypatch):
         b.read({}); raise AssertionError
     except dagj.Miss as e:
         assert e.down is False
+    # 093 中转站说两台都在打游戏 -> down
+    monkeypatch.setattr(dagj, '_post', lambda u, bd, t: (503, {'off': True, 'cant': True}))
+    try:
+        b.read({}); raise AssertionError
+    except dagj.Miss as e:
+        assert e.down is True and '陪玩' in str(e)
     # 明说接不了 -> down
     monkeypatch.setattr(dagj, '_post', lambda u, bd, t: put({'ok': False, 'error': '大管家在陪玩', 'cant': True}))
     try:
@@ -209,3 +217,45 @@ def test_slow_miss_does_not_rest_092(tmp_path):
     b = fake(tmp_path, lambda body, n: (_ for _ in ()).throw(dagj.Miss('大管家 2 次都没回，换 Gemini', down=False)))
     res, logs, _ = run(tmp_path / 'in', b)
     assert res.ok == 7 and not any('5 分钟' in m for m in logs) and b.misses == 0
+
+
+def test_fit_093():
+    """093：缩到大脑自己会缩到的尺寸（Claude 文档 resized_size，Opus 5.5 长边 2576、4784 个视觉 token）；放得下的原样。"""
+    import io
+    from PIL import Image
+    assert dagj.resized_size(3840, 2160) == (2576, 1449)       # 文档里的例子
+    assert dagj.resized_size(1920, 1080) == (1920, 1080)
+    assert dagj.resized_size(1075, 1520) == (1075, 1520)
+    assert dagj.resized_size(1075, 1520, 1568, 1568) == (924, 1307)   # 文档标准档的例子
+    for w, h in ((4032, 3024), (3024, 4032), (2048, 2048), (9000, 1000)):
+        rw, rh = dagj.resized_size(w, h)
+        assert dagj.image_tokens(rw, rh) <= 4784 and max(-(-rw // 28), -(-rh // 28)) * 28 <= 2576
+        assert dagj.image_tokens(rw + 1, round((rw + 1) * h / w)) > 4784 or -(-(max(rw, rh) + 1) // 28) * 28 > 2576
+
+    def jpg(w, h):
+        buf = io.BytesIO()
+        Image.new('RGB', (w, h), 'white').save(buf, 'JPEG', quality=92)
+        return buf.getvalue()
+    small = jpg(2048, 1536)
+    assert dagj.fit(small) is small                              # 录入僧本来就缩到 2048：不动
+    out = dagj.fit(jpg(2048, 2048))
+    assert Image.open(io.BytesIO(out)).size == dagj.resized_size(2048, 2048) == (1932, 1932)
+    assert dagj.fit(b'not a jpeg') == b'not a jpeg'
+
+
+def test_stop_while_waiting_093(tmp_path, monkeypatch):
+    """093：一次可能等十几分钟：点停止马上松手（Miss 停了，不算用不了）。"""
+    import threading
+    import time as _t
+    ck = os.urandom(32)
+    monkeypatch.setattr(dagj, '_post', lambda u, bd, t: (_t.sleep(5), (504, {}))[1])
+    b = dagj.Butler(str(tmp_path / 'c' / 'dagj.json'), sleep=lambda s: None)
+    b.pair_info = {'cid': 'c' * 22, 'key': dagj.b64u(ck), 'at': ''}
+    stop = threading.Event()
+    threading.Timer(0.3, stop.set).start()
+    t0 = _t.time()
+    try:
+        b.read({}, stop); raise AssertionError
+    except dagj.Miss as e:
+        assert e.down is False and '停了' in str(e)
+    assert _t.time() - t0 < 2

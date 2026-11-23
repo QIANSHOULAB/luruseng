@@ -6,13 +6,55 @@
 //   明说接不了、被撤，才直接换；慢不算：交过去就一直等，一遍最多 5 分钟，没回再交一次，第二次也没回才换；回了错也先再认一次。
 //   连着 3 张是「用不了」才 5 分钟里直接走 Gemini，5 分钟后再试；因为慢、因为错换的不算进去。
 // - 撤掉了（403）或者大管家拆不开（forget）：忘掉这次配对，按钮回到「连接大管家」。
+// - 093 电脑、掌机一起认：一批同时交 BATCH 张，中转站按两台的空位分、都满就在站里排着（排队不算 5 分钟，从大管家取走起算，
+//   中转站自己管：过了回 504 = 这一遍慢）。照片先缩到大脑自己会缩到的尺寸（fit，Opus 5.5：长边 2576、视觉 token 4784），
+//   本来就在限度以内的原样发。
 
 export const RELAY = 'https://luruseng-relay.lunzigeju.workers.dev';
-export const WAIT = 305_000;          // 一次交过去最多等多久（fetch 超时）
-export const ROUND = 300_000;         // 092：一遍最多等 5 分钟，没回再交一次，第二次也没回才换 Gemini
+export const WAIT = 1_230_000;        // 093：一次交过去最多等多久：中转站排队最多 15 分钟 + 大管家认 5 分钟，再宽一点
 export const MISSES = 3;
 export const REST = 300_000;
-export const PARALLEL = 4;            // 092：大管家那头 parallel 也是 4
+export const PARALLEL = 16;           // 093：同时问几张（排队交给中转站：电脑 4 + 掌机 8）
+export const BATCH = 12;              // 093：配上大管家时一批交几张（没配上照旧 core.BATCH）
+export const EDGE = 2576, TOKENS = 4784, PATCH = 28;   // 093：Opus 5.5 看图的限度（Claude 文档 vision-coordinates）
+
+const up = (a) => Math.ceil(a / PATCH);
+export const imageTokens = (w, h) => up(w) * up(h);
+/** 大脑那边会把图缩到多大（照 Claude 文档的 resized_size）；本来就放得下 -> 原样 */
+export function resizedSize(w, h, maxEdge = EDGE, maxTokens = TOKENS) {
+  const fits = (a, b) => up(a) * PATCH <= maxEdge && up(b) * PATCH <= maxEdge && imageTokens(a, b) <= maxTokens;
+  if (fits(w, h)) return [w, h];
+  if (h > w) { const [rh, rw] = resizedSize(h, w, maxEdge, maxTokens); return [rw, rh]; }
+  const ar = w / h;
+  let lo = 1, hi = w;
+  while (lo + 1 < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (fits(mid, Math.max(Math.round(mid / ar), 1))) lo = mid; else hi = mid;
+  }
+  return [lo, Math.max(Math.round(lo / ar), 1)];
+}
+
+/** 093：发给大管家之前缩到大脑自己会缩到的尺寸（JPEG 0.9）；本来就在限度以内的不动。b64 进、b64 出 */
+export async function fit(b64) {
+  try {
+    const blob = new Blob([unb64(b64)], { type: 'image/jpeg' });
+    const bmp = await createImageBitmap(blob);
+    const [w, h] = resizedSize(bmp.width, bmp.height);
+    if (w === bmp.width && h === bmp.height) { bmp.close && bmp.close(); return b64; }
+    const c = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : Object.assign(document.createElement('canvas'), { width: w, height: h });
+    const g = c.getContext('2d');
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(bmp, 0, 0, w, h);
+    bmp.close && bmp.close();
+    const out = c.convertToBlob ? await c.convertToBlob({ type: 'image/jpeg', quality: 0.9 })
+      : await new Promise((ok) => c.toBlob(ok, 'image/jpeg', 0.9));
+    const u8 = new Uint8Array(await out.arrayBuffer());
+    let s = '';
+    for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+    return btoa(s);
+  } catch (e) { return b64; }
+}
+const unb64 = (s) => { const bin = atob(s); const out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; };
 const STORE = 'luru.dagj';
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -54,12 +96,11 @@ function loadPair(storage) {
 }
 
 export class Butler {
-  constructor({ relay = RELAY, fetchImpl, clock = () => Date.now(), wait = WAIT, round = ROUND, sleep = (ms) => new Promise((ok) => setTimeout(ok, ms)), storage } = {}) {
+  constructor({ relay = RELAY, fetchImpl, clock = () => Date.now(), wait = WAIT, sleep = (ms) => new Promise((ok) => setTimeout(ok, ms)), storage } = {}) {
     this.relay = relay.replace(/\/$/, '') + '/lr';
     this.fetch = fetchImpl || globalThis.fetch.bind(globalThis);
     this.clock = clock;
     this.wait = wait;
-    this.round = round;
     this.sleep = sleep;
     try { this.storage = storage || globalThis.localStorage; } catch (e) { this.storage = null; }
     this.info = this.storage ? loadPair(this.storage) : null;
@@ -137,6 +178,7 @@ export class Butler {
   hit() { this.misses = 0; }
   /** 没成一张；连着 3 张就歇 5 分钟。-> 这回开始歇了没有 */
   miss() {
+    if (this.clock() < this.restUntil) return false;   // 093：一批同时问的多：已经在歇了，别的没成的不再算一轮
     this.misses++;
     if (this.misses >= MISSES) { this.restUntil = this.clock() + REST; this.misses = 0; return true; }
     return false;
@@ -155,24 +197,19 @@ export class Butler {
     return this._json('/ask', { method: 'POST', ms: this.wait, signal, body: { cid: p.cid, n: b64u(n), ct: b64u(ct) } });
   }
 
-  /** 一遍：等大管家认完，最多 round 毫秒。中转站自己先喊「超时」（504）不算它放弃，接着等。-> [状态码, 回的]；一遍都没回 -> null（慢，不是不在） */
+  /** 一遍：交过去等大管家认完。093：中转站排队不算时间，从大管家取走起最多 5 分钟，中转站自己管，过了回 504。
+   *  -> [状态码, 回的]；慢（504、等过头）-> null */
   async _round(p, key, body, signal) {
-    const end = this.clock() + this.round;
-    for (let i = 0; i < 8; i++) {
-      if (signal && signal.aborted) throw new Miss('停了', false);
-      let [st, r] = await this._askOnce(p, key, body, signal);
-      if (st === 0 && r.error !== 'timeout') {           // 连不上：隔 5 秒再试一次
-        await this.sleep(5000);
-        [st, r] = await this._askOnce(p, key, body, signal);
-        if (st === 0 && r.error !== 'timeout') throw new Miss('连不上');
-      }
-      if (st === 504 || st === 0) {
-        if (this.clock() < end - 1000) continue;
-        return null;
-      }
-      return [st, r];
+    if (signal && signal.aborted) throw new Miss('停了', false);
+    let [st, r] = await this._askOnce(p, key, body, signal);
+    if (signal && signal.aborted) throw new Miss('停了', false);
+    if (st === 0 && r.error !== 'timeout') {             // 连不上：隔 5 秒再试一次
+      await this.sleep(5000);
+      [st, r] = await this._askOnce(p, key, body, signal);
+      if (st === 0 && r.error !== 'timeout') throw new Miss('连不上');
     }
-    return null;
+    if (st === 504 || st === 0) return null;
+    return [st, r];
   }
 
   /** 一个 Gemini 请求交给大管家 -> 照 Gemini 的样子回来的 data；没成抛 Miss。
@@ -193,7 +230,7 @@ export class Butler {
         }
         const [st, r] = got;
         if (st === 403 && (r.revoked || r.unknown)) { this.forget(); throw new Miss('配对被撤了'); }
-        if (st === 503) throw new Miss('大管家不在');
+        if (st === 503) throw new Miss(r.cant ? '大管家在陪玩' : '大管家不在');
         if (st !== 200) throw new Miss(`中转站 ${st}`);
         if (!r.ok) {
           if (r.forget) { this.forget(); throw new Miss('大管家拆不开'); }

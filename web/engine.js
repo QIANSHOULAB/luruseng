@@ -1,7 +1,7 @@
 // 干活的那一套：一批 5 张同时认，每张认两遍对答案，对不上认第三遍；钥匙额度用完自己换、自己等（跟电脑版 engine.Engine 一样）
 import './strings.js';
 import * as C from './core.js';
-import { Miss } from './dagj.js';
+import { Miss, fit, BATCH as DAGJ_BATCH } from './dagj.js';
 
 const t = (k, v) => globalThis.LURU_I18N.t(k, v);
 
@@ -164,7 +164,7 @@ export class Engine {
   async dagjRead(b64, name) {                  // 大管家认一遍：交的就是要发给 Gemini 的那个请求，回来的也是 Gemini 的样子
     let err;
     for (let i = 0; i < 2; i++) {                // 092：回的认不出，先让大管家再认一次，第二次还错才换 Gemini
-      const data = await this.butler.read(this.body(b64, true), this.halt.signal);
+      const data = await this.butler.read(this.body(await fit(b64), true), this.halt.signal);   // 093：缩到大脑自己会缩到的尺寸
       if (this.stopped) throw new C.Stopped('stopped');
       try {
         return this.spec ? this.spec.parse(data) : C.parseResponse(data);
@@ -225,8 +225,9 @@ export class Engine {
       }
       return { recs, side, err, stamped, by: this.by.get(it.file) || '' };
     };
-    for (let b = 0; b < items.length; b += C.BATCH) {
-      const batch = items.slice(b, b + C.BATCH);
+    const n = this.butler && this.butler.ready() ? Math.max(C.BATCH, DAGJ_BATCH) : C.BATCH;   // 093：交大管家的一批多交几张，中转站分给电脑、掌机
+    for (let b = 0; b < items.length; b += n) {
+      const batch = items.slice(b, b + n);
       const settled = await Promise.allSettled(batch.map(async (it) => {
         const { recs, side, err, stamped, by } = await one(it);
         if (recs) { res.ok++; res.records += recs.length; } else { res.failed++; res.errors.push([it.file.name, err]); }

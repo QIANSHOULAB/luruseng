@@ -7,8 +7,12 @@
 - 跳回 Gemini（092 Song 11-23：「如果不是大管家用不了，不用 Gemini」）：只有没配对、连不上（隔 5 秒再试还不行）、大管家不在、明说接不了、被撤，
   才直接换；慢不算：交过去就一直等，一遍最多 5 分钟，没回再交一次，第二次也没回才换；回了错也先再认一次。
   连着 3 张是「用不了」才 5 分钟里直接走 Gemini；因为慢、因为错换的不算进去。
-- 撤掉了（中转站回 403）或者大管家拆不开（forget）：忘掉这次配对，按钮回到「连接大管家」。"""
+- 撤掉了（中转站回 403）或者大管家拆不开（forget）：忘掉这次配对，按钮回到「连接大管家」。
+- 093 电脑、掌机一起认：一批同时交 BATCH 张，中转站按两台的空位分、都满就在站里排着（排队不算 5 分钟，从大管家取走起算，
+  中转站自己管：过了回 504 = 这一遍慢）。照片先缩到大脑自己会缩到的尺寸（fit，Opus 5.5：长边 2576、视觉 token 4784），
+  本来就在限度以内的原样发。"""
 import base64
+import io
 import json
 import os
 import platform
@@ -19,12 +23,54 @@ import urllib.error
 import urllib.request
 
 RELAY = 'https://luruseng-relay.lunzigeju.workers.dev'
-WAIT = 305           # 一次交过去，最多等多久（socket 超时）；092：一遍等 ROUND 秒
-ROUND = 300          # 092：慢不算用不了，一遍最多等 5 分钟，没回再交一次，第二次也没回才换 Gemini
+WAIT = 1230          # 093：一次交过去最多等多久（socket 超时）：中转站排队最多 15 分钟 + 大管家认 5 分钟，再宽一点
 MISSES = 3           # 连着几张没成就歇一歇
 REST = 300           # 歇多久（秒）
-PARALLEL = 4         # 同时问几张（092：大管家那头 parallel 也是 4）
+PARALLEL = 16        # 093：同时问几张（排队交给中转站：电脑 4 + 掌机 8）
+BATCH = 12           # 093：配上大管家时一批交几张（没配上照旧 engine.BATCH）
 UA = 'Luruseng-desktop'
+EDGE, TOKENS, PATCH = 2576, 4784, 28     # 093：Opus 5.5 看图的限度（Claude 文档 vision-coordinates）
+
+
+def image_tokens(w: int, h: int) -> int:
+    return -(-w // PATCH) * -(-h // PATCH)
+
+
+def resized_size(w: int, h: int, max_edge: int = EDGE, max_tokens: int = TOKENS) -> tuple[int, int]:
+    """大脑那边会把图缩到多大（照 Claude 文档的 resized_size）；本来就放得下 -> 原样。"""
+    def fits(a, b):
+        return -(-a // PATCH) * PATCH <= max_edge and -(-b // PATCH) * PATCH <= max_edge and image_tokens(a, b) <= max_tokens
+
+    if fits(w, h):
+        return w, h
+    if h > w:
+        rh, rw = resized_size(h, w, max_edge, max_tokens)
+        return rw, rh
+    ar = w / h
+    lo, hi = 1, w
+    while lo + 1 < hi:
+        mid = (lo + hi) // 2
+        if fits(mid, max(round(mid / ar), 1)):
+            lo = mid
+        else:
+            hi = mid
+    return lo, max(round(lo / ar), 1)
+
+
+def fit(jpeg: bytes) -> bytes:
+    """093：发给大管家之前缩到大脑自己会缩到的尺寸（JPEG 90）；本来就在限度以内的不动。"""
+    try:
+        from PIL import Image
+        with Image.open(io.BytesIO(jpeg)) as im:
+            size = resized_size(*im.size)
+            if size == im.size:
+                return jpeg
+            im = im.convert('RGB').resize(size, Image.LANCZOS)
+            buf = io.BytesIO()
+            im.save(buf, 'JPEG', quality=90)
+            return buf.getvalue()
+    except Exception:
+        return jpeg
 
 
 class Miss(Exception):
@@ -169,6 +215,8 @@ class Butler:
     def miss(self) -> bool:
         """没成一张；连着 3 张就歇 5 分钟。-> 这回开始歇了没有"""
         with self.lock:
+            if self.clock() < self.rest_until:       # 093：一批同时问的多：已经在歇了，别的没成的不再算一轮
+                return False
             self.misses += 1
             if self.misses >= MISSES:
                 self.rest_until = self.clock() + REST
@@ -176,35 +224,39 @@ class Butler:
                 return True
             return False
 
-    def _ask_once(self, p, aes, body):
+    def _ask_once(self, p, aes, body, stop=None):
         n = secrets.token_bytes(12)
         pt = json.dumps({'v': 1, 'id': b64u(secrets.token_bytes(9)), 'body': body}, ensure_ascii=False).encode()
         ct = aes.encrypt(n, pt, b'luru/ask/' + p['cid'].encode())
-        return _post(self.relay + '/ask', {'cid': p['cid'], 'n': b64u(n), 'ct': b64u(ct)}, self.wait)
+        req = {'cid': p['cid'], 'n': b64u(n), 'ct': b64u(ct)}
+        if stop is None:
+            return _post(self.relay + '/ask', req, self.wait)
+        box = []                                   # 093：一次可能等十几分钟，点「停止」不能干等它：另起一条线发，这边看着停
+        t = threading.Thread(target=lambda: box.append(_post(self.relay + '/ask', req, self.wait)), daemon=True)
+        t.start()
+        while t.is_alive():
+            if stop.wait(0.5):
+                raise Miss('停了', down=False)
+        return box[0] if box else (0, {'error': '没回'})
 
     def _round(self, p, aes, body, stop):
-        """一遍：等大管家认完，最多 ROUND 秒。中转站自己先喊「超时」（504）不算它放弃，接着等。
-        -> (状态码, 回的)；一遍都没回 -> None（慢，不是不在）。"""
-        end = self.clock() + ROUND
-        for _ in range(8):
-            if stop is not None and stop.is_set():
-                raise Miss('停了', down=False)
-            st, r = self._ask_once(p, aes, body)
-            if st == 0 and 'timed out' not in str(r.get('error', '')) and r.get('error') != 'timeout':
-                self.sleep(5)                                  # 连不上：隔 5 秒再试一次
-                st, r = self._ask_once(p, aes, body)
-                if st == 0 and 'timed out' not in str(r.get('error', '')):
-                    raise Miss('连不上：' + str(r.get('error', ''))[:80])
-            if st == 504 or st == 0:
-                if self.clock() < end - 1:
-                    continue
-                return None
-            return st, r
-        return None
+        """一遍：交过去等大管家认完。093：中转站排队不算时间，从大管家取走起最多 5 分钟，中转站自己管，过了回 504。
+        -> (状态码, 回的)；慢（504、等过头）-> None。"""
+        if stop is not None and stop.is_set():
+            raise Miss('停了', down=False)
+        st, r = self._ask_once(p, aes, body, stop)
+        if st == 0 and 'timed out' not in str(r.get('error', '')) and r.get('error') != 'timeout':
+            self.sleep(5)                                      # 连不上：隔 5 秒再试一次
+            st, r = self._ask_once(p, aes, body, stop)
+            if st == 0 and 'timed out' not in str(r.get('error', '')):
+                raise Miss('连不上：' + str(r.get('error', ''))[:80])
+        if st == 504 or st == 0:
+            return None
+        return st, r
 
     def read(self, body: dict, stop: threading.Event | None = None) -> dict:
         """交一个 Gemini 请求给大管家 -> 照 Gemini 的样子回来的 dict。没成就 Miss。
-        092：慢不算用不了。交过去了就一直等它认完（一遍最多 5 分钟）；5 分钟没回再交一次，第二次也没回才 Miss（down=False，
+        092：慢不算用不了。交过去了就一直等它认完（一遍最多 5 分钟，093 起在中转站排队的时间不算）；5 分钟没回再交一次，第二次也没回才 Miss（down=False，
         不算进「连着 3 张」）。大管家回了错：再认一次，第二次还错才 Miss。只有没配对、连不上、不在、明说接不了、被撤才 down=True。"""
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
         p = self.pair_info
@@ -225,7 +277,7 @@ class Butler:
                     self.forget()
                     raise Miss('配对被撤了')
                 if st == 503:
-                    raise Miss('大管家不在')
+                    raise Miss('大管家在陪玩' if r.get('cant') else '大管家不在')
                 if st != 200:
                     raise Miss(f'中转站 {st}')
                 if not r.get('ok'):
