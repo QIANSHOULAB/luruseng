@@ -1724,7 +1724,9 @@ async function boot() {
   $('#auto').checked = !!S.cfg.auto;
   // 155 一张拍四份默认开着。只认他自己点过的（quadPick）：1.13.2 以前随便存一次设置就记下 quad:false，那不是他关的。
   // LURUSENG_QUAD：测试用，拨「没点过」时的默认值
-  $('#quad').checked = S.cfg.quadPick ?? globalThis.LURUSENG_QUAD ?? true;
+  // 11-25 17:22 Song：开关留着，先不默认打开。iPhone 传图页把很「花」的照片画成白纸（施工单 161 在修），四张一拍正好最花。
+  // 他自己勾了照旧记住。161 修好、验完，这里改回 true（start_why.py 里「默认勾着」那条跟着就绿了）。
+  $('#quad').checked = S.cfg.quadPick ?? globalThis.LURUSENG_QUAD ?? false;
   setupQuad();
   $('#quad').onchange = () => { S.cfg.quadPick = $('#quad').checked; saveCfg(true); };
   $('#key1').value = S.cfg.key1 || '';
