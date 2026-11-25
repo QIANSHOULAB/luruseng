@@ -48,6 +48,37 @@ CORS = {'access-control-allow-origin': '*', 'access-control-allow-methods': 'POS
 passed = []
 
 
+# 169：钥匙、来图就干搬进了 ⚙ 设置；任务状态看面板（#state 待命 / 在干活 / 干完了 / 出问题了，#nok 认完、#nbad 失败）
+DONE_JS = ('([ok, bad]) => ["干完了", "出问题了"].includes(document.querySelector("#state").textContent)'
+           ' && !document.querySelector("#start").disabled'
+           ' && document.querySelector("#nok").textContent === String(ok) && document.querySelector("#nbad").textContent === String(bad)')
+
+
+def wait_done(pg, ok, bad=0, timeout=60000):
+    pg.wait_for_function(DONE_JS, arg=[ok, bad], timeout=timeout)
+
+
+def board(pg):
+    return pg.inner_text('#state'), int(pg.inner_text('#nok')), int(pg.inner_text('#nbad'))
+
+
+def fill_key(pg, value, sel='#key1'):
+    shut = not pg.is_visible(sel)
+    if shut:
+        pg.click('#gear')
+        pg.wait_for_selector('#dlg-set[open]')
+    pg.fill(sel, value)
+    if shut:
+        pg.click('#dlg-set [data-close]')
+
+
+def toggle_auto(pg):
+    pg.click('#gear')
+    pg.wait_for_selector('#dlg-set[open]')
+    pg.click('label:has(#auto)')
+    pg.click('#dlg-set [data-close]')
+
+
 def step(fn):
     @functools.wraps(fn)
     def run(*a, **kw):
@@ -326,7 +357,7 @@ def main():
             page.goto(base)
             page.wait_for_function('() => document.querySelectorAll("#log p").length >= 2')
             assert page.title().startswith('录入僧网页版')
-            assert page.inner_text('#status').replace('\n', '') == '待识别 0 张', page.inner_text('#status')
+            assert page.inner_text('#state') == '待命' and page.inner_text('#ngot') == '0', board(page)
             text = '\n'.join(logs())
             assert '第一次用' in text and '数据库还是空的' in text, text
             assert page.inner_text('#cathint') == '内置 · 专属优化'
@@ -342,14 +373,14 @@ def main():
             assert page.is_visible('#why') and '开不了工' in page.inner_text('#whytxt'), page.inner_text('#why')
             page.click('#clear')
             assert not page.is_visible('#why')
-            assert page.inner_text('#status').replace('\n', '') == '待识别 0 张'
+            assert page.inner_text('#state') == '待命' and page.inner_text('#ngot') == '0', board(page)
 
         imgs = make_images(os.path.join(WORK, 'a'), 12)
         runs = {}
 
         @step
         def twelve_photos_match_desktop_book():
-            page.fill('#key1', K1)
+            fill_key(page, K1, '#key1')
             out = run_and_wait(imgs, '成功 12 张')
             text = '\n'.join(out)
             assert '按拍摄顺序编号 1–12' in text and '每张认两遍对答案' in text, text
@@ -719,7 +750,7 @@ def main():
                 offline(pg)
                 pg.goto(base)
                 pg.wait_for_function('() => document.querySelectorAll("#log p").length >= 1')
-                pg.fill('#key1', K1)
+                fill_key(pg, K1, '#key1')
                 pg.set_input_files('#files', make_images(os.path.join(WORK, 'reopen'), 1, start=170))
                 pg.click('#start')
                 pg.wait_for_selector('#dlg-view[open]', timeout=60000)
@@ -798,7 +829,7 @@ def main():
             finally:
                 mock_server.STATE['modes'] = {}
             assert any('■ 停工：钥匙1 · HTTP 400：API key not valid' in m for m in out), out
-            assert page.inner_text('#status').replace('\n', '') == '待识别 2 张'     # 照片还在列表里
+            assert page.inner_text('#ngot') == '2' and page.inner_text('#state') == '出问题了', board(page)     # 照片还在列表里
             out = run_and_wait([], '成功 2 张')                                   # 钥匙好了再点开始：接着干
             assert any('成功 2 张' in m for m in out)
             close_viewer()
@@ -809,7 +840,7 @@ def main():
             try:
                 add_photos(make_images(os.path.join(WORK, 's'), 12, start=60))
                 page.click('#start')
-                page.wait_for_function('() => /^5\\/12/.test(document.querySelector("#status").textContent)', timeout=30000)
+                page.wait_for_function('() => Number(document.querySelector("#nok").textContent) >= 5', timeout=30000)
                 page.click('#stop')
                 wait_log('■ 已停止，没干完的下次接着干', timeout=60000)
                 page.wait_for_function('() => !document.querySelector("#start").disabled')
@@ -914,7 +945,7 @@ def main():
             page.reload()
             page.wait_for_function('() => document.querySelectorAll("#log p").length >= 1')
             assert page.input_value('#key1') == ''
-            page.fill('#key1', K1)
+            fill_key(page, K1, '#key1')
             page.click('#gear')
             page.wait_for_selector('#dlg-set[open]')
             page.click('#setrows label:nth-child(2) .switch')
@@ -986,24 +1017,23 @@ def main():
             p.goto(base)
             p.wait_for_function('() => document.querySelectorAll("#log p").length >= 1')
             p.evaluate('''() => { window.__seq = []; new MutationObserver(() => {
-                const t = document.querySelector("#status").textContent; if (window.__seq.at(-1) !== t) window.__seq.push(t);
-              }).observe(document.querySelector("#status"), {childList: true, subtree: true, characterData: true}); }''')
+                const t = document.querySelector("#nok").textContent; if (window.__seq.at(-1) !== t) window.__seq.push(t);
+              }).observe(document.querySelector("#nok"), {childList: true, subtree: true, characterData: true}); }''')
             try:
                 p.set_input_files('#files', make_images(os.path.join(WORK, 'prog'), 3, start=70))
-                p.fill('#key1', K1)
+                fill_key(p, K1, '#key1')
                 p.click('#start')
-                p.wait_for_function('() => /^0\\/3/.test(document.querySelector("#status").textContent)', timeout=5000)
-                assert p.inner_text('#slogan') == '你可以去摸鱼了，剩下的交给老衲。', p.inner_text('#slogan')
+                p.wait_for_function('() => document.querySelector("#status").textContent === "你可以去摸鱼了，剩下的交给老衲。"', timeout=5000)
+                assert p.inner_text('#state') == '在干活' and p.inner_text('#nok') == '0', board(p)
                 p.wait_for_function('() => parseFloat(document.querySelector("#bar").style.width) > 3', timeout=4000)   # 还没认完一张，条已经在爬
                 p.wait_for_timeout(700)
-                top = p.evaluate('() => document.querySelector(".side").getBoundingClientRect().top')
+                top = p.evaluate('() => document.querySelector("#board").getBoundingClientRect().top')
                 assert 0 <= top < 844, top                                         # 手机上自己滚到任务状态
                 p.screenshot(path=os.path.join(SHOTS, '7-手机干活中.png'))
-                p.wait_for_function('() => document.querySelector("#status").textContent.startsWith("干完")', timeout=60000)
+                wait_done(p, 3)
                 seq = p.evaluate('() => window.__seq')
-                ticks = [t for t in seq if re.fullmatch(r'\d+/3 张', t)]
-                assert ticks == ['0/3 张', '1/3 张', '2/3 张', '3/3 张'], seq
-                assert p.inner_text('#slogan') == '干完你核对就好了。', p.inner_text('#slogan')
+                assert seq in (['1', '2', '3'], ['0', '1', '2', '3']), seq   # 一张一张往上跳，不跳格
+                assert p.inner_text('#status') == '3 条记录到手。干完你核对就好了。', p.inner_text('#status')
                 if p.is_visible('#dlg-view'):
                     p.click('#vclose')
                 p.screenshot(path=os.path.join(SHOTS, '7-手机干完.png'))
@@ -1040,7 +1070,7 @@ def main():
             k.add_init_script("""(() => { const of = window.fetch; let n = 0;
               window.fetch = async (u, o) => { if (String(u).includes('googleapis.com')) await new Promise(r => setTimeout(r, [150, 600, 1100, 1600, 2100][n++ % 5])); return of(u, o); };
             })()""")
-            k.add_init_script("""document.addEventListener('DOMContentLoaded', () => { const el = document.querySelector('#slogan'); window.__slogans = [];
+            k.add_init_script("""document.addEventListener('DOMContentLoaded', () => { const el = document.querySelector('#status'); window.__slogans = [];
               new MutationObserver(() => { if (window.__slogans.at(-1) !== el.textContent) window.__slogans.push(el.textContent); })
                 .observe(el, { childList: true, characterData: true, subtree: true }); })""")       # 进度条底下那句话先后说过啥
 
@@ -1067,10 +1097,10 @@ def main():
 
             try:
                 p = open_app()
-                p.fill('#key1', K1)
+                fill_key(p, K1, '#key1')
                 p.set_input_files('#files', make_images(os.path.join(WORK, 'kill'), 8, start=140))
                 p.click('#start')
-                p.wait_for_function('() => /^2\\/8/.test(document.querySelector("#status").textContent)', timeout=30000)
+                p.wait_for_function('() => Number(document.querySelector("#nok").textContent) >= 2', timeout=30000)
                 p.screenshot(path=os.path.join(SHOTS, '9-被杀之前.png'))
                 p.close()                                                       # 手机把页面杀了
                 work, run, left = peek(lambda q: (lambda w: (w, idb_get(q, 'runs', w['run']), q.evaluate(PENDING)))(idb_get(q, 'kv', 'work')))
@@ -1081,14 +1111,14 @@ def main():
                 calls = dict(mock_server.STATE['calls'])
 
                 p = open_app()                                                  # 重新打开：不点、不选，自己接着干
-                p.wait_for_function('() => document.querySelector("#status").textContent.startsWith("干完")', timeout=60000)
+                p.wait_for_function('() => document.querySelector("#state").textContent === "干完了"', timeout=60000)
                 text = '\n'.join(logs_of(p))
                 assert f'老衲诈尸接着干：还剩 {8 - len(done)} 张，接着写进 {run["xlsx"]}，编号不变' in text, text
                 assert '以前干过' not in text and '没存住' not in text, text
-                assert p.inner_text('#status').replace('\n', '') == '干完：成功 8 · 失败 0', p.inner_text('#status')
-                assert p.inner_text('#slogan') == '干完你核对就好了。'
+                assert board(p) == ('干完了', 8, 0), board(p)
+                assert p.inner_text('#status') == '8 条记录到手。干完你核对就好了。', p.inner_text('#status')
                 said = p.evaluate('() => window.__slogans')
-                assert said[0] == '页面被关了一回，老衲诈尸接着干，你接着摸鱼。' and said[-1] == '干完你核对就好了。', said
+                assert '页面被关了一回，老衲诈尸接着干，你接着摸鱼。' in said and said[-1] == '8 条记录到手。干完你核对就好了。', said
                 for no in done:                                                 # 被杀之前干完的：一张都没重干
                     assert mock_server.STATE['calls'][939 + no] == calls[939 + no] == 2, (no, calls.get(939 + no))
                 after = idb_get(p, 'runs', work['run'])
@@ -1122,10 +1152,10 @@ def main():
                            ids + ['ghost.jpg|12345|1700000000000'])
                 p.close()
                 p = open_app()
-                p.wait_for_function('() => document.querySelector("#status").textContent.startsWith("干完")', timeout=60000)
+                p.wait_for_function('() => document.querySelector("#state").textContent === "干完了"', timeout=60000)
                 text = '\n'.join(logs_of(p))
                 assert '▶ 上回刚开工页面就被关了，老衲诈尸重新开工' in text and '⚠ 这 1 张还没存进浏览器页面就被关了，得重选：ghost.jpg' in text, text
-                assert kept == ['img_160.jpg'] and p.inner_text('#status').replace('\n', '') == '干完：成功 1 · 失败 0', p.inner_text('#status')
+                assert kept == ['img_160.jpg'] and board(p) == ('干完了', 1, 0), board(p)
                 assert idb_get(p, 'kv', 'work') is None
                 wait_pending(p, 0)
                 if p.is_visible('#dlg-view'):
@@ -1176,7 +1206,7 @@ def main():
             try:
                 a = opened(pc, base)
                 assert a.is_visible('#phone') and '手机扫个码' in a.inner_text('#phinttxt')
-                a.fill('#key1', K1)
+                fill_key(a, K1, '#key1')
                 a.click('#phone')
                 a.wait_for_selector('#dlg-phone[open]')
                 a.wait_for_function('() => !!document.querySelector("#qr svg")')
@@ -1201,10 +1231,10 @@ def main():
                 ip.close()
                 b.set_input_files('#files', make_images(os.path.join(WORK, 'ph'), 3, start=170, lined=True))
                 b.wait_for_function('() => document.querySelector("#st").textContent.includes("电脑收齐 3 张")', timeout=30000)
-                a.wait_for_function('() => document.querySelector("#status").textContent.startsWith("干完")', timeout=60000)
+                a.wait_for_function('() => document.querySelector("#state").textContent === "干完了"', timeout=60000)
                 text = logs_of(a)
                 assert '📱 手机传来 3 张，收齐了，开工' in text, text
-                assert a.inner_text('#status').replace('\n', '') == '干完：成功 3 · 失败 0', a.inner_text('#status')
+                assert board(a) == ('干完了', 3, 0), board(a)
                 b.wait_for_function('() => document.querySelector("#say").textContent.includes("干完了，成功 3 · 失败 0")', timeout=15000)
                 b.screenshot(path=os.path.join(SHOTS, '10-手机传完.png'))
                 run_id = a.evaluate("""() => new Promise((ok) => { const r = indexedDB.open('luruseng-web');
@@ -1243,7 +1273,7 @@ def main():
                 b.wait_for_function('() => document.querySelector("#st").textContent.includes("送出 2/2")', timeout=30000)
                 assert '照片在中转站等着' in b.inner_text('#say'), b.inner_text('#say')
                 a = opened(pc, base)                                                   # 电脑再打开：自己取、自己干
-                a.wait_for_function('() => document.querySelector("#status").textContent.startsWith("干完")', timeout=60000)
+                a.wait_for_function('() => document.querySelector("#state").textContent === "干完了"', timeout=60000)
                 assert '📱 手机传来 2 张，收齐了，开工' in logs_of(a), logs_of(a)
                 b.wait_for_function('() => document.querySelector("#st").textContent.includes("电脑收齐 2 张")', timeout=15000)
                 assert a.evaluate(f"fetch('{relay_url}/r/{room}/items').then(r => r.json())") == []
@@ -1272,7 +1302,7 @@ def main():
                 p.click(f'{dlg} [data-close]')
                 p.wait_for_selector(f'{dlg}:not([open])', state='attached')
             p.set_input_files('#files', imgs[:3])
-            p.fill('#key1', K1)
+            fill_key(p, K1, '#key1')
             p.click('#start')
             p.wait_for_selector('#dlg-view[open]', timeout=60000)
             p.wait_for_function('() => { const i = document.querySelector("#vphoto img"); return i && i.naturalWidth > 0; }')
@@ -1341,7 +1371,8 @@ def main():
                           ok(out); }; }; }; })""", MARKS)
 
             def done(q, want):
-                q.wait_for_function('w => document.querySelector("#status").textContent.replace(/\\s/g, "") === w', arg=want, timeout=60000)
+                ok, bad = map(int, re.findall(r'\d+', want))
+                wait_done(q, ok, bad)
                 if not q.is_checked('#auto'):             # 手动开工的干完会自己打开核对：等它开出来再关
                     q.wait_for_selector('#dlg-view[open]')
                 if q.is_visible('#dlg-view'):
@@ -1363,7 +1394,7 @@ def main():
                 d = os.path.join(WORK, 'quad')
                 p = opened()
                 assert not p.is_checked('#quad') and not p.is_visible('#quadbox')
-                p.fill('#key1', K1)
+                fill_key(p, K1, '#key1')
                 p.click('label:has(#quad)')
                 p.wait_for_timeout(700)
                 p.close()
@@ -1416,7 +1447,7 @@ def main():
                 assert 'cross_1.jpg 以前干过' in text(p) and not p.is_visible('#quadbox'), text(p)
 
                 # ② 「来图就干」+ 右下空着：跳过那块，等几秒自己开工
-                p.click('label:has(#auto)')
+                toggle_auto(p)
                 two = make_four(os.path.join(d, 'three.jpg'), skip=(3,), stamp=1_700_100_100)
                 before = p.evaluate('() => performance.now()')
                 p.set_input_files('#files', two)
@@ -1451,7 +1482,7 @@ def main():
                 assert pending(p) == [] and not p.is_visible('#quadbox'), pending(p)
 
                 # ⑤ 没开工就把页面关了：四张还在；清空：什么都不留
-                p.click('label:has(#auto)')
+                toggle_auto(p)
                 p.set_input_files('#files', make_four(os.path.join(d, 'keep.jpg'), stamp=1_700_100_500, desk=(60, 40, 40)))
                 p.wait_for_function('() => document.querySelector("#droptxt").textContent.startsWith("4 张：keep_1.jpg")', timeout=15000)
                 p.wait_for_timeout(800)

@@ -29,6 +29,7 @@
     --fill: #F2F2F7; --fill-hover: #E9E9EE; --fill-down: #E0E0E5; --link: #0066CC; --focus: rgba(0, 113, 227, .22);
     --lift: 0 1px 2px rgba(0, 0, 0, .04), 0 6px 20px rgba(0, 0, 0, .045);
     --red-bg: #FFC7CE; --red: #9C0006; --orange-bg: #FCE4D6; --orange: #833C0B; --green: #34C759;
+    --bad: #D70015; --warn: #FF9F0A; --r-card: 18px;
     --key-w: 9.2em;
     --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei",
             "Segoe UI Variable Text", "Segoe UI", "Noto Sans CJK SC", "Noto Sans SC", system-ui, sans-serif;
@@ -52,18 +53,30 @@
   svg.i { width: 18px; height: 18px; flex: none; }
   [hidden] { display: none !important; }
 
+  /* 169 整页重排：左边干活那张卡；右边上「任务状态」面板、下名单和大管家；一行一个文件的明细收进「细节」。
+     三版排法：look-a 右栏（默认）、look-b 通栏、look-c 头牌；?look=b|c 只管这一次（给 Song 比） */
   .app {
-    max-width: 1180px; margin: 0 auto; padding: 14px; min-height: 100vh; min-height: 100dvh;
-    display: grid; grid-template-columns: minmax(0, 1fr) 290px; grid-template-rows: auto 1fr auto; gap: 14px;
+    max-width: 1180px; margin: 0 auto; padding: 24px; display: grid; gap: 16px; align-content: start;
+    grid-template-columns: minmax(0, 1fr) 340px; grid-template-rows: auto 1fr auto;
+    grid-template-areas: "main board" "main side" "foot foot";
   }
-  .card { background: var(--card); border: 1px solid transparent; border-radius: 14px; box-shadow: var(--lift); }
-  .main { padding: 18px 18px 18px; }
-  .side { padding: 18px; display: flex; flex-direction: column; min-width: 0; }
-  .logcard { grid-column: 1 / -1; padding: 10px 14px; display: flex; gap: 4px; min-height: 180px; }
-  .foot { grid-column: 1 / -1; color: var(--grey); font-size: 12.5px; text-align: center; padding: 0 0 6px; }
+  .app.look-b { grid-template-columns: minmax(0, 1fr) 300px; grid-template-rows: auto auto auto; grid-template-areas: "main side" "board board" "foot foot"; }
+  .app.look-c { max-width: 880px; grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: "board" "main" "side" "foot"; }
+  .card { background: var(--card); border: 1px solid transparent; border-radius: var(--r-card); box-shadow: var(--lift); }
+  .main { grid-area: main; padding: 24px; display: flex; flex-direction: column; min-width: 0; }
+  .main > hr.sep { margin-top: auto; }               /* 右边比左边高：空出来的放在按钮上面，按钮跟右边卡片底对齐 */
+  .main > .form { margin-bottom: 24px; }
+  /* 第一版：面板和名单、大管家拼成右边一张卡（中间一道细线） */
+  .app:not(.look-b):not(.look-c) .board { border-radius: var(--r-card) var(--r-card) 0 0; clip-path: inset(-40px -40px 0 -40px); }
+  .app:not(.look-b):not(.look-c) .side { border-radius: 0 0 var(--r-card) var(--r-card); margin-top: -16px; border-top-color: var(--line);
+                                         clip-path: inset(0 -40px -40px -40px); }
+  .board { grid-area: board; padding: 24px; display: flex; flex-direction: column; min-width: 0; }
+  .side { grid-area: side; padding: 20px 24px; display: flex; flex-direction: column; min-width: 0; }
+  .foot { grid-area: foot; color: var(--grey); font-size: 12.5px; text-align: center; padding: 4px 0 6px; }
   .foot a { color: var(--grey); text-decoration: underline; text-underline-offset: 3px; }
 
-  .head { display: flex; align-items: center; gap: 20px; margin: 0 0 14px; flex-wrap: wrap; }
+  .head { display: flex; align-items: center; gap: 20px; margin: 0 0 24px; flex-wrap: wrap; }
+  .head #gear { margin-left: -8px; width: 34px; height: 34px; border-radius: 17px; flex: none; }
   .head h1 { margin: 0; font-size: 30px; line-height: 1.1; letter-spacing: .02em; }
   .head .bar-v { width: 1px; height: 26px; background: #D1D1D6; }
   .head .sub { color: var(--grey); font-size: 17px; }
@@ -78,7 +91,7 @@
   .status b, .vbar .num { font-variant-numeric: tabular-nums; }   /* 只给数字：挂整段会把连字符撑宽 */
   input.field[type=password]::placeholder { letter-spacing: normal; }
 
-  .form { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px 0; align-items: center; }
+  .form { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px 0; align-items: center; }
   .form > label { padding-right: 16px; white-space: nowrap; }
   .form .wide { grid-column: 2 / 4; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; min-width: 0; }
   .form .side-btn { margin-left: 10px; min-width: var(--key-w); }
@@ -170,7 +183,7 @@
   .qthumbs figcaption { font-size: 12px; color: var(--grey); margin-top: 2px; overflow-wrap: anywhere; }
   .qnote { font-size: 13.5px; margin-top: 8px; text-align: center; }
 
-  hr.sep { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
+  hr.sep { border: 0; border-top: 1px solid var(--line); margin: 24px 0 20px; }
   .bar { display: flex; flex-wrap: wrap; gap: 10px; }
   /* 点开始干不了：原因贴在开始按钮上面 */
   .why { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 12px; padding: 12px 14px; border-radius: 12px;
@@ -181,21 +194,56 @@
   .why .acts:empty { display: none; }
   .textlink { display: block; margin: 10px auto 0; padding: 4px 8px; border: 0; background: none; color: var(--link); font-size: 13.5px; cursor: pointer; }
 
-  .side .top { display: flex; align-items: center; justify-content: space-between; font-size: 16px; }
-  .status { font-weight: 700; font-size: 26px; line-height: 1.25; margin: 4px 0 0; white-space: nowrap; overflow: hidden; }
-  .status b { color: var(--blue); font-size: 1.35em; margin: 0 .12em; }
-  .track { height: 14px; border-radius: 7px; background: #E5E5EA; overflow: hidden; margin-top: 12px; }
-  .track > div { height: 100%; width: 0; background: var(--blue); border-radius: 7px; transition: width .3s; }
-  .slogan { margin-top: 10px; color: var(--grey); font-size: 14px; line-height: 1.45; min-height: 1.45em; }
+  /* 任务状态面板：四种说法、一句话、细进度条、三个数、失败按原因一组一行 */
+  .btop { display: flex; align-items: center; justify-content: space-between; color: var(--grey); font-size: 15px; min-height: 30px; }
+  .textbtn { border: 0; background: none; color: var(--link); font-size: 13.5px; cursor: pointer; padding: 6px 2px; border-radius: 6px; }
+  .textbtn:focus-visible { outline: 3px solid var(--focus); }
+  .state { display: flex; align-items: center; gap: 12px; margin-top: 10px; font-size: 34px; font-weight: 700; line-height: 1.15; }
+  html[lang=en] .state { letter-spacing: -.02em; }
+  .state i { width: 12px; height: 12px; border-radius: 50%; background: #C7C7CC; flex: none; transition: background .24s; }
+  .board[data-s="busy"] .state i { background: var(--blue); }
+  .board[data-s="done"] .state i { background: var(--green); }
+  .board[data-s="bad"] .state i { background: var(--warn); }
+  .status { margin-top: 6px; color: var(--grey); font-size: 15px; line-height: 1.45; min-height: 1.45em; overflow-wrap: anywhere; }
+  .track { height: 6px; border-radius: 3px; background: #E5E5EA; overflow: hidden; margin-top: 18px; }
+  .track > div { height: 100%; width: 0; background: var(--blue); border-radius: 3px; transition: width .3s; }
+  .board[data-s="done"] .track > div { background: var(--green); }
+  .nums { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 22px; }
+  .nums > div { display: flex; flex-direction: column; min-width: 0; }
+  .nums b { font-size: 30px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .nums span { color: var(--grey); font-size: 13px; margin-top: 4px; }
+  .nums .red b { color: var(--bad); }
+  .fails { list-style: none; margin: 20px 0 0; padding: 0; }
+  .fails:empty { display: none; }
+  .fails li { border-top: 1px solid var(--line); }
+  .frow { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 0; border: 0; background: none;
+          text-align: left; font-size: 15px; color: var(--text); cursor: pointer; }
+  .frow .tx { flex: 1; min-width: 0; }
+  .frow svg { width: 14px; height: 14px; color: #C7C7CC; flex: none; transition: transform .24s; }
+  .frow[aria-expanded="true"] svg { transform: rotate(90deg); }
+  .frow:focus-visible { outline: 3px solid var(--focus); outline-offset: -2px; border-radius: 6px; }
+  .fmore { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 0 0 12px; color: var(--grey); font-size: 13.5px; overflow-wrap: anywhere; }
+  .fmore span { flex: 1 1 160px; min-width: 0; }
+  @media (prefers-reduced-motion: reduce) { .frow svg, .state i, .track > div { transition: none; } }
+  /* 第二版：面板通栏放在下面，一行排开 */
+  .look-b .board { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); column-gap: 40px; align-items: start; }
+  .look-b .btop { grid-column: 1 / -1; }
+  .look-b .nums, .look-b .fails { margin-top: 18px; }
+  .look-b .fails:empty { display: block; }
+  /* 第三版：面板放最上面当头牌 */
+  .look-c .board { padding: 32px; }
+  .look-c .state { font-size: 44px; }
+  .look-c .nums b { font-size: 36px; }
+  .look-c .side { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 16px; align-items: center; }
+  .look-c .side .sacts { grid-column: 2; grid-row: 1 / span 2; margin: 0; }
   .nhead { font-size: 16px; }
   .npath { color: var(--grey); font-size: 13.5px; margin-top: 4px; overflow-wrap: anywhere; }   /* 长路径照断，英文单词不从中间劈开 */
-  .side .more { margin-top: 10px; align-self: flex-start; }
-  .side .dagj { margin-top: auto; padding-top: 18px; }
-  .dagjon { color: var(--grey); font-size: 13.5px; line-height: 1.45; }
+  .sacts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .sacts .pill:empty, .sacts .pill[hidden] { display: none; }
+  .dagjon { color: var(--grey); font-size: 13.5px; line-height: 1.45; margin-top: 12px; }
   #dagjcode { font-size: 20px; letter-spacing: .12em; margin-top: 10px; }
 
-  .logcard > svg { width: 26px; height: 26px; margin: 10px 4px 0 10px; color: #8E8E93; flex: none; }
-  .log { flex: 1; overflow-y: auto; padding: 4px 10px; max-height: 46vh; min-height: 150px; }
+  .log { overflow-y: auto; max-height: 60vh; min-height: 120px; font-size: 14px; }
   .log p { margin: 0; padding: 7px 0; white-space: pre-wrap; word-break: break-word; }
   .log p + p { border-top: 1px solid var(--line); }
   .log p.bad { color: #B3261E; }
@@ -204,7 +252,7 @@
   /* 小卡片（新建类别、放入样板资料、设置、名单） */
   dialog { border: 0; padding: 0; background: transparent; max-width: calc(100vw - 28px); }
   dialog::backdrop { background: rgba(0, 0, 0, .22); }
-  .dcard { background: var(--card); border: 1px solid transparent; border-radius: 14px; padding: 20px; box-shadow: 0 24px 60px -12px rgba(0, 0, 0, .28), 0 2px 8px rgba(0, 0, 0, .06); max-width: 100%; }
+  .dcard { background: var(--card); border: 1px solid transparent; border-radius: var(--r-card); padding: 20px; box-shadow: 0 24px 60px -12px rgba(0, 0, 0, .28), 0 2px 8px rgba(0, 0, 0, .06); max-width: 100%; }
   .dcard h2 { margin: 0; font-size: 20px; }
   .dcard .sep1 { border-top: 1px solid var(--line); margin: 10px 0 14px; }
   .dcard .foot2 { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 12px; display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -232,6 +280,13 @@
   textarea.field { height: 220px; padding: 10px 12px; resize: vertical; font-family: ui-monospace, "SF Mono", Consolas, "Microsoft YaHei UI", monospace; font-size: 14px; }
   .fdrop { border: 1.5px dashed var(--field-line); border-radius: 10px; padding: 12px; text-align: center; color: var(--grey); font-size: 13.5px; margin-top: 12px; }
   .fdrop.over { border-color: var(--blue); color: var(--blue); background: #F0F6FD; }
+
+  /* 设置里的钥匙、模型 */
+  .kform { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px 12px; align-items: center; margin: 14px 0 6px; }
+  .kform > label { white-space: nowrap; }
+  .kform .pill { min-width: var(--key-w); }
+  .kform .d { grid-column: 2 / -1; color: var(--grey); font-size: 12.5px; margin-top: -2px; }
+  #dlg-set .dcard { max-height: calc(100dvh - 28px); overflow-y: auto; }
 
   /* 核对 */
   dialog.viewer { width: 100vw; height: 100vh; height: 100dvh; max-width: 100vw; max-height: 100dvh; margin: 0; background: var(--bg); }
@@ -276,14 +331,21 @@
 
   @media (pointer: coarse) and (max-width: 860px) { .pc-only { display: none !important; } }   /* 手机本身就是传图的那头 */
   @media (max-width: 860px) {
-    .app { grid-template-columns: minmax(0, 1fr); padding: 10px; gap: 10px; }
-    .logcard { min-height: 160px; }
+    .app, .app.look-b, .app.look-c { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: "main" "board" "side" "foot"; padding: 10px; gap: 10px; }
+    .look-b .board { display: flex; }
+    .look-c .side { display: flex; }
+    .look-c .side .sacts { margin-top: 12px; }
     .vbody { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(240px, 52vh) auto; overflow-y: auto; }
     .panel { overflow: visible; min-height: auto; }          /* 手机上白卡片跟着内容长，别让下面几行掉到卡片外面 */
   }
   @media (max-width: 560px) {
     body { font-size: 15px; }
-    .main, .side { padding: 14px; }
+    .main, .side, .board, .look-c .board { padding: 16px; }
+    .state, .look-c .state { font-size: 28px; }
+    .kform { grid-template-columns: minmax(0, 1fr) auto; }
+    .kform > label { grid-column: 1 / -1; color: var(--grey); font-size: 13.5px; margin-top: 4px; }
+    .kform .wide, .kform .d { grid-column: 1 / -1; }
+    .kform .pill { min-width: 0; }
     .head { gap: 12px; }
     .head h1 { font-size: 26px; }
     .head .bar-v { display: none; }
@@ -301,7 +363,6 @@
     .bar .pill.primary { flex-basis: 100%; }
     .why .acts { width: 100%; }
     .why .pill { flex: 1; height: 44px; }
-    .status { font-size: 22px; }
     .vwrap { padding: 8px; gap: 8px; }
     .vbar { padding: 8px; gap: 6px; }
     .vbar .g { gap: 6px; }
@@ -331,6 +392,7 @@
   <symbol id="i-plus" viewBox="0 0 20 20"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
   <symbol id="i-photo" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="2" y="4.2" width="16" height="12.4" rx="2"/><circle cx="7" cy="8.6" r="1.5"/><path d="m2.6 14.6 4.6-4 3.4 3 2.4-2 4.4 3.8"/></g></symbol>
   <symbol id="i-phone" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="5.2" y="1.8" width="9.6" height="16.4" rx="2.2"/><path d="M8.6 15.4h2.8" stroke-linecap="round"/></g></symbol>
+  <symbol id="i-chev" viewBox="0 0 14 14"><path d="M5 2.5 9.5 7 5 11.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-check" viewBox="0 0 14 14"><path d="M2.5 7.3 5.6 10.3 11.6 3.8" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
 </svg>
 
@@ -339,6 +401,7 @@
     <header class="head">
       <h1 data-i18n="name">Luru</h1><i class="bar-v"></i><span class="sub" data-i18n="sub">Snap the forms. Skip the typing.</span><span class="tag" data-i18n="app.tag">Web</span>
       <div id="lang" class="lang"></div>
+      <button type="button" class="pill round" id="gear" data-i18n-attr="aria-label:app.gear;title:app.gear" aria-label="Settings" title="Settings"><svg class="i"><use href="#i-gear"/></svg></button>
     </header>
     <div class="form">
       <label for="cat" data-i18n="app.cat">Form type</label>
@@ -365,21 +428,6 @@
       <label for="phone" class="pc-only" data-i18n="app.phone">Phone</label>
       <div class="phint pc-only" id="phint"><i class="dot" id="pdot"></i><span class="txt" id="phinttxt"></span></div>
       <button type="button" class="pill side-btn pc-only" id="phone"><svg class="i"><use href="#i-phone"/></svg><span data-i18n="app.phoneBtn">From phone</span></button>
-
-      <label for="key1" data-i18n="app.key1">Key 1</label>
-      <input id="key1" class="field" type="password" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:app.paste" placeholder="Paste here">
-      <a class="pill link side-btn" href="../key.html" target="_blank" rel="noopener"><svg class="i"><use href="#i-key"/></svg><span data-i18n="app.getKey">Get a key</span></a>
-
-      <label for="key2" data-i18n="app.key2">Key 2 (optional)</label>
-      <input id="key2" class="field" type="password" autocomplete="off" spellcheck="false">
-      <a class="pill link side-btn" href="../key.html#key2" target="_blank" rel="noopener"><svg class="i"><use href="#i-key"/></svg><span data-i18n="app.getKey2">Get another</span></a>
-
-      <label for="model" data-i18n="app.model">Model</label>
-      <div class="wide">
-        <input id="model" class="field combo" list="models" autocomplete="off" spellcheck="false">
-        <datalist id="models"></datalist>
-        <label class="check"><input type="checkbox" id="auto"><span class="box"><svg><use href="#i-check"/></svg></span><span data-i18n="app.auto">Auto-start</span><span class="hint" data-i18n="app.autoHint">(starts as soon as photos arrive)</span></label>
-      </div>
     </div>
     <hr class="sep">
     <div class="why" id="why" role="alert" hidden><p id="whytxt"></p><div class="acts" id="whyacts"></div></div>
@@ -392,28 +440,32 @@
     </div>
   </section>
 
-  <aside class="card side">
-    <div class="top"><span data-i18n="app.statusHead">Status</span><button type="button" class="pill round" id="gear" data-i18n-attr="aria-label:app.gear" aria-label="Settings"><svg class="i"><use href="#i-gear"/></svg></button></div>
-    <hr class="sep" style="margin:10px 0 10px">
-    <div class="status" id="status"></div>
-    <div class="track"><div id="bar"></div></div>
-    <div class="slogan" id="slogan"></div>
-    <hr class="sep" style="margin:22px 0 14px">
-    <div class="nhead" id="nhead"></div>
-    <div class="npath" id="npath"></div>
-    <button type="button" class="pill small more" id="names" data-i18n="app.names">Edit roster</button>
-    <div class="dagj">
-      <button type="button" class="pill small" id="dagj" data-i18n="app.dagj">Connect the Butler</button>
-      <span class="dagjon" id="dagjon" hidden data-i18n="app.dagjOn">The Abbot’s own butler, at your service.</span>
+  <section class="card board" id="board" data-s="idle" aria-live="polite">
+    <div class="btop"><span data-i18n="app.statusHead">Status</span><button type="button" class="textbtn" id="more" data-i18n="board.more">Details</button></div>
+    <div class="bhead">
+      <div class="state"><i></i><span id="state"></span></div>
+      <div class="status" id="status"></div>
+      <div class="track"><div id="bar"></div></div>
     </div>
-  </aside>
-
-  <section class="card logcard">
-    <svg><use href="#i-doc"/></svg>
-    <div class="log" id="log" aria-live="polite"></div>
+    <div class="nums">
+      <div><b id="ngot">0</b><span data-i18n="board.got">In</span></div>
+      <div><b id="nok">0</b><span data-i18n="board.ok">Read</span></div>
+      <div id="nbadbox"><b id="nbad">0</b><span data-i18n="board.fail">Failed</span></div>
+    </div>
+    <ul class="fails" id="fails"></ul>
   </section>
 
-  <div class="foot"><span data-i18n="app.foot"></span> · <a href="../" data-i18n="app.footLink">Windows app</a></div>
+  <aside class="card side">
+    <div class="nhead" id="nhead"></div>
+    <div class="npath" id="npath"></div>
+    <div class="sacts">
+      <button type="button" class="pill small" id="names" data-i18n="app.names">Edit roster</button>
+      <button type="button" class="pill small" id="dagj" data-i18n="app.dagj">Connect the Butler</button>
+    </div>
+    <span class="dagjon" id="dagjon" hidden data-i18n="app.dagjOn">The Abbot’s own butler, at your service.</span>
+  </aside>
+
+  <div class="foot"><span id="foot" data-i18n="app.foot"></span> · <a href="../" data-i18n="app.footLink">Windows app</a></div>
 </div>
 
 <!-- 新建类别 -->
@@ -432,6 +484,7 @@
   <div class="row"><span data-i18n="feed.into">Into</span><select id="feedcat" class="field combo" style="width:260px"></select>
     <button type="button" class="pill" id="feednew" style="height:38px"><svg class="i"><use href="#i-plus"/></svg><span data-i18n="app.newcat">New type</span></button></div>
   <p class="para" id="feeddesc"></p>
+  <p class="para" id="feedkb"></p>
   <div class="fdrop" id="fdrop" data-i18n="feed.drop">Or drop sheets here</div>
   <input type="file" id="feedfiles" accept=".xlsx,.xlsm,.xls,.csv" multiple hidden>
   <div class="foot2"><button type="button" class="pill" data-close data-i18n="cancel">Cancel</button><button type="button" class="pill primary" id="feedgo" data-i18n="feed.go">Choose sheets</button></div>
@@ -458,7 +511,19 @@
 <!-- 设置 -->
 <dialog id="dlg-set"><div class="dcard" style="width:640px">
   <h2 data-i18n="set.title">Settings</h2><div class="sep1" style="margin-bottom:0"></div>
-  <div id="setrows"></div>
+  <div class="kform">
+    <label for="key1" data-i18n="app.key1">Key 1</label>
+    <input id="key1" class="field" type="password" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:app.paste" placeholder="Paste here">
+    <a class="pill link" href="../key.html" target="_blank" rel="noopener"><svg class="i"><use href="#i-key"/></svg><span data-i18n="app.getKey">Get a key</span></a>
+    <label for="key2" data-i18n="app.key2">Key 2 (optional)</label>
+    <input id="key2" class="field" type="password" autocomplete="off" spellcheck="false">
+    <a class="pill link" href="../key.html#key2" target="_blank" rel="noopener"><svg class="i"><use href="#i-key"/></svg><span data-i18n="app.getKey2">Get another</span></a>
+    <div class="d" id="keysd" data-i18n="set.keysD"></div>
+    <label for="model" data-i18n="app.model">Model</label>
+    <div class="wide"><input id="model" class="field combo" list="models" autocomplete="off" spellcheck="false"><datalist id="models"></datalist></div>
+  </div>
+  <label class="srow" style="border-top:1px solid var(--line)"><div class="t"><span data-i18n="app.auto">Auto-start</span><div class="d" data-i18n="app.autoHint"></div></div><span class="switch"><input type="checkbox" id="auto"><span></span></span></label>
+  <div id="setrows" style="border-top:1px solid var(--line)"></div>
   <div class="srow" style="border-top:1px solid var(--line)">
     <div class="t"><span data-i18n="set.backupT">Backup</span><div class="d" id="usage" data-i18n="set.backupD"></div></div>
     <button type="button" class="pill" id="backup" data-i18n="set.backup">Back up</button><button type="button" class="pill" id="restore" style="margin-left:-10px" data-i18n="set.restore">Restore</button>
@@ -503,6 +568,13 @@
     <div class="card panel" id="vpanel"></div>
   </div>
   <div class="card empty" id="vempty" hidden data-i18n="view.empty"></div>
+</div></dialog>
+
+<!-- 细节：一行一张，施工队查问题用 -->
+<dialog id="dlg-log"><div class="dcard" style="width:780px">
+  <h2 data-i18n="logbox.title">Details</h2><div class="sep1"></div>
+  <div class="log" id="log"></div>
+  <div class="foot2"><div class="left" data-i18n="logbox.note"></div><button type="button" class="pill primary" data-close data-i18n="set.done">Done</button></div>
 </div></dialog>
 
 <!-- 手机传图 -->

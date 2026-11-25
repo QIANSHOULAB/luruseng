@@ -26,10 +26,11 @@ test('every line has both languages with the same {slots}; English has no stray 
 });
 
 test('default is English, ?lang only for this visit, choice is remembered, plurals pick by n', () => {
-  assert.equal(I.t('st.queue', { n: 1 }), I.lang() === 'en' ? '1 photo queued' : '待识别 1 张');
+  assert.equal(I.t('line.wait', { n: 1 }), I.lang() === 'en' ? '1 photo lined up. Hit Start.' : '1 张排好队了，点「开始工作」。');
   const keep = I.lang();
   I.setLang('en', false);
-  assert.equal(I.t('st.queue', { n: 2 }), '2 photos queued');
+  assert.equal(I.t('line.wait', { n: 2 }), '2 photos lined up. Hit Start.');
+  assert.equal(I.t('why.blankFile', { list: 'a.jpg', n: 1 }), 'a.jpg is a blank page. Skipped it. Take another.');
   assert.equal(I.t('fullName'), 'Luru · Photo Typist');
   I.setLang('zh', false);
   assert.equal(I.t('sub'), '施主去玩，贫僧填表');             // 定稿副标题照旧

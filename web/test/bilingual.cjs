@@ -101,7 +101,7 @@ async function layout(page, lang, where) {           // 不横向滚动；能看
       if (el.scrollWidth > el.clientWidth + 1) out.clipped.push(el.textContent.trim().slice(0, 40));
     }
     if (lang === 'en') {
-      const sel = 'button, label, h1, h2, h3, .hint, .foot, .sub, .tag, #status, #slogan, #cathint, #nhead, #npath, #vinfo, .para, .d, .t, .lead, .card p, .facts li, footer, .tip, .st, .pc, .snote, .contact, .left, .empty';
+      const sel = 'button, label, h1, h2, h3, .hint, .foot, .sub, .tag, #state, #status, .nums, .fails, #cathint, #nhead, #npath, #vinfo, .para, .d, .t, .lead, .card p, .facts li, footer, .tip, .st, .pc, .snote, .contact, .left, .empty';
       for (const el of document.querySelectorAll(sel)) {
         if (!vis(el) || el.closest('dialog:not([open])') || el.closest('#vpanel')) continue;
         let t = el.innerText || '';
@@ -136,7 +136,10 @@ async function webRun(ctx, base, lang, w) {           // 网页版：空着 → 
   await layout(page, lang, `web ${w} ${lang} empty`);
   await shot(page, `web-${w}-empty-${lang}.png`);
 
+  await page.click('#gear');                                             // 169：钥匙在设置里
+  await page.waitForSelector('#dlg-set[open]');
   await page.fill('#key1', 'AIzaMOCK_bilingual');
+  await page.click('#dlg-set [data-close]');
   await page.setInputFiles('#files', await photos(page, w === 1280 ? 3 : 2));
   await page.click('#start');
   await page.waitForSelector('#dlg-view[open]', { timeout: 60000 });
@@ -151,8 +154,8 @@ async function webRun(ctx, base, lang, w) {           // 网页版：空着 → 
   const info = await page.innerText('#vinfo');
   ok(lang === 'en' ? /confirmed/.test(info) && !CJK.test(info) : /核过了/.test(info), `web ${w} ${lang}: confirming a red cell says so (${info})`);
   await page.click('#vclose');
-  const status = await page.innerText('#status');
-  ok(lang === 'en' ? /^Done: \d+ ok · \d+ failed$/.test(status.replace(/\n/g, '')) : /^干完：成功/.test(status), `web ${w} ${lang}: status (${status.replace(/\n/g, '')})`);
+  const status = await page.innerText('#state') + ' | ' + await page.innerText('#status');
+  ok(lang === 'en' ? /^(Done|Needs you) \| \S/.test(status) && !CJK.test(status) : /^(干完了|出问题了) \| \S/.test(status), `web ${w} ${lang}: status (${status})`);
   await layout(page, lang, `web ${w} ${lang} done`);
   if (w === 1280) {
     await shot(page, `web-1280-done-${lang}.png`);

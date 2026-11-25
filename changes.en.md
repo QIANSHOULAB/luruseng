@@ -2,6 +2,11 @@
 
 When there's a new version, the app shows you the sections newer than the one you have.
 
+## 1.13.7
+- The web app got a facelift. Keys, model and Auto-start moved behind the gear, so the main page is just the stuff you work with.
+- The wall of log lines is gone. A status panel on the right says Ready, Working, Done or Needs you, with three numbers: in, read, failed. Failures are grouped by cause (“3 blank pages: reshoot them”); tap one to see which numbers. The line-by-line log is still there under Details.
+- Connected to the Butler? The footer now says what really happens: Claude reads first.
+
 ## 1.13.6
 - Connected to the Butler? Photos now go to Claude first, on the Butler's credit. The key lives on the relay, never on this computer. If the credit runs dry or something hiccups, the Butler and then Gemini take over, same as before. You don't click a thing. Claude's reads get a “C” in the log.
 - The desktop app also picks up 1.13.5's SHIFT fix.

@@ -7,6 +7,7 @@ import functools
 import http.server
 import json
 import os
+import re
 import sys
 import tempfile
 import threading
@@ -33,6 +34,37 @@ WORK = tempfile.mkdtemp(prefix='luruseng-why-work-')
 CORS = {'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, POST, OPTIONS',
         'access-control-allow-headers': 'content-type, x-goog-api-key'}
 errors = []
+
+
+# 169：钥匙、来图就干搬进了 ⚙ 设置；任务状态看面板（#state 待命 / 在干活 / 干完了 / 出问题了，#nok 认完、#nbad 失败）
+DONE_JS = ('([ok, bad]) => ["干完了", "出问题了"].includes(document.querySelector("#state").textContent)'
+           ' && !document.querySelector("#start").disabled'
+           ' && document.querySelector("#nok").textContent === String(ok) && document.querySelector("#nbad").textContent === String(bad)')
+
+
+def wait_done(pg, ok, bad=0, timeout=60000):
+    pg.wait_for_function(DONE_JS, arg=[ok, bad], timeout=timeout)
+
+
+def board(pg):
+    return pg.inner_text('#state'), int(pg.inner_text('#nok')), int(pg.inner_text('#nbad'))
+
+
+def fill_key(pg, value, sel='#key1'):
+    shut = not pg.is_visible(sel)
+    if shut:
+        pg.click('#gear')
+        pg.wait_for_selector('#dlg-set[open]')
+    pg.fill(sel, value)
+    if shut:
+        pg.click('#dlg-set [data-close]')
+
+
+def toggle_auto(pg):
+    pg.click('#gear')
+    pg.wait_for_selector('#dlg-set[open]')
+    pg.click('label:has(#auto)')
+    pg.click('#dlg-set [data-close]')
 
 
 def make_images(name, n, start):
@@ -169,8 +201,8 @@ def main():
             return p.eval_on_selector_all('#log p', 'ps => ps.map(p => p.textContent)')
 
         def finished(p, status):
-            p.wait_for_function('s => document.querySelector("#status").textContent.replace(/\\s/g, "") === s'
-                                ' && !document.querySelector("#start").disabled', arg=status, timeout=60000)
+            ok, bad = map(int, re.findall(r'\d+', status))
+            wait_done(p, ok, bad)
 
         def reason(p, words, buttons):        # 原因条：不用划就看得见、字对、按钮对、能点
             p.wait_for_function('w => !document.querySelector("#why").hidden && document.querySelector("#whytxt").textContent.includes(w)'
@@ -203,11 +235,18 @@ def main():
                 assert p.inner_text('#dagjkey') == '或者填 Gemini 钥匙'
                 shot(p, '13-点开始-弹连接大管家.png')
                 p.click('#dlg-dagj [data-close]')                       # 关掉不连：原因还在按钮上面
-                reason(p, '开不了工', ['连接大管家', '填钥匙'])
+                reason(p, '开不了工', ['连接大管家', '填谷歌钥匙'])
                 shot(p, '14-原因贴在开始上面.png')
                 p.click('#start')
-                p.click('#dagjkey')                                     # 「或者填钥匙」：框收掉，光标进钥匙 1
-                assert not p.is_visible('#dlg-dagj') and p.evaluate('document.activeElement.id') == 'key1'
+                p.click('#dagjkey')                                     # 「或者填钥匙」：框收掉，打开设置，光标进钥匙 1
+                assert not p.is_visible('#dlg-dagj') and p.is_visible('#dlg-set') and p.evaluate('document.activeElement.id') == 'key1'
+                p.click('#dlg-set [data-close]')
+                p.click('#start')
+                reason(p, '开不了工', ['连接大管家', '填谷歌钥匙'])
+                p.click('#dlg-dagj [data-close]')
+                p.click('#whyacts button:nth-child(2)')                 # 原因条上「填谷歌钥匙」：一样打开设置、光标进钥匙 1
+                assert p.is_visible('#dlg-set') and p.evaluate('document.activeElement.id') == 'key1'
+                p.click('#dlg-set [data-close]')
                 p.click('#start')
                 p.fill('#dagjcode', '0000')
                 p.click('#dagjok')
@@ -238,8 +277,8 @@ def main():
                 reason(p, '还没选照片', ['选照片…'])
                 with p.expect_file_chooser():
                     p.click('#whyacts button')
-                p.fill('#key1', KEY)
-                p.fill('#key2', KEY)
+                fill_key(p, KEY, '#key1')
+                fill_key(p, KEY, '#key2')
                 p.click('#start')
                 reason(p, '同一把钥匙', ['清掉钥匙 2'])
                 p.click('#whyacts button')
@@ -256,7 +295,7 @@ def main():
             try:
                 p, asked = tab(m, 'auto'), []
                 butler(p, asked)
-                p.click('label:has(#auto)')
+                toggle_auto(p)
                 p.set_input_files('#files', make_images('auto', 1, 230))   # 来图就干：放进来就弹框，对上就干
                 p.wait_for_selector('#dlg-dagj[open]')
                 p.fill('#dagjcode', '2468')
@@ -271,7 +310,7 @@ def main():
             held = []
             try:
                 a = tab(m, 'A')
-                a.fill('#key1', KEY)
+                fill_key(a, KEY, '#key1')
                 a.wait_for_timeout(900)
                 b = tab(m, 'B')                       # B 先开着：A 后放的照片它列表里本来没有
 
@@ -283,7 +322,7 @@ def main():
                 a.route('https://generativelanguage.googleapis.com/**', hold)
                 a.set_input_files('#files', make_images('steal', 2, 210))
                 a.click('#start')                     # A 开了工就卡住不动
-                a.wait_for_function('() => /0\\/2/.test(document.querySelector("#status").textContent)', timeout=30000)
+                a.wait_for_function('() => document.querySelector("#state").textContent === "在干活" && document.querySelector("#nok").textContent === "0"', timeout=30000)
                 a.wait_for_timeout(800)
                 b.bring_to_front()
                 b.click('#start')
@@ -317,7 +356,7 @@ def main():
             try:
                 p = tab(m, 'quad')
                 assert p.is_checked('#quad'), '干净的浏览器：开关是勾着的'
-                p.fill('#key1', KEY)
+                fill_key(p, KEY, '#key1')
 
                 def listed(n):
                     p.wait_for_function('w => document.querySelector("#droptxt").textContent.startsWith(w)',

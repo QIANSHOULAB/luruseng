@@ -31,7 +31,6 @@ const S = {
   cohandle: null, filling: false,                         // 填进公司表：选过的那本（这回开着页面先用手上这个）、正在填
   quad: null,                                             // 一张拍四份：切照片、摆预览（quadui.js）
   why: null,                                              // 开始按钮上面那块：现在写着哪个干不了的原因
-  shown: null, said: null, finished: false,               // 右边大字、小字现在显示的是哪句（换语言时照这个重写）；finished：大字是「干完：…」
 };
 const two = (n) => String(n).padStart(2, '0');
 const nowIso = () => new Date().toISOString().slice(0, 19);
@@ -39,10 +38,21 @@ const localWhen = (iso) => {                       // nowIso 存的是世界时�
   const d = new Date(`${iso}Z`);
   return Number.isNaN(d.getTime()) ? String(iso) : `${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`;
 };
+const LIKE = new Map();
+function like(msg, key) {                        // msg 是不是 t(key, …) 写出来的那句（{…} 当通配）
+  const lang = I18N.lang();
+  const k = `${lang}|${key}`;
+  if (!LIKE.has(k)) {
+    const raw = I18N.STR[lang][key];
+    const all = (Array.isArray(raw) ? raw : [raw]).map((s) => s.split(/\{\w+\}/).map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s\\S]*?'));
+    LIKE.set(k, new RegExp(`^(?:${all.join('|')})$`));
+  }
+  return LIKE.get(k).test(msg);
+}
 const TOUCH = matchMedia('(pointer: coarse)').matches;      // 手机、平板：没得拖，左右滑翻页
 const EMPTY = () => t(TOUCH ? 'app.dropEmptyTouch' : 'app.dropEmpty');
 
-// ---------------------------------------------------------------- 日志、状态
+// ---------------------------------------------------------------- 日志（169 收进「细节」：一行一张，施工队查问题用）、任务状态面板
 function log(msg) {
   const box = $('#log');
   const p = document.createElement('p');
@@ -55,47 +65,118 @@ function log(msg) {
   if (stick) box.scrollTop = box.scrollHeight;
 }
 
-function status(key, vars) {                  // 数字（含 4/10 这种）蓝色大字；key 是 strings.js 里的键
-  S.shown = [key, vars];
-  S.finished = key === 'st.done';
-  const text = key ? t(key, vars) : '';
-  const el = $('#status');
-  el.textContent = '';
-  for (const part of String(text).split(/(\d+(?:\/\d+)?)/)) {
-    if (!part) continue;
-    if (/^\d+(?:\/\d+)?$/.test(part)) { const b = document.createElement('b'); b.textContent = part; el.appendChild(b); } else el.append(part);
+// 169 Song：「他只需要知道图片上去成功没有、在不在干活……出了问题给他一个原因就行了」。
+// 面板：四种说法（待命、在干活、干完了、出问题了）+ 一句话 + 收到 / 认完 / 失败三个数 + 失败按原因一组一行（点开才列第几张）。
+// 一轮：从来了照片（或点开始）算起，干完收尾（BD.closed）以后再来照片就重新数。文件名、编号、谁认的只进「细节」。
+const FAILS = ['blank', 'upload', 'none', 'err', 'file', 'lost'];
+const BAD_WHY = new Set(['noKey', 'sameKey', 'otherTab', 'stolen', 'unreadable', 'halted', 'failed', 'crash', 'blank', 'blankFile']);
+const BD = { closed: false, done: false, ok: 0, recs: 0, line: null, open: '', run: null, fails: {} };
+function boardReset() {
+  Object.assign(BD, { closed: false, done: false, ok: 0, recs: 0, line: null, open: '', run: null });
+  for (const k of FAILS) BD.fails[k] = [];
+  for (const q of S.queue) q.err = false;
+}
+boardReset();
+function newRound() { if (BD.closed && !S.busy) boardReset(); }      // 上一轮收了尾，又来了照片 / 又点了开始：重新数
+function failOne(kind, who = {}) { BD.fails[kind].push(who); drawBoard(); }
+const failCount = () => FAILS.reduce((n, k) => n + BD.fails[k].length, 0);
+
+function status(key, vars) { BD.line = key ? [key, vars] : null; drawBoard(); }   // 干活时那一句（存照片、查重、摸鱼、等额度、正在停）
+function boardKind() {
+  if (S.busy) return 'busy';
+  if ((S.why && BAD_WHY.has(S.why.kind)) || failCount()) return 'bad';
+  return BD.done ? 'done' : 'idle';
+}
+function boardLine(kind) {
+  const n = S.queue.filter((q) => !q.err).length;
+  if (kind === 'busy') return BD.line ? t(...BD.line) : '';
+  if (kind === 'bad') return failCount() ? t('line.bad', { n: failCount() }) : t('line.why');
+  if (kind === 'done') return t('line.done', { n: BD.recs });
+  if (BD.line) return t(...BD.line);                  // 停了
+  if (n) return t('line.wait', { n });
+  return t($('#auto').checked ? 'line.auto' : 'line.empty');
+}
+function drawBoard() {
+  const kind = boardKind(), bad = failCount();
+  const pending = S.queue.filter((q) => !q.err).length;
+  $('#board').dataset.s = kind;
+  $('#state').textContent = t(`board.${kind}`);
+  $('#status').textContent = boardLine(kind);
+  $('#ngot').textContent = String(BD.ok + bad + pending);
+  $('#nok').textContent = String(BD.ok);
+  $('#nbad').textContent = String(bad);
+  $('#nbadbox').classList.toggle('red', bad > 0);
+  drawFails();
+}
+const ACT = {                                    // 失败那一组展开以后给的按钮
+  none: () => ['app.check', () => openViewer(BD.run)],
+  err: () => ['why.again', () => start(false)],
+  lost: () => ['app.pick', () => $('#files').click()],
+};
+function failDetail(list) {                      // 点开那一组：第几张（照编号）、手机传的第几张、实在没编号的才写名字
+  const nos = list.filter((x) => x.no != null).map((x) => x.no).sort((a, b) => a - b);
+  const seqs = list.filter((x) => x.seq != null).map((x) => x.seq).sort((a, b) => a - b);
+  const names = list.filter((x) => x.no == null && x.seq == null && x.name).map((x) => x.name);
+  const out = [];
+  if (nos.length) out.push(t('fail.nos', { list: I18N.list(nos.map(String)), n: nos.length }));
+  if (seqs.length) out.push(t('fail.seqs', { list: I18N.list(seqs.map(String)), n: seqs.length }));
+  if (names.length) out.push(I18N.list(names));
+  return out.join(t('list.sep'));
+}
+function drawFails() {
+  const box = $('#fails');
+  box.textContent = '';
+  for (const kind of FAILS) {
+    const list = BD.fails[kind];
+    if (!list.length) continue;
+    const li = document.createElement('li');
+    const row = Object.assign(document.createElement('button'), { type: 'button', className: 'frow' });
+    row.dataset.kind = kind;
+    row.innerHTML = '<span class="tx"></span><svg><use href="#i-chev"/></svg>';
+    row.querySelector('.tx').textContent = t(`fail.${kind}`, { n: list.length });
+    const open = BD.open === kind;
+    row.setAttribute('aria-expanded', String(open));
+    row.onclick = () => { BD.open = open ? '' : kind; drawFails(); };
+    li.appendChild(row);
+    if (open) {
+      const more = Object.assign(document.createElement('div'), { className: 'fmore' });
+      const what = failDetail(list);
+      if (what) more.appendChild(Object.assign(document.createElement('span'), { textContent: what }));
+      if (ACT[kind] && !S.busy) {
+        const [key, fn] = ACT[kind]();
+        const b = Object.assign(document.createElement('button'), { type: 'button', className: 'pill small', textContent: t(key) });
+        b.onclick = fn;
+        more.appendChild(b);
+      }
+      if (more.childElementCount) li.appendChild(more);
+    }
+    box.appendChild(li);
   }
-  el.style.fontSize = '';                    // 太长就缩小字号（跟电脑版一样），不折行
-  let size = parseFloat(getComputedStyle(el).fontSize) || 26;
-  while (el.scrollWidth > el.clientWidth + 1 && size > 13) { size -= 1; el.style.fontSize = `${size}px`; }
 }
 function bar(done, total) { $('#bar').style.width = total ? `${Math.round((100 * done) / total)}%` : '0'; }
 
 // 干活时的进度：认完一张跳一格；两张之间按估的时间慢慢往前爬（最多爬到下一格的九成），让人看着它在干活
-const FISH = 'slogan.fish', DONE = 'slogan.done', WOKE = 'slogan.woke';
+const FISH = 'slogan.fish', WOKE = 'slogan.woke';
 const M = { total: 0, done: 0, tLast: 0, gaps: [], timer: null };
-function slogan(key, vars) { S.said = key ? [key, vars] : null; $('#slogan').textContent = key ? t(key, vars) : ''; }
 function meterDraw() { $('#bar').style.width = `${(100 * C.meterFrac(M, Date.now())).toFixed(1)}%`; }
 function meterStart(total, done = 0, line = FISH) {      // done：接着干的那批，之前已经干完几张
   phoneSay(t('say.start', { d: done, t: total }), true);
   Object.assign(M, { total, done, tLast: Date.now(), gaps: [] });
   clearInterval(M.timer);
   M.timer = setInterval(meterDraw, 250);
-  status('st.pages', { d: done, t: total });
-  slogan(line);
+  status(line);
   meterDraw();
   if (matchMedia('(max-width: 860px)').matches) {      // 窄屏（手机）：任务状态在下面，自己滚过去给人看
-    $('.side').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    $('#board').scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 }
 function meterTick(d, total) {
   const now = Date.now();
   if (d > M.done) {                              // 真认完一张：跳一格，等额度那句话也换回摸鱼
     M.gaps.push((now - M.tLast) / (d - M.done)); M.tLast = now; M.done = d;
-    slogan(FISH);
+    if (BD.line && BD.line[0] !== WOKE) status(FISH);
   }
   M.total = total;
-  status('st.pages', { d, t: total });
   phoneSay(t('say.tick', { d, t: total }));
   meterDraw();
 }
@@ -106,14 +187,15 @@ function waitLine(wait) {                     // 撞了谷歌的额度在等：�
   return [FISH];
 }
 
-function refreshQueue(keepStatus = false) {     // keepStatus：刚干完，右边大字留着「干完：…」
+function refreshQueue() {
   const n = S.queue.length;
   const drop = $('#drop');
   drop.classList.toggle('has', n > 0);
   $('#clear').hidden = !n || S.busy;
   const names = I18N.list(S.queue.slice(0, 6).map((q) => q.file.name));
   $('#droptxt').textContent = n ? t('app.queue', { n, names, more: n > 6 ? '…' : '' }) : EMPTY();
-  if (!S.busy && !keepStatus) { status('st.queue', { n }); bar(0, 0); slogan(''); }
+  if (!S.busy && !BD.closed) bar(0, 0);
+  drawBoard();
 }
 
 // ---------------------------------------------------------------- 设置
@@ -291,6 +373,9 @@ async function clearList() {                   // 清空：照片不要了，上
   for (const q of S.queue) unstash(q);
   S.queue = [];
   S.seen.clear();
+  boardReset();
+  status(null);
+  bar(0, 0);
   refreshQueue();
   const release = await grab();                // 别的窗口正在干就别动它那一笔
   if (!release) return;
@@ -306,6 +391,7 @@ async function clearList() {                   // 清空：照片不要了，上
 // ---------------------------------------------------------------- 加照片
 const idOf = (f) => `${f.name}|${f.size}|${f.lastModified}`;
 function addFiles(files) {
+  if ([...files].some((f) => f && f.size && I.isImage(f))) newRound();
   let added = 0, sheets = 0, other = 0, cut = 0;
   for (const f of files) {
     if (!f || !f.size) continue;
@@ -361,7 +447,7 @@ function setupQuad() {
     put: (files, sheet) => {
       const items = enqueue(files, sheet);
       if (!items.length) S.seen.delete(sheet.id);
-      refreshQueue(S.busy || S.finished);
+      refreshQueue();
       if (items.length && S.run) log(t('log.more', { n: items.length }));
       return items;
     },
@@ -370,7 +456,7 @@ function setupQuad() {
       const at = old.map((q) => S.queue.indexOf(q)).find((i) => i >= 0) ?? S.queue.length;
       for (const q of old) { const i = S.queue.indexOf(q); if (i >= 0) S.queue.splice(i, 1); S.seen.delete(q.id); unstash(q); }
       const items = enqueue(files, sheet, Math.min(at, S.queue.length));
-      refreshQueue(S.busy || S.finished);
+      refreshQueue();
       return items;
     },
     go,
@@ -465,25 +551,31 @@ function runId(d = new Date()) {
 }
 
 // ---------------------------------------------------------------- 点开始干不了：原因摆在开始按钮上面（日志在最下面，手机上看不见）
-const focusKey = () => { const k = $('#key1'); k.scrollIntoView({ block: 'center' }); k.focus({ preventScroll: true }); };
+const focusKey = () => S.openSettings('#key1');      // 169：钥匙在设置里：打开设置，光标停在钥匙 1
+const hasKey = () => !!($('#key1').value.trim() || $('#key2').value.trim());
 const WHY = {                                  // 原因 -> 底下给的按钮 [字的键, 点了干啥]；第一个是蓝的
   noKey: () => [['app.dagj', () => S.askDagj(false)], ['why.addKey', focusKey]],
+  halted: () => [['why.fixKey', focusKey]],
+  failed: () => (!hasKey() ? [['why.addKey', focusKey]] : [['why.retry', () => start(false)]]),
+  crash: () => [['why.retry', () => start(false)]],
   sameKey: () => [['why.dropKey2', () => { $('#key2').value = ''; saveCfg(); start(false); }]],
   otherTab: () => [['why.steal', () => start(false, false, true)]],
   stolen: () => [['why.steal', () => start(false, false, true)]],
   noPhotos: () => [['app.pick', () => $('#files').click()]],
   done: (list) => [['why.again', () => redoDone(list)]],
 };
+const NOTICE = new Set(['dagjOff', 'claudeRest']);   // 不挡干活、只说一声的（大管家不在换谷歌……）：不滚过去抢眼
 function why(kind, vars, extra) {
   S.why = { kind, vars, extra };
   drawWhy();
-  $('#why').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  if (!NOTICE.has(kind)) $('#why').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 function hideWhy() { S.why = null; drawWhy(); }
 function drawWhy() {
   const box = $('#why'), acts = $('#whyacts');
   box.hidden = !S.why;
   acts.textContent = '';
+  drawBoard();
   if (!S.why) return;
   const { kind, vars, extra } = S.why;
   $('#whytxt').textContent = t(`why.${kind}`, vars);
@@ -517,6 +609,7 @@ async function freshTodo() {
       try { q.hash = await I.sha256(q.file); } catch (e) {
         log(t('log.unreadable', { name: q.file.name, e: e.message }));
         bad = bad || { name: q.file.name, e: e.message };
+        if (!q.err) { q.err = true; failOne('file', { name: q.file.name }); }
         continue;
       }
     }
@@ -590,6 +683,7 @@ async function reopen(run, work) {
     drop(q);
   }
   for (const x of plan.lost) {
+    failOne('lost', { no: x.no });
     C.placeRows(run.rows, [{ no: x.no, kind: 'blank', fill: 'grey', left: true,
       note: `未完成：页面被关的时候这张照片没存住，重新选 ${x.name} 再干` }]);
   }
@@ -602,6 +696,8 @@ class Taken extends Error {}                   // 干活的锁被别的窗口抢
 async function start(auto = false, woke = false, steal = false) {
   if (S.busy) return;
   hideWhy();
+  newRound();
+  for (const q of S.queue) if (q.err) { q.err = false; for (const k of ['err', 'file']) BD.fails[k] = BD.fails[k].filter((x) => x.q !== q); }
   const k1 = $('#key1').value.trim(), k2 = $('#key2').value.trim();
   if (!k1 && !k2 && !S.dagj.paired) {          // 089：连着大管家的，没钥匙也能干
     log(t('log.noKey'));
@@ -671,6 +767,9 @@ async function start(auto = false, woke = false, steal = false) {
         extra = new Set(ready().filter((q) => !inRun.has(q.id)));
       }
       ({ items, lost: gonePhotos } = await reopen(run, work));
+      const was = C.tally(run.rows);                     // 接着干的：之前认完的也算进「认完」
+      BD.ok = Math.max(BD.ok, was.ok);
+      BD.recs = Math.max(BD.recs, was.records);
     } else {
       status('st.dedupe');
       bar(0, 0);
@@ -700,6 +799,7 @@ async function start(auto = false, woke = false, steal = false) {
     }
     const { id, total, width } = run;
     S.run = run;
+    BD.run = id;
     let saveErr = '';
     const saveRun = async () => {                     // 存这批的表：认完一张存一回
       if (!(await still())) return false;
@@ -715,7 +815,12 @@ async function start(auto = false, woke = false, steal = false) {
     const base = total - items.length;             // 接着干的：之前已经干完（或者记过）几张
     eng = S.eng = new Engine({
       keys: [k1, k2], model, spec, names, hints, butler: S.dagj, claude: S.claude,
-      log: (m, wait) => { log(m); if (wait) { const [k, v] = waitLine(wait); slogan(k, v); phoneSay(t(k, v), true); } },
+      log: (m, wait) => {
+        log(m);
+        if (wait) { const [k, v] = waitLine(wait); status(k, v); phoneSay(t(k, v), true); }
+        if (like(m, 'eng.dagjMiss') || like(m, 'eng.dagjRest')) { if (!S.why || S.why.kind === 'claudeRest') why('dagjOff'); }   // 大管家不在：换谷歌，说一声
+        else if (like(m, 'eng.claudeQuota') && !S.why) why('claudeRest');
+      },
       prepare: (file, enhance) => exclusive(async () => I.prepare(await openFor(file, !enhance), enhance)),
       stampIt: (file, no, side) => exclusive(async () => I.stamp(await openFor(file, false), no, side)),
     });
@@ -740,6 +845,8 @@ async function start(auto = false, woke = false, steal = false) {
           if (recs === null) {
             C.placeRows(run.rows, [{ no: it.no, kind: 'blank', fill: 'red', retry: true, note: `✗ 识别失败：${err}（照片还在列表里，再点开始会重干）` }]);
             log(`✗ ${tag} ${name} · ${err}`);
+            it.q.err = true;
+            failOne('err', { no: it.no, q: it.q });
             await saveRun();
             return;
           }
@@ -758,6 +865,8 @@ async function start(auto = false, woke = false, steal = false) {
             try { await S.st.put('ledger', it.q.hash, { file: name, no: it.no, xlsx: run.xlsx, at: nowIso(), ms: Date.now() }); } catch (e) { log(t('log.ledgerSave', { tag, e: e.message })); }
           }
           drop(it.q);
+          if (recs.length) { BD.ok++; BD.recs += recs.length; } else failOne('none', { no: it.no });
+          drawBoard();
           log(t('log.ok', { tag, name, n: recs.length }) + (by ? ' · ' + (by === 'dagj' ? t('eng.by.dagj') : by === 'claude' ? t('eng.by.claude') : t('eng.by.gemini')) : ''));   // 089：谁认的，一个字
         },
         onBatch: saveRun,
@@ -782,8 +891,9 @@ async function start(auto = false, woke = false, steal = false) {
     }
     meterStop();
     bar(tl.ok + tl.failed, total);
-    if (kept) status('st.done', { ok: tl.ok, bad: tl.failed });
-    slogan(tl.ok && !halted ? DONE : '');
+    BD.closed = true;
+    BD.done = kept && !halted;
+    status(res && res.stopped === C.MANUAL_STOP ? 'line.stopped' : null);
     if (!halted && res) phoneSay(t('say.done', { ok: tl.ok, bad: tl.failed }), true);
     const more = extra && S.queue.some((q) => extra.has(q));
     if (kept && res && res.ok && !halted && !work.auto && !more && S.cfg.auto_open) openViewer(id);
@@ -798,6 +908,8 @@ async function start(auto = false, woke = false, steal = false) {
     }
   } finally {
     meterStop();
+    if (mine || BD.ok || failCount()) BD.closed = true;   // 这一轮收尾了：再来照片重新数
+    if (BD.line && BD.line[0] !== 'line.stopped') BD.line = null;   // 干活时那句（查重、摸鱼……）收工就撤
     cache.clear();
     S.eng = null;
     S.run = null;
@@ -806,7 +918,7 @@ async function start(auto = false, woke = false, steal = false) {
     setBusy(false);
     for (const q of S.queue) q.taken = false;     // 没认成、留在列表里的：十字又能拖了
     S.quad.render();
-    refreshQueue(S.finished);
+    refreshQueue();
     if (lost) why('stolen');                       // 让给别的窗口了：别自己又开工
     else if (extra && !halted && S.queue.some((q) => extra.has(q))) {
       log(t('log.next'));
@@ -827,7 +939,6 @@ function halt() {
   if (!S.eng) return;
   S.eng.stop();
   status('st.stopping');
-  slogan('');
 }
 
 // ---------------------------------------------------------------- 下载
@@ -910,7 +1021,10 @@ function feedDesc(cat) {
 
 function setupFeed() {
   const dlg = $('#dlg-feed'), sel = $('#feedcat');
-  const describe = async () => { $('#feeddesc').textContent = await feedDesc(sel.value); };
+  const describe = async () => {
+    $('#feeddesc').textContent = await feedDesc(sel.value);
+    $('#feedkb').textContent = sel.value === C.BUILTIN ? C.kbSummary(await kbDb()) : '';   // 169：数据库家底挪到这里
+  };
   $('#feed').onclick = () => { fillCats(sel, $('#cat').value); describe(); dlg.showModal(); };
   sel.onchange = describe;
   $('#feednew').onclick = () => { dlg.close(); newCategory((name) => { fillCats(sel, name); describe(); dlg.showModal(); }); };
@@ -959,6 +1073,9 @@ function refreshDagj() {
   const on = S.dagj.paired;
   $('#dagj').hidden = on;
   $('#dagjon').hidden = !on;
+  const foot = $('#foot');                      // 167 以后：连了大管家的先走 Claude
+  foot.dataset.i18n = on ? 'app.footDagj' : 'app.foot';
+  foot.textContent = t(foot.dataset.i18n);
 }
 
 function setupDagj() {
@@ -1073,7 +1190,9 @@ function setupSettings() {
     note.textContent = ok ? t('set.copied', { mail: CONTACT }) : t('set.mailShow', { mail: CONTACT });
     note.classList.add('strong');
   };
-  $('#gear').onclick = async () => {
+  const openSettings = async (focus = null) => {
+    if (dlg.open) { if (focus) $(focus).focus(); return; }
+    for (const d of document.querySelectorAll('dialog[open]')) d.close();
     $('#setnote').textContent = '';
     $('#setnote').classList.remove('strong');
     for (const box of rows.querySelectorAll('input')) box.checked = !!S.cfg[box.dataset.key];
@@ -1084,7 +1203,10 @@ function setupSettings() {
       t('set.usageTail');
     await companyRow();
     dlg.showModal();
+    if (focus) $(focus).focus();
   };
+  S.openSettings = openSettings;
+  $('#gear').onclick = () => openSettings();
   $('#backup').onclick = async () => {
     const data = await ST.exportBackup(S.st, { version: C.VERSION });
     save(new Blob([JSON.stringify(data)], { type: 'application/json' }), t('log.backupFile', { id: runId() }));
@@ -1609,12 +1731,17 @@ function phoneState(state) {                    // 电脑这头的长连接：�
 const BL = { batch: '', list: [] };
 function blankOne(name, flat, phone) {
   log(t('log.blank', { name, flat: flat ?? 0 }));
+  if (!S.busy) newRound();
   if (phone) {
     if (BL.batch !== phone.batch) Object.assign(BL, { batch: phone.batch, list: [] });
-    if (!BL.list.includes(phone.seq)) BL.list.push(phone.seq);
+    if (!BL.list.includes(phone.seq)) { BL.list.push(phone.seq); failOne('blank', { seq: phone.seq }); }
     BL.list.sort((a, b) => a - b);
     why('blank', { list: I18N.list(BL.list.map(String)), n: BL.list.length });
-  } else why('blankFile', { list: name, n: 1 });
+  } else {
+    failOne('blank', { name });
+    const n = BD.fails.blank.filter((x) => x.name).length;      // 同一件事不刷第二遍：只把次数往上加
+    why('blankFile', { list: name, n });
+  }
 }
 async function blankFlat(file) {               // -> 平整度（够平就是白纸）；打不开的不管，后面照常报
   if (!file.size) return 0;
@@ -1625,6 +1752,7 @@ const phoneReal = new Map();                    // 这一趟手机传来几张�
 async function phoneFile(file, info) {          // 手机传来一张：跟选照片一样进列表、先存进浏览器（存好了才让中转站删）
   const id = `${file.name}|${file.size}|${file.lastModified}`;
   if (S.seen.has(id)) return;
+  newRound();
   S.seen.add(id);
   if (info.seq === 1 || info.seq === info.total) log(t('log.phoneGot', { i: info.seq, n: info.total, name: file.name }));
   const flat = info.blank ? 0 : await blankFlat(file);
@@ -1638,7 +1766,7 @@ async function phoneFile(file, info) {          // 手机传来一张：跟选�
   S.queue.push(q);
   if (S.busy) S.fresh++;
   else if (!S.why || !/^blank/.test(S.why.kind)) hideWhy();
-  refreshQueue(S.busy || S.finished);
+  refreshQueue();
   await stash(q);
 }
 
@@ -1660,7 +1788,11 @@ function phoneJoined() {                       // 手机扫码连上了：二维
 
 function openInbox() {
   if (S.inbox) S.inbox.close();
-  S.inbox = new Inbox(S.pair, { onFile: phoneFile, onBatch: phoneBatch, onState: phoneState, onPhone: phoneJoined, log });
+  const inboxLog = (m) => {                     // 手机传的一张没取到、解不开：算「没传上」
+    log(m);
+    if (like(m, 'log.phoneTakeErr') || like(m, 'log.phoneBad')) { newRound(); failOne('upload'); }
+  };
+  S.inbox = new Inbox(S.pair, { onFile: phoneFile, onBatch: phoneBatch, onState: phoneState, onPhone: phoneJoined, log: inboxLog });
   S.inbox.open();
 }
 
@@ -1715,15 +1847,16 @@ function pageText() {                            // 页面上不跟着干活变�
 async function relabel() {                       // 换了语言：开着的、显示着的都换一遍（日志里已经写下的不动）
   pageText();
   for (const sel of [$('#cat'), $('#feedcat')]) for (const o of sel.options) o.text = catLabel(o.value);
-  refreshQueue(true);
-  if (S.shown) status(...S.shown);
-  if (S.said) slogan(...S.said);
+  refreshQueue();
   S.quad.render();
   drawWhy();
   phoneState(S.phoneState || 'off');
   settingsText();
   if ($('#dlg-set').open) await companyRow();
-  if ($('#dlg-feed').open) $('#feeddesc').textContent = await feedDesc($('#feedcat').value);
+  if ($('#dlg-feed').open) {
+    $('#feeddesc').textContent = await feedDesc($('#feedcat').value);
+    if ($('#feedcat').value === C.BUILTIN) $('#feedkb').textContent = C.kbSummary(await kbDb());
+  }
   if ($('#dlg-view').open && V.run) {
     for (const o of $('#vruns').options) { const r = await S.st.get('runs', o.value); if (r) o.text = runLabel(r); }
     fillState();
@@ -1760,9 +1893,12 @@ async function boot() {
   for (const id of ['#key1', '#key2', '#model']) $(id).addEventListener('input', () => saveCfg());
   for (const id of ['#key1', '#key2']) $(id).addEventListener('input', () => { if (S.why && /^(noKey|sameKey)$/.test(S.why.kind)) hideWhy(); });
   $('#model').addEventListener('change', () => { $('#model').value = C.modelName($('#model').value); saveCfg(); });
-  $('#auto').onchange = () => { saveCfg(); if ($('#auto').checked && S.queue.length && !S.busy) start(true); };
+  $('#auto').onchange = () => { saveCfg(); drawBoard(); if ($('#auto').checked && S.queue.length && !S.busy) start(true); };
   $('#cat').onchange = () => { saveCfg(); refreshCategory(true); };
   $('#start').onclick = () => start(false);
+  $('#more').onclick = () => { $('#dlg-log').showModal(); const box = $('#log'); box.scrollTop = box.scrollHeight; };
+  const look = /[?&]look=([abc])\b/.exec(location.search);       // 169 三版排法：?look=b|c 只管这一次（给 Song 比）
+  if (look && look[1] !== 'a') $('.app').classList.add(`look-${look[1]}`);
   $('#stop').onclick = halt;
   $('#result').onclick = async () => {
     const run = await latestRun();
