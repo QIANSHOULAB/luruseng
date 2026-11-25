@@ -410,4 +410,11 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except BaseException:                    # CI 上不登录看不到日志：挂了写一条注解，运行页上直接看得见
+        if os.environ.get('GITHUB_ACTIONS'):
+            import traceback as _tb
+            msg = _tb.format_exc()[-1800:].replace('%', '%25').replace('\r', '').replace('\n', '%0A')
+            print(f'::error title=start_why::{msg}', flush=True)
+        raise

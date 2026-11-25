@@ -1582,8 +1582,15 @@ def main():
 
 
 if __name__ == '__main__':
-    if not os.environ.get('E2E_ONLY'):       # 146：点开始干不了时的原因条，单独一份验收
-        subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'start_why.py'), SHOTS], check=True)
-        # 163：手机「拍照」传成白纸——诊断页、画法、白纸不发不认
-        subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'blank_163.py'), SHOTS], check=True)
-    main()
+    try:
+        if not os.environ.get('E2E_ONLY'):       # 146：点开始干不了时的原因条，单独一份验收
+            subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'start_why.py'), SHOTS], check=True)
+            # 163：手机「拍照」传成白纸——诊断页、画法、白纸不发不认
+            subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'blank_163.py'), SHOTS], check=True)
+        main()
+    except BaseException:                    # CI 上不登录看不到日志：挂了写一条注解，运行页上直接看得见
+        if os.environ.get('GITHUB_ACTIONS'):
+            import traceback as _tb
+            msg = _tb.format_exc()[-1800:].replace('%', '%25').replace('\r', '').replace('\n', '%0A')
+            print(f'::error title=e2e::{msg}', flush=True)
+        raise
