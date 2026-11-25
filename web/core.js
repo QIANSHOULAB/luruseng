@@ -6,7 +6,7 @@ import './strings.js';
 const t = (k, v) => globalThis.LURU_I18N.t(k, v);
 const list = (a) => globalThis.LURU_I18N.list(a);
 
-export const VERSION = '1.13.4';
+export const VERSION = '1.13.5';
 export const MANUAL_STOP = '手动停止';      // 点了「停止」（只当记号比，给人看的字在 strings.js）
 export const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 export const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
@@ -1123,6 +1123,8 @@ export function assessRecord(rec, { snapshot = null, names = [], today = new Dat
     }
   }
   for (const f of FIELDS) {
+    // 班次只有 D / N 两个勾：认成了 D 或 N、几遍又没打架（打架的上面已经标红），模型说拿不准也不打红（Song 11-25「D 这个都打红的，没必要」）
+    if (f === 'shift' && (values.shift === 'D' || values.shift === 'N')) continue;
     if (unsure.includes(f) && !red.has(f) && !orange.has(f) && !NEVER_RED.has(f)) { red.add(f); notes.push(`${f.toUpperCase()} 模型拿不准`); }
   }
   const t = values.total_screened, p = values.passed, fl = values.failed;

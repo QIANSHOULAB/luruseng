@@ -206,6 +206,18 @@ def test_no_company_data_no_new_flags(tmp_path):
     assert r['red'] == {f('date')} and r['values'][f('setter')] == '9441' and r['note'] == 'DATE 13-51 认不成日期'
 
 
+def test_shift_d_n_not_red_when_model_unsure(tmp_path):
+    """班次认成 D / N、几遍一样：模型说拿不准也不标红（Song 2026-11-25「D 这个都打红的，没必要」）；几遍不一样照样红。"""
+    book = engine.RecordBook(str(tmp_path / 'r.xlsx'))
+    book.add(1, [{**rec(shift='D'), 'unsure': ['shift']}])
+    book.add(2, [{**rec(shift='D'), 'unsure': ['shift'], 'disputed': {'shift': ['D', 'N']}}])
+    book.save()
+    rows = viewer.load_rows(book.path)[1]
+    f = engine.FIELDS.index
+    assert f('shift') not in rows[0]['red'] and '模型拿不准' not in rows[0]['note']
+    assert f('shift') in rows[1]['red']
+
+
 # ---------------------------------------------------------------- 班次照这个人以前的班次猜（Song 2026-11-01：1B「用资料库这个人以前是N还是D去猜」）、3A
 D2 = datetime(2026, 10, 27)
 SHIFT_ROWS = [  # 9556 一向夜班；9471 一向白班

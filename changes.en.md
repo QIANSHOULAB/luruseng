@@ -2,6 +2,9 @@
 
 When there's a new version, the app shows you the sections newer than the one you have.
 
+## 1.13.5
+- SHIFT is just a Day or Night tick. If it reads as D or N and every pass agrees, it no longer turns red just because the model muttered “not sure.” A monk who can't read a tick should go back to sweeping the temple.
+
 ## 1.13.4
 - Shooting straight from the phone's camera with Take Photo could land on the computer as a blank white page. The monk was drawing before the photo had fully loaded (same fix for reading photos in the web app on an iPhone). Now each photo is drawn once, trying a few methods until one works. If none does, it isn't sent, and the phone tells you to pick it from your library.
 - The phone keeps a small thumbnail of every photo it sends, so a blank one is obvious. The computer flags blank pages up top, says which one, and doesn't mistake them for repeats.

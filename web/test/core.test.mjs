@@ -113,6 +113,11 @@ test('标红：数字、班次、看不清、两遍不一样、拿不准；认�
   assert.deepEqual(new Set(a.red), new Set(['machine', 'part_number']));
   a = C.assessRecord({ ...rec({ setter: '6□9' }), unsure: [], disputed: {} }, { names: [['639', 'Lee Ah Kow'], ['648', 'MURUGAN']], today: T });
   assert.equal(a.values.setter, '639/Lee Ah Kow'); assert.ok(!a.red.includes('setter'));   // 看不清的按名单补上，名字也对上
+  // 班次认成 D / N、几遍一样：模型说拿不准也不红（Song 11-25）；几遍不一样照样红
+  a = C.assessRecord({ ...rec({ shift: 'D' }), unsure: ['shift'], disputed: {} }, { today: T });
+  assert.ok(!a.red.includes('shift') && !a.notes.includes('SHIFT 模型拿不准'));
+  a = C.assessRecord({ ...rec({ shift: 'D' }), unsure: ['shift'], disputed: { shift: ['D', 'N'] } }, { today: T });
+  assert.ok(a.red.includes('shift'));
 });
 
 // ---------------------------------------------------------------- 数据库（刀单）

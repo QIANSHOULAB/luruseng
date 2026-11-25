@@ -935,6 +935,8 @@ class RecordBook:
                 notes.append(f'{f.upper()} 几遍认得不一样：' + ' / '.join(disputed[f]))
                 alts.setdefault(f, [x for x in disputed[f] if x != '空'])
         for f in FIELDS:                            # 模型拿不准、又没被数据库改好的字段：标红
+            if f == 'shift' and values.get('shift') in ('D', 'N'):
+                continue                            # 班次只有 D / N 两个勾：认成了、几遍又没打架，不打红（Song 2026-11-25）
             if f in unsure and f not in red and f not in orange and f not in NEVER_RED:
                 red.add(f)
                 notes.append(f'{f.upper()} 模型拿不准')
