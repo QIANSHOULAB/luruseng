@@ -2,6 +2,9 @@
 
 When there's a new version, the app shows you the sections newer than the one you have.
 
+## 1.13.0
+- Web: new switch, “4 forms per photo”. Lay four forms in a cross, shoot once, and Luru cuts along the gaps and reads them one by one. Wrong cut? Drag the cross. Empty corner? Skipped. Keep them tight and fill the frame.
+
 ## 1.12.3
 - Bigger batches, no traffic jam: the first read leaves as soon as its photo is ready instead of waiting on the second copy.
 

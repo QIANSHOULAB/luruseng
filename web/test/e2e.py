@@ -26,7 +26,7 @@ from datetime import datetime
 
 from openpyxl import load_workbook
 from openpyxl.utils import column_index_from_string, get_column_letter
-from PIL import Image
+from PIL import Image, ImageDraw
 from playwright.sync_api import sync_playwright
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -67,6 +67,35 @@ def make_images(folder, n, start=0):
         os.utime(p, (1_700_000_000 + i, 1_700_000_000 + i))
         out.append(p)
     return out
+
+
+MARKS = [(220, 30, 30), (30, 160, 50), (30, 60, 220), (210, 140, 0)]     # 四张单子各带一个色块：左上、右上、左下、右下
+
+
+def make_four(path, skip=(), size=(4032, 3024), tilt=(0, 0, 0, 0), stamp=1_700_100_000, desk=(92, 70, 52)):
+    """假的四联照片：深色桌面上十字摆着四张单子（表格线、字），每张一个色块，skip 里的位置空着。"""
+    W, H = size
+    im = Image.new('RGB', size, desk)
+    pw, ph = int(W * 0.40), int(H * 0.40)
+    for n, (i, j) in enumerate(((0, 0), (1, 0), (0, 1), (1, 1))):
+        if n in skip:
+            continue
+        sheet = Image.new('RGB', (pw, ph), (246, 246, 242))
+        d = ImageDraw.Draw(sheet)
+        for r in range(9):
+            y = int(ph * (0.28 + r * 0.075))
+            d.line([(pw * 0.07, y), (pw * 0.93, y)], fill=(70, 70, 70), width=max(2, W // 900))
+            for c in range(5):
+                x = int(pw * (0.09 + c * 0.17))
+                d.rectangle([x, y - ph * 0.045, x + pw * (0.05 + 0.02 * ((r + c + n) % 3)), y - ph * 0.018], fill=(40, 40, 50))
+        d.rectangle([pw * 0.08, ph * 0.07, pw * 0.30, ph * 0.18], fill=MARKS[n])
+        sheet = sheet.rotate(tilt[n], expand=True, resample=Image.BICUBIC, fillcolor=desk)
+        cx, cy = W * (0.27 + 0.46 * i), H * (0.27 + 0.46 * j)
+        im.paste(sheet, (int(cx - sheet.width / 2), int(cy - sheet.height / 2)))
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    im.save(path, quality=92)
+    os.utime(path, (stamp, stamp))
+    return path
 
 
 def serve(root):
@@ -1230,6 +1259,200 @@ def main():
             p.screenshot(path=os.path.join(SHOTS, '6-手机改格子.png'))
             m.close()
 
+        @step
+        def quad_one_photo_four_forms():
+            m = browser.new_context(viewport={'width': 390, 'height': 844}, device_scale_factor=3, is_mobile=True, has_touch=True,
+                                    user_agent='Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 '
+                                               '(KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', accept_downloads=True)
+            def opened():
+                q = m.new_page()
+                q.on('pageerror', lambda e: errors.append(f'quad pageerror: {e}'))
+                q.on('console', lambda msg: errors.append(f'quad console.{msg.type}: {msg.text}')
+                     if msg.type == 'error' and 'Failed to load resource' not in msg.text else None)
+                offline(q)
+                q.goto(base)
+                q.wait_for_function('() => document.querySelectorAll("#log p").length >= 1')
+                return q
+
+            def text(q):
+                return '\n'.join(q.eval_on_selector_all('#log p', 'ps => ps.map(p => p.textContent)'))
+
+            def said(q, word, timeout=60000):
+                q.wait_for_function('w => [...document.querySelectorAll("#log p")].some(p => p.textContent.includes(w))', arg=word, timeout=timeout)
+
+            def pending(q):                      # 浏览器里存着、还没干完的照片
+                return q.evaluate("""() => new Promise((ok) => { const r = indexedDB.open('luruseng-web');
+                    r.onsuccess = () => { const g = r.result.transaction('photos').objectStore('photos').getAllKeys(IDBKeyRange.bound('pending/', 'pending/\\uffff'));
+                      g.onsuccess = () => ok(g.result); }; })""")
+
+            def stored(q, n):                    # 存是一张一张慢慢存的：等它存到这个数
+                for _ in range(100):
+                    if len(pending(q)) == n:
+                        return pending(q)
+                    q.wait_for_timeout(100)
+                raise AssertionError((n, pending(q)))
+
+            def colours(q):                      # 最后那批：每个编号认的那张图里是哪个色块 -> {编号: 0..3}
+                return q.evaluate("""marks => new Promise((ok) => { const r = indexedDB.open('luruseng-web');
+                    r.onsuccess = () => { const db = r.result, c = db.transaction('kv').objectStore('kv').get('cfg');
+                      c.onsuccess = () => { const id = c.result.lastRun, st = db.transaction('photos').objectStore('photos');
+                        const range = IDBKeyRange.bound(id + '/', id + '/\\uffff'), ks = st.getAllKeys(range), vs = st.getAll(range);
+                        vs.onsuccess = async () => { const out = {};
+                          for (let i = 0; i < ks.result.length; i++) {
+                            const b = await createImageBitmap(vs.result[i]), cv = new OffscreenCanvas(200, Math.round(200 * b.height / b.width));
+                            const g = cv.getContext('2d'); g.drawImage(b, 0, 0, cv.width, cv.height);
+                            const d = g.getImageData(0, 0, cv.width, cv.height).data, n = marks.map(() => 0);
+                            for (let p = 0; p < d.length; p += 4) marks.forEach((mk, k) => {
+                              if (Math.abs(d[p] - mk[0]) + Math.abs(d[p + 1] - mk[1]) + Math.abs(d[p + 2] - mk[2]) < 60) n[k]++; });
+                            const seen = n.map((v, k) => [v, k]).filter(([v]) => v > 40);
+                            out[ks.result[i].split('/')[1]] = seen.map(([, k]) => k).join('+');
+                          }
+                          ok(out); }; }; }; })""", MARKS)
+
+            def done(q, want):
+                q.wait_for_function('w => document.querySelector("#status").textContent.replace(/\\s/g, "") === w', arg=want, timeout=60000)
+                if q.is_visible('#dlg-view'):
+                    q.click('#vclose')
+
+            def finger(q, selector, dx, dy, hold=0):     # 真的手指：按住抓手拖过去
+                box = q.locator(selector).bounding_box()
+                x, y = box['x'] + box['width'] / 2, box['y'] + box['height'] / 2
+                cdp = m.new_cdp_session(q)
+                cdp.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [{'x': x, 'y': y}]})
+                for k in range(1, 9):
+                    cdp.send('Input.dispatchTouchEvent', {'type': 'touchMove', 'touchPoints': [{'x': x + dx * k / 8, 'y': y + dy * k / 8}]})
+                if hold:
+                    q.wait_for_timeout(hold)
+                cdp.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []})
+                cdp.detach()
+
+            try:
+                d = os.path.join(WORK, 'quad')
+                p = opened()
+                assert not p.is_checked('#quad') and not p.is_visible('#quadbox')
+                p.fill('#key1', K1)
+                p.click('label:has(#quad)')
+                p.wait_for_timeout(700)
+                p.close()
+                p = opened()
+                assert p.is_checked('#quad'), '开关要记住'
+
+                # ① 没开「来图就干」：切好进列表，等人点开始
+                one = make_four(os.path.join(d, 'cross.jpg'), tilt=(1.5, -2, 2, -1))
+                p.set_input_files('#files', one)
+                p.wait_for_selector('#quadbox:not([hidden])')
+                p.wait_for_function('() => document.querySelector("#droptxt").textContent.startsWith("4 张：cross_1.jpg、cross_2.jpg、cross_3.jpg、cross_4.jpg")', timeout=15000)
+                ms = int(p.get_attribute('#quadbox', 'data-shown-ms'))
+                print(f'    1200 万像素的四联图：{ms} 毫秒摆出四块小图和十字', flush=True)
+                assert ms < 1500, ms
+                assert p.eval_on_selector_all('.qthumbs figcaption', 'e => e.map(x => x.textContent)') == ['1 左上', '2 右上', '3 左下', '4 右下']
+                assert p.inner_text('.qnote') == '切得不对就拖十字，好了点开始'
+                assert sorted(k.split('|')[0] for k in stored(p, 4)) == [f'pending/cross_{i}.jpg' for i in range(1, 5)], pending(p)
+                sw = p.evaluate('() => [document.documentElement.scrollWidth, window.innerWidth]')
+                assert sw[0] <= sw[1], sw
+                p.eval_on_selector('#quadbox', 'e => e.scrollIntoView({block: "center"})')
+                p.screenshot(path=os.path.join(SHOTS, '11-四份-切好.png'))
+
+                def centre():
+                    b = p.locator('.q-center').bounding_box()
+                    s = p.locator('.qstage').bounding_box()
+                    return ((b['x'] + b['width'] / 2 - s['x']) / s['width'], (b['y'] + b['height'] / 2 - s['y']) / s['height'])
+                x0, y0 = centre()
+                assert abs(x0 - 0.5) < 0.04 and abs(y0 - 0.5) < 0.04, (x0, y0)
+                top = p.evaluate('() => window.scrollY')
+                finger(p, '.q-center', 30, 24)                                    # 拖十字：照拖的重切，页面不跟着滚
+                said(p, 'cross.jpg 按拖过的十字重切了：4 张')
+                x1, y1 = centre()
+                assert x1 - x0 > 0.05 and y1 - y0 > 0.05 and p.evaluate('() => window.scrollY') == top, (x0, y0, x1, y1)
+                assert p.inner_text('#droptxt').startswith('4 张：cross_1.jpg'), p.inner_text('#droptxt')
+                p.screenshot(path=os.path.join(SHOTS, '11-四份-拖过.png'))
+                finger(p, '.q-center', -30, -24)
+                p.wait_for_function('() => [...document.querySelectorAll("#log p")].filter(p => p.textContent.includes("重切了")).length === 2')
+                stored(p, 4)
+                p.click('#start')
+                done(p, '干完：成功4·失败0')
+                assert colours(p) == {'1': '0', '2': '1', '3': '2', '4': '3'}, colours(p)    # 编号 = 左上、右上、左下、右下
+                assert not p.is_visible('#quadbox') and pending(p) == []
+                p.screenshot(path=os.path.join(SHOTS, '11-四份-认完.png'), full_page=True)
+
+                # 同一张照片再放一次：切出来的认得出，不白认
+                p.set_input_files('#files', one)
+                p.wait_for_function('() => document.querySelector("#droptxt").textContent.startsWith("4 张")', timeout=15000)
+                p.click('#start')
+                said(p, '没有新照片')
+                assert 'cross_1.jpg 以前干过' in text(p) and not p.is_visible('#quadbox'), text(p)
+
+                # ② 「来图就干」+ 右下空着：跳过那块，等几秒自己开工
+                p.click('label:has(#auto)')
+                two = make_four(os.path.join(d, 'three.jpg'), skip=(3,), stamp=1_700_100_100)
+                before = p.evaluate('() => performance.now()')
+                p.set_input_files('#files', two)
+                said(p, 'three.jpg 右下是空的，跳过')
+                p.wait_for_function('() => /秒后开始认/.test(document.querySelector(".qnote").textContent)', timeout=10000)
+                assert p.inner_text('#droptxt').startswith('3 张：three_1.jpg、three_2.jpg、three_3.jpg'), p.inner_text('#droptxt')
+                assert p.eval_on_selector_all('.qthumbs figcaption', 'e => e.map(x => x.textContent)')[3] == '4 右下：空'
+                p.eval_on_selector('#quadbox', 'e => e.scrollIntoView({block: "center"})')
+                p.screenshot(path=os.path.join(SHOTS, '11-四份-空一块.png'))
+                done(p, '干完：成功3·失败0')
+                took = p.evaluate('() => performance.now()') - before
+                assert took > 2900, took
+                assert colours(p) == {'1': '0', '2': '1', '3': '2'}, colours(p)
+
+                # ③ 倒数的时候按着十字不放：不开工；放手才重新数
+                three = make_four(os.path.join(d, 'hold.jpg'), stamp=1_700_100_200, desk=(40, 44, 60))
+                p.set_input_files('#files', three)
+                p.wait_for_function('() => /秒后开始认/.test(document.querySelector(".qnote").textContent)', timeout=10000)
+                starts = text(p).count('来图就干，自己开工')
+                finger(p, '.q-left', 0, 6, hold=4500)
+                assert text(p).count('来图就干，自己开工') == starts, '手没放开就开工了'
+                done(p, '干完：成功4·失败0')
+
+                # ④ 正在干着又来一张：排在后面接着干
+                mock_server.STATE['delay'] = 1.0
+                p.set_input_files('#files', make_four(os.path.join(d, 'busy1.jpg'), stamp=1_700_100_300, desk=(30, 30, 30)))
+                p.wait_for_function('() => document.querySelector("#start").disabled', timeout=20000)
+                p.set_input_files('#files', make_four(os.path.join(d, 'busy2.jpg'), stamp=1_700_100_400, desk=(70, 90, 70)))
+                said(p, 'busy2_4.jpg')
+                mock_server.STATE['delay'] = 0.05
+                done(p, '干完：成功4·失败0')
+                assert pending(p) == [] and not p.is_visible('#quadbox'), pending(p)
+
+                # ⑤ 没开工就把页面关了：四张还在；清空：什么都不留
+                p.click('label:has(#auto)')
+                p.set_input_files('#files', make_four(os.path.join(d, 'keep.jpg'), stamp=1_700_100_500, desk=(60, 40, 40)))
+                p.wait_for_function('() => document.querySelector("#droptxt").textContent.startsWith("4 张：keep_1.jpg")', timeout=15000)
+                p.wait_for_timeout(800)
+                p.close()
+                p = opened()
+                said(p, '上回留下的 4 张照片还在列表里')
+                assert p.inner_text('#droptxt').startswith('4 张：keep_1.jpg'), p.inner_text('#droptxt')
+                p.click('#clear')
+                p.set_input_files('#files', make_four(os.path.join(d, 'gone.jpg'), stamp=1_700_100_600))
+                p.wait_for_selector('#quadbox:not([hidden])')
+                p.click('#clear')
+                p.wait_for_timeout(800)
+                assert pending(p) == [] and not p.is_visible('#quadbox') and p.inner_text('#droptxt') == '还没选照片', (pending(p), p.inner_text('#droptxt'))
+
+                # 切不开的（打不开的文件）：整张照认，照片不丢
+                bad = os.path.join(d, 'broken.jpg')
+                with open(bad, 'wb') as f:
+                    f.write(b'not a photo at all')
+                p.set_input_files('#files', bad)
+                said(p, 'broken.jpg 没切成')
+                p.wait_for_function('() => document.querySelector("#droptxt").textContent === "1 张：broken.jpg"')
+                assert not p.is_visible('#quadbox')
+                p.click('#clear')
+
+                # ⑥ 关掉开关：一张照片还是一张单子
+                p.click('label:has(#quad)')
+                p.set_input_files('#files', one)
+                p.wait_for_function('() => document.querySelector("#droptxt").textContent === "1 张：cross.jpg"')
+                assert not p.is_visible('#quadbox')
+                p.click('#clear')
+            finally:
+                mock_server.STATE['delay'] = 0.05
+                m.close()
+
         for fn in (opens_clean, no_key_no_start, twelve_photos_match_desktop_book, viewer_pages_rotates_copies_zips,
                    same_photos_again_are_skipped, result_button_downloads_latest, feed_database_xlsx_xls_csv_html,
                    database_fixes_confusable_letters, edit_cells_in_viewer, btmp_copies_total, names_dialog, fill_into_company_book, fill_after_reopening,
@@ -1237,7 +1460,7 @@ def main():
                    bad_key_stops_and_keeps_photos, stop_button_marks_unfinished, photos_of_all_kinds,
                    title_on_the_right_turns_upright_number_in_top_right, settings_backup_restore_and_forget_keys, delete_a_batch, redo_switch_does_done_photos_again,
                    progress_counts_up_and_says_go_slack,
-                   killed_midway_comes_back_and_finishes, phone_sends_and_pc_starts_by_itself, phone_layout):
+                   killed_midway_comes_back_and_finishes, phone_sends_and_pc_starts_by_itself, phone_layout, quad_one_photo_four_forms):
             if os.environ.get('E2E_ONLY') and fn.__name__ not in os.environ['E2E_ONLY'].split(','):
                 continue                      # 只跑某几项：E2E_ONLY=项名,项名
             try:

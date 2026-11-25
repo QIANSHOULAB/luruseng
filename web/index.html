@@ -141,6 +141,34 @@
   .check input:checked + .box svg { opacity: 1; }
   .check input:focus-visible + .box { box-shadow: 0 0 0 3px var(--focus); }
 
+  /* 一张拍四份：照片 + 能拖的十字 + 四块小图 */
+  .form .quadrow .check { margin-left: 0; flex-wrap: wrap; row-gap: 2px; }
+  .quadrow .check > span:not(.box):not(.hint) { white-space: nowrap; }
+  .quadbox { grid-column: 1 / -1; min-width: 0; background: var(--fill); border-radius: 12px; padding: 10px; }
+  .qhead { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 13.5px; color: var(--grey); }
+  .qtitle { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .qpager { display: inline-flex; align-items: center; gap: 8px; }
+  .qpager .pill { background: #fff; }
+  .qstage { position: relative; margin: 0 auto; width: 100%; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  .qstage > canvas, .qstage > svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .qstage > canvas { border-radius: 6px; }
+  .qstage > svg { pointer-events: none; overflow: visible; }
+  .qhalo { stroke: #fff; stroke-width: 5px; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+  .qline { stroke: var(--blue); stroke-width: 2.5px; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+  .qoff { fill: rgba(0, 0, 0, .42); }
+  .qno { fill: #fff; stroke: rgba(0, 0, 0, .55); stroke-width: .16em; paint-order: stroke; font: 700 64px var(--font); text-anchor: middle; dominant-baseline: central; }
+  .qno.off { font-size: 48px; }
+  .qarm { position: absolute; height: 36px; transform: translate(-50%, -50%); touch-action: none; cursor: grab; }
+  .qarm i { position: absolute; left: 50%; top: 50%; width: 28px; height: 10px; margin: -5px 0 0 -14px; border-radius: 5px; background: var(--blue); box-shadow: 0 0 0 2px #fff; }
+  .qarm.q-center { width: 48px; height: 48px; }
+  .qarm.q-center i { width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 11px; }
+  .qthumbs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+  .qthumbs figure { margin: 0; text-align: center; min-width: 0; }
+  .qthumbs canvas { max-width: 100%; max-height: 120px; border-radius: 4px; background: #fff; }
+  .qthumbs figure.off canvas { opacity: .35; }
+  .qthumbs figcaption { font-size: 12px; color: var(--grey); margin-top: 2px; overflow-wrap: anywhere; }
+  .qnote { font-size: 13.5px; margin-top: 8px; text-align: center; }
+
   hr.sep { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
   .bar { display: flex; flex-wrap: wrap; gap: 10px; }
 
@@ -255,6 +283,8 @@
     .form { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 0; }
     .form > label { grid-column: 1 / -1; margin-top: 6px; color: var(--grey); font-size: 13.5px; }
     .form .wide { grid-column: 1 / -1; }
+    .form .pad { display: none; }
+    .quadrow .check .hint { flex-basis: 100%; padding-left: 32px; }
     .combo { width: 100%; }
     .check { margin-left: 0; }
     .form .side-btn { min-width: 0; }
@@ -314,6 +344,12 @@
       </div>
       <button type="button" class="pill side-btn" id="pick" data-i18n="app.pick">Add photos…</button>
       <input type="file" id="files" accept="image/*,.heic,.heif" multiple hidden>
+
+      <span class="pad"></span>
+      <div class="wide quadrow">
+        <label class="check"><input type="checkbox" id="quad"><span class="box"><svg><use href="#i-check"/></svg></span><span data-i18n="app.quad">4 forms per photo</span><span class="hint" data-i18n="app.quadHint">(lay four in a cross, shoot once, cut along the gaps)</span></label>
+      </div>
+      <div class="quadbox" id="quadbox" hidden></div>
 
       <label for="phone" class="pc-only" data-i18n="app.phone">Phone</label>
       <div class="phint pc-only" id="phint"><i class="dot" id="pdot"></i><span class="txt" id="phinttxt"></span></div>
@@ -477,7 +513,7 @@
   // 不然刚更新那十分钟，浏览器会拿新页面配缓存里的旧代码（按钮在、点了没反应）。
   (() => {
     const v = Date.parse(document.lastModified) || Date.now();
-    const mods = ['app', 'strings', 'core', 'sheets', 'store', 'image', 'book', 'engine', 'pair', 'inbox', 'fill', 'dagj'];
+    const mods = ['app', 'strings', 'core', 'sheets', 'store', 'image', 'book', 'engine', 'pair', 'inbox', 'fill', 'dagj', 'quad', 'quadui'];
     const map = document.createElement('script');
     map.type = 'importmap';
     map.textContent = JSON.stringify({ imports: Object.fromEntries(mods.map((m) => [`./${m}.js`, `./${m}.js?v=${v}`])) });

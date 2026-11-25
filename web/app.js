@@ -10,6 +10,7 @@ import { Engine } from './engine.js';
 import * as PR from './pair.js';
 import { Inbox } from './inbox.js';
 import { Butler } from './dagj.js';
+import { Quad } from './quadui.js';
 
 const $ = (s) => document.querySelector(s);
 const I18N = globalThis.LURU_I18N;
@@ -20,13 +21,14 @@ const JSZIP_LIB = new URL('./vendor/jszip.min.js', import.meta.url).href;
 const QR_LIB = new URL('./vendor/qrcode.js', import.meta.url).href;
 const CONTACT = ['oilsongchengmin', 'gmail.com'].join('@');
 const SETTINGS = ['auto_open', 'remember_keys', 'redo'];          // 字在 strings.js 的 row.<键>、row.<键>.d
-const DEFAULTS = { category: C.BUILTIN, model: C.DEFAULT_MODEL, auto: false, auto_open: true, remember_keys: true, redo: false };
+const DEFAULTS = { category: C.BUILTIN, model: C.DEFAULT_MODEL, auto: false, quad: false, auto_open: true, remember_keys: true, redo: false };
 
 const S = {
   st: null, cfg: { ...DEFAULTS }, cats: [], queue: [], seen: new Set(), eng: null, busy: false,
   fresh: 0, feeding: false, run: null,                    // run：正在干的这批（核对里看它，改的格子才不会被盖掉）
   pair: null, inbox: null, phoneWaiting: false,           // 手机传图：配对、收图的长连接、手机传齐了等着开工
   cohandle: null, filling: false,                         // 填进公司表：选过的那本（这回开着页面先用手上这个）、正在填
+  quad: null,                                             // 一张拍四份：切照片、摆预览（quadui.js）
   shown: null, said: null, finished: false,               // 右边大字、小字现在显示的是哪句（换语言时照这个重写）；finished：大字是「干完：…」
 };
 const two = (n) => String(n).padStart(2, '0');
@@ -122,6 +124,7 @@ let saveTimer = null;
 function saveCfg(now = false) {
   S.cfg.model = $('#model').value.trim() || C.DEFAULT_MODEL;
   S.cfg.auto = $('#auto').checked;
+  S.cfg.quad = $('#quad').checked;
   S.cfg.category = $('#cat').value || C.BUILTIN;
   if (S.cfg.remember_keys) { S.cfg.key1 = $('#key1').value.trim(); S.cfg.key2 = $('#key2').value.trim(); }
   else { delete S.cfg.key1; delete S.cfg.key2; }     // 不记钥匙：只在这次开着时有效，不存进浏览器
@@ -229,6 +232,12 @@ async function restore() {                     // 上回选了还没干完的照
   let back = 0;
   for (const [key, v] of all) {
     const id = key.slice(PEND.length);
+    if (v && v.quad && v.blob instanceof Blob) {            // 切到一半页面被关了：原图还在，重新切
+      const file = new File([v.blob], v.name || 'photo.jpg', { type: v.type || v.blob.type || '', lastModified: v.lastModified || 0 });
+      S.seen.add(v.orig);
+      S.quad.add(file, { id: v.orig, phone: v.phone });
+      continue;
+    }
     if (S.seen.has(id)) continue;
     let done = v && v.hash && await S.st.get('ledger', v.hash).catch(() => null);
     if (done && S.cfg.redo && v.added && !doneSince(done, v.added)) done = null;   // 开着重干：放进来之后还没干完的照样拿回来
@@ -271,6 +280,7 @@ async function wakeUp(back) {                  // 打开页面：上回干到一
 }
 
 async function clearList() {                   // 清空：照片不要了，上回没干完的那批也不接着干了
+  S.quad.clear();
   for (const q of S.queue) unstash(q);
   S.queue = [];
   S.seen.clear();
@@ -287,26 +297,82 @@ async function clearList() {                   // 清空：照片不要了，上
 }
 
 // ---------------------------------------------------------------- 加照片
+const idOf = (f) => `${f.name}|${f.size}|${f.lastModified}`;
 function addFiles(files) {
-  let added = 0, sheets = 0, other = 0;
+  let added = 0, sheets = 0, other = 0, cut = 0;
   for (const f of files) {
     if (!f || !f.size) continue;
     if (!I.isImage(f)) { if (SH.supported(f.name)) sheets++; else other++; continue; }
-    const id = `${f.name}|${f.size}|${f.lastModified}`;
+    const id = idOf(f);
     if (S.seen.has(id)) continue;
     S.seen.add(id);
+    if ($('#quad').checked) { S.quad.add(f, { id }); cut++; continue; }     // 一张拍四份：切好了才进列表
     const q = { file: f, id };
     S.queue.push(q);
     stash(q);                                  // 先存一份：开工后页面被手机杀了，重新打开不用重选
     added++;
     if (S.busy) S.fresh++;
   }
-  if (added && canStash()) ST.persist();       // 跟浏览器要「别清」
+  if ((added || cut) && canStash()) ST.persist();       // 跟浏览器要「别清」
   if (sheets) log(t('log.sheets', { n: sheets }));
   if (other) log(t('log.notPhotos', { n: other }));
   refreshQueue();
   if (added && S.busy) log(t('log.more', { n: added }));
   if (added && !S.busy && $('#auto').checked) start(true);
+}
+
+// ---------------------------------------------------------------- 一张拍四份：列表这一头
+const ORIG = PEND + 'quad|';                   // 还没切完的原图先存一份
+function keep(sheet) {
+  if (!canStash()) return Promise.resolve();
+  return later(async () => {
+    const f = sheet.file;
+    await S.st.put('photos', ORIG + sheet.id, { quad: true, orig: sheet.id, phone: sheet.phone, blob: new Blob([await f.arrayBuffer()], { type: f.type }),
+      name: f.name, type: f.type, lastModified: f.lastModified, added: Date.now() });
+  }).catch((e) => log(t('log.notStashed', { e: e.message })));
+}
+function unkeep(sheet) { if (canStash()) later(() => S.st.del('photos', ORIG + sheet.id)).catch(() => {}); }
+function enqueue(files, sheet, at) {           // 切出来的进列表 -> 列表里那几项
+  const items = [];
+  for (const file of files) {
+    const id = idOf(file);
+    if (S.seen.has(id) && id !== sheet.id) continue;
+    S.seen.add(id);
+    const q = { file, id, sheet, phone: sheet.phone, hold: sheet.holding || sheet.busy > 0 };
+    items.push(q);
+    stash(q);
+  }
+  S.queue.splice(at ?? S.queue.length, 0, ...items);
+  return items;
+}
+function setupQuad() {
+  S.quad = new Quad($('#quadbox'), {
+    log, keep, unkeep,
+    auto: (sheet) => !!(sheet.phone || $('#auto').checked),           // 手机传来的本来就自己开工
+    put: (files, sheet) => {
+      const items = enqueue(files, sheet);
+      if (!items.length) S.seen.delete(sheet.id);
+      refreshQueue(S.busy || S.finished);
+      if (items.length && S.run) log(t('log.more', { n: items.length }));
+      return items;
+    },
+    swap: (sheet, files) => {                  // 拖过十字：原来那几张拿掉，新切的放回原处
+      const old = sheet.items;
+      const at = old.map((q) => S.queue.indexOf(q)).find((i) => i >= 0) ?? S.queue.length;
+      for (const q of old) { const i = S.queue.indexOf(q); if (i >= 0) S.queue.splice(i, 1); S.seen.delete(q.id); unstash(q); }
+      const items = enqueue(files, sheet, Math.min(at, S.queue.length));
+      refreshQueue(S.busy || S.finished);
+      return items;
+    },
+    go,
+  });
+}
+function go(sheet) {                            // 等够了、没人碰十字：照现在的切法认
+  for (const q of sheet.items) q.hold = false;
+  if (!sheet.items.some((q) => S.queue.includes(q))) return;
+  if (!sheet.phone && !$('#auto').checked) return;
+  if (S.busy) S.fresh += sheet.items.length;
+  else start(true);
 }
 
 async function entriesToFiles(items) {        // 拖进来的可能是文件夹：一层层翻出里面的照片
@@ -391,7 +457,7 @@ function runId(d = new Date()) {
 // 新开一批：干过的照片（改了名也认得出）跳过，剩下的按拍摄顺序排好
 async function freshTodo() {
   const todo = [], hashes = new Map(), again = [];
-  for (const q of [...S.queue]) {
+  for (const q of S.queue.filter((x) => !x.hold)) {
     if (!q.hash) {
       try { q.hash = await I.sha256(q.file); } catch (e) { log(t('log.unreadable', { name: q.file.name, e: e.message })); continue; }
     }
@@ -478,6 +544,9 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
   try {
     release = await grab(woke ? 3 : 1);
     if (!release) { log(t('log.otherTab')); return; }
+    await S.quad.settled();                      // 还在切的先切完
+    if (!auto) S.quad.releaseAll();              // 人点的开始：不用再等十字
+    const ready = () => S.queue.filter((q) => !q.hold);
     const was = await S.st.get('kv', 'work').catch(() => null);
     const prev = was && was.run ? await S.st.get('runs', was.run).catch(() => null) : null;
     if (was && !prev && was.want) {              // 点了开始、照片还没存完页面就被关了：存住的接着干，没存住的点名
@@ -485,7 +554,8 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
       const miss = was.want.filter((qid) => !have.has(qid) && !gone.has(qid)).map((qid) => qid.split('|')[0]);
       if (miss.length) log(t('log.lostBefore', { n: miss.length, names: I18N.list(miss.slice(0, 6)), more: miss.length > 6 ? '…' : '' }));
     }
-    if (!S.queue.length && !prev) {
+    if (!ready().length && !prev) {
+      if (S.queue.length) return;                // 都在等十字放手：到时候自己开工
       if (was) await S.st.del('kv', 'work').catch(() => {});
       if (!woke) log(t('log.noPhotos'));
       return;
@@ -495,7 +565,7 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
     await saveCfg(true);
     // 先记一笔「在干活」再等照片存完：存照片、查重、干活的时候页面被关了，重新打开都自己接着干
     const work = prev ? { ...was, at: Date.now(), stuck: woke ? was.stuck || 0 : 0 }
-      : { at: Date.now(), auto, stuck: woke ? (was && was.stuck) || 0 : 0, want: S.queue.map((q) => q.id) };
+      : { at: Date.now(), auto, stuck: woke ? (was && was.stuck) || 0 : 0, want: ready().map((q) => q.id) };
     await S.st.put('kv', 'work', work).catch(() => {});
     mine = true;
     await stashed();
@@ -506,7 +576,7 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
       run = prev;
       if (!woke) {                               // 手动点的开始：上回那批干完，接着干列表里别的照片
         const inRun = new Set(work.items.map((x) => x.qid));
-        extra = new Set(S.queue.filter((q) => !inRun.has(q.id)));
+        extra = new Set(ready().filter((q) => !inRun.has(q.id)));
       }
       ({ items, lost } = await reopen(run, work));
     } else {
@@ -538,6 +608,8 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
       }
     };
     await saveRun();
+    for (const it of items) if (it.q) it.q.taken = true;     // 这几张开认了：十字拖不动了
+    S.quad.render();
 
     const base = total - items.length;             // 接着干的：之前已经干完（或者记过）几张
     eng = S.eng = new Engine({
@@ -622,6 +694,8 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
     if (mine) await S.st.del('kv', 'work').catch(() => {});   // 这一笔了结了（干完、停了、出错了）；只有页面被关才留着
     if (release) release();
     setBusy(false);
+    for (const q of S.queue) q.taken = false;     // 没认成、留在列表里的：十字又能拖了
+    S.quad.render();
     refreshQueue(S.finished);
     if (extra && !halted && S.queue.some((q) => extra.has(q))) {
       log(t('log.next'));
@@ -634,6 +708,8 @@ function drop(q) {                               // 干完了（或者不用干�
   if (i >= 0) S.queue.splice(i, 1);
   S.seen.delete(q.id);
   unstash(q);
+  q.gone = true;
+  if (q.sheet && S.quad.gone(q.sheet)) S.seen.delete(q.sheet.id);   // 这张原图的几块都干完了：同一张以后还能再放进来
 }
 
 function halt() {
@@ -1402,6 +1478,11 @@ async function phoneFile(file, info) {          // 手机传来一张：跟选�
   const id = `${file.name}|${file.size}|${file.lastModified}`;
   if (S.seen.has(id)) return;
   S.seen.add(id);
+  if ($('#quad').checked) {                     // 一张拍四份：手机传来的一样先切（原图存好了才让中转站删）
+    if (info.seq === 1 || info.seq === info.total) log(t('log.phoneGot', { i: info.seq, n: info.total, name: file.name }));
+    await S.quad.add(file, { id, phone: info.batch });
+    return;
+  }
   const q = { file, id, phone: info.batch };
   S.queue.push(q);
   if (S.busy) S.fresh++;
@@ -1483,6 +1564,7 @@ async function relabel() {                       // 换了语言：开着的、�
   refreshQueue(true);
   if (S.shown) status(...S.shown);
   if (S.said) slogan(...S.said);
+  S.quad.render();
   phoneState(S.phoneState || 'off');
   settingsText();
   if ($('#dlg-set').open) await companyRow();
@@ -1511,6 +1593,9 @@ async function boot() {
   for (const m of C.MODELS) dl.appendChild(new Option(m, m));
   $('#model').value = S.cfg.model || C.DEFAULT_MODEL;
   $('#auto').checked = !!S.cfg.auto;
+  $('#quad').checked = !!S.cfg.quad;
+  setupQuad();
+  $('#quad').onchange = () => saveCfg();
   $('#key1').value = S.cfg.key1 || '';
   $('#key2').value = S.cfg.key2 || '';
   for (const id of ['#key1', '#key2', '#model']) $(id).addEventListener('input', () => saveCfg());

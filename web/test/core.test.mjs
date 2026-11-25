@@ -4,6 +4,7 @@ import './zh.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as C from '../core.js';
+import './quad.test.mjs';                     // 147 找缝的单测跟着这一条跑（CI 的清单在 .github 里）
 
 const wrap = (t) => ({ candidates: [{ content: { parts: [{ text: t }] }, finishReason: 'STOP' }] });
 const T = new Date(2026, 9, 29);
