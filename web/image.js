@@ -274,7 +274,7 @@ export async function rotate(blob, clockwise) {
 // iPhone 上「拍照」当场交给网页的那张，老画法（<img> load 一到就往 OffscreenCanvas 上画）画出来整张白；相册里选的没事。
 // 每种画法都能单独叫（诊断页挨个画）；paint() 按顺序画，第一条画出来不白的就用它。
 
-export const FLAT = 4;                          // 缩成 48 像素看灰度标准差：真照片 45 往上，白纸 0
+export const FLAT = 1.5;                        // 缩成 48 像素看灰度标准差：真照片 45 往上，只印了细线的空表 3.6，画坏的白纸 0
 function plain(w, h) {                          // 普通 <canvas>（没有 document 的地方才用 OffscreenCanvas）
   if (typeof document === 'undefined') return new OffscreenCanvas(w, h);
   const c = document.createElement('canvas');
@@ -282,14 +282,30 @@ function plain(w, h) {                          // 普通 <canvas>（没有 docu
   return c;
 }
 export function flatness(src, n = 48) {        // 这张图有多「平」：灰度标准差
-  const [w, h] = sizeOf(src);
+  let [w, h] = sizeOf(src);
   if (!w || !h) return 0;
+  // 一步缩到 48 像素，浏览器只隔行取点，细线整条被跳过（量出来是平的）：一半一半地缩，每步都是 2×2 求平均
+  let cur = src;
+  while (Math.max(w, h) > 2 * n) {
+    const W2 = Math.max(1, Math.round(w / 2)), H2 = Math.max(1, Math.round(h / 2));
+    const c2 = plain(W2, H2), x2 = c2.getContext('2d');
+    x2.fillStyle = '#fff';
+    x2.fillRect(0, 0, W2, H2);
+    x2.imageSmoothingEnabled = true;
+    x2.imageSmoothingQuality = 'high';
+    x2.drawImage(cur, 0, 0, W2, H2);
+    if (cur !== src) cur.width = cur.height = 1;
+    cur = c2; w = W2; h = H2;
+  }
   const s = Math.min(1, n / Math.max(w, h));
   const W = Math.max(1, Math.round(w * s)), H = Math.max(1, Math.round(h * s));
   const c = plain(W, H), ctx = c.getContext('2d', { willReadFrequently: true });
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, W, H);
-  ctx.drawImage(src, 0, 0, W, H);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(cur, 0, 0, W, H);
+  if (cur !== src) cur.width = cur.height = 1;
   const d = ctx.getImageData(0, 0, W, H).data;
   let s1 = 0, s2 = 0;
   const k = d.length / 4;

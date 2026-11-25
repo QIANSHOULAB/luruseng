@@ -185,8 +185,17 @@ def main():
                 for name, path in (('拍照那种', cam), ('相册那种', album)):
                     r = run(path)
                     print(f'     {name}: {r["way"]} {r["w"]}×{r["h"]} {r["size"]/1e6:.2f}MB 平整度 {r["flat"]} 试过 {r["tried"]}')
-                    assert r['out'] and r['flat'] >= 4 and (r['w'], r['h']) == (1920, 2560) and r['size'] <= 1_800_000, r
+                    assert r['out'] and r['flat'] >= 1.5 and (r['w'], r['h']) == (1920, 2560) and r['size'] <= 1_800_000, r
                     outs[name] = r['out']
+                form = Image.new('RGB', (3024, 4032), (250, 250, 248))      # 白纸黑线：只印了表格细线的空单子，不许当白纸
+                dr = ImageDraw.Draw(form)
+                for y in range(300, 3900, 110):
+                    dr.line([(150, y), (2870, y)], fill=(60, 60, 60), width=3)
+                for x in (150, 900, 1700, 2870):
+                    dr.line([(x, 300), (x, 3820)], fill=(60, 60, 60), width=3)
+                r = run(save(form, 'form.jpg'))
+                print(f'     白纸黑线：{r["way"]} 平整度 {r["flat"]}')
+                assert r['out'] and r['flat'] >= 1.5, r
                 for name, path in (('纯白', white), ('几乎纯白', almost)):
                     r = run(path)
                     print(f'     {name}: 不发 · 试过 {r["tried"]}')
@@ -195,7 +204,7 @@ def main():
                     r = run(path, 'image/png' if path.lower().endswith('.png') else 'image/jpeg')
                     nm = os.path.basename(path)
                     print(f'     真照片 {nm}: {r["way"]} {r["w"]}×{r["h"]} {r["size"]/1e6:.2f}MB 平整度 {r["flat"]}')
-                    assert r['out'] and r['flat'] >= 4, (nm, r['tried'])
+                    assert r['out'] and r['flat'] >= 1.5, (nm, r['tried'])
                     outs[nm] = r['out']
             finally:
                 m.close()
