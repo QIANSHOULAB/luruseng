@@ -58,12 +58,17 @@ def step(fn):
     return run
 
 
-def make_images(folder, n, start=0):
+def make_images(folder, n, start=0, lined=False):
     os.makedirs(folder, exist_ok=True)
     out = []
     for i in range(start, start + n):
         p = os.path.join(folder, f'img_{i:02d}.jpg')
-        Image.new('RGB', (800 + i, 600), (i * 7 % 255, 100, 150)).save(p)
+        im = Image.new('RGB', (800 + i, 600), (i * 7 % 255, 100, 150))
+        if lined:                              # 163：手机那头纯色图会被当成白纸不发；画几道线（宽度不变，假谷歌靠宽度对号）
+            d = ImageDraw.Draw(im)
+            for y in range(60, 600, 60):
+                d.line([(40, y), (760, y)], fill=(30, 30, 30), width=6)
+        im.save(p)
         os.utime(p, (1_700_000_000 + i, 1_700_000_000 + i))
         out.append(p)
     return out
@@ -1194,7 +1199,7 @@ def main():
                 c.wait_for_selector('#tipwait', state='visible')                  # iPhone：先说相册点完「添加」会愣一会儿，不是死机
                 assert '不是死机' in c.inner_text('#tipwait')
                 ip.close()
-                b.set_input_files('#files', make_images(os.path.join(WORK, 'ph'), 3, start=170))
+                b.set_input_files('#files', make_images(os.path.join(WORK, 'ph'), 3, start=170, lined=True))
                 b.wait_for_function('() => document.querySelector("#st").textContent.includes("电脑收齐 3 张")', timeout=30000)
                 a.wait_for_function('() => document.querySelector("#status").textContent.startsWith("干完")', timeout=60000)
                 text = logs_of(a)
@@ -1232,7 +1237,7 @@ def main():
 
                 a.close()                                                              # 电脑关了：照片先存在中转站
                 b.wait_for_function('() => document.querySelector("#pcstate").textContent.includes("电脑没开")', timeout=15000)
-                b.set_input_files('#files', make_images(os.path.join(WORK, 'ph2'), 2, start=175))
+                b.set_input_files('#files', make_images(os.path.join(WORK, 'ph2'), 2, start=175, lined=True))
                 b.wait_for_function('() => document.querySelector("#st").textContent.includes("送出 2/2")', timeout=30000)
                 assert '照片在中转站等着' in b.inner_text('#say'), b.inner_text('#say')
                 a = opened(pc, base)                                                   # 电脑再打开：自己取、自己干
