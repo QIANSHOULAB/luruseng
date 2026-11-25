@@ -14,7 +14,7 @@ from datetime import datetime
 from tkinter import filedialog
 from tkinter import font as tkfont
 
-from . import autopilot, dagj, engine, report, settings, sheets, strings, tables, updater
+from . import autopilot, claude, dagj, engine, report, settings, sheets, strings, tables, updater
 from . import macui as ui
 from .strings import T
 
@@ -294,6 +294,7 @@ class App:
         self.dialog = None
         self.butler = dagj.Butler(os.path.join(config_dir(), 'dagj.json'))   # 089 大管家：配过就一直连着
         self.butler.on_change = lambda: self.q.put(('dagj', None))
+        self.claude = claude.Claude(self.butler)   # 167：配上了大管家的，先走 Claude API（钥匙在中转站）
         cfg = load_config()
         self.cfg = cfg
         strings.init(cfg.get('lang'))           # 默认英文；老电脑照旧中文（settings.upgrade）；BANGONG_LANG 盖过设置
@@ -568,7 +569,7 @@ class App:
         cat = self.category.get()
         common = dict(log=self.log, progress=lambda d, t: self.q.put(('prog', (d, t))), stop=self.stop,
                       keep_originals=self.cfg.get('keep_originals', True), collect=bool(self.cfg.get('report')),
-                      redo=bool(self.cfg.get('redo')), butler=self.butler)
+                      redo=bool(self.cfg.get('redo')), butler=self.butler, claude=self.claude)
         if cat == tables.BUILTIN:                    # 刀单：专门的那一套
             eng = engine.Engine(self.folder.get(), [k1, k2], self.model.get(), names_path=names_path(),
                                 kb_path=kb_path(), feed_dir=feed_dir(), **common)

@@ -349,3 +349,153 @@ test('089 revoked (403): the butler forgets the pairing, the photo goes to Gemin
   assert.equal(mem.has('luru.dagj'), false);
   assert.equal(changed, 1);
 });
+
+// ---------------------------------------------------------------- 167 先走 Claude API（钥匙在中转站），不成再问大管家，再不成 Gemini
+import { Claude, ClaudeMiss, jsonSchema, claudeBody, QUOTA_REST, REST as CLAUDE_REST } from '../claude.js';
+
+/** 假中转站 /ai：照 luruseng-relay src/ai.js 回。把 Claude 请求翻回 Gemini 的样子交给假谷歌出字，再包成 Claude 的回答 */
+function relay(srv, { mode = () => 'ok', conf = { luru: { model: 'claude-opus-5-5', effort: 'low' } } } = {}) {
+  const R = { conf: 0, msgs: [], heads: [] };
+  R.fetch = async (url, init) => {
+    const path = new URL(url).pathname;
+    R.heads.push(init.headers['x-lr-cid']);
+    if (path === '/ai/conf') { R.conf++; return new Response(JSON.stringify({ ok: true, conf, key: true, rest: null }), { status: 200 }); }
+    const body = JSON.parse(init.body);
+    R.msgs.push(body);
+    const m = mode(R.msgs.length, body);
+    if (m === 'quota') return new Response(JSON.stringify({ why: 'quota', until: 1 }), { status: 503 });
+    if (m === '500') return new Response(JSON.stringify({ type: 'error', error: { type: 'api_error', message: 'Internal server error' } }), { status: 500 });
+    if (m === 'noformat' && body.output_config.format) {
+      return new Response(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'output_config.format: schema is not supported' } }), { status: 400 });
+    }
+    const img = body.messages[0].content.find((b) => b.type === 'image').source.data;
+    const g = { systemInstruction: { parts: [{ text: body.system[0].text }] }, contents: [{ parts: [{ text: '' }, { inline_data: { mime_type: 'image/jpeg', data: img } }] }], generationConfig: {} };
+    const [, obj] = srv.answer('ok', g);
+    const text = obj.candidates[0].content.parts[0].text;
+    const said = m === 'noformat' ? '好的：\n```json\n' + text + '\n```' : text;
+    return new Response(JSON.stringify({ id: 'msg', type: 'message', role: 'assistant', model: body.model, stop_reason: 'end_turn',
+      content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: said }], usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200 });
+  };
+  return R;
+}
+const claudeOf = (R, b, t = null) => new Claude({ butler: b, fetchImpl: R.fetch, ...(t ? { clock: () => t.now } : {}) });
+
+test('167 schema: Gemini types become JSON Schema with additionalProperties false', () => {
+  const s = jsonSchema(C.SCHEMA);
+  assert.equal(s.type, 'object');
+  assert.equal(s.additionalProperties, false);
+  assert.equal(s.properties.records.type, 'array');
+  assert.equal(s.properties.records.items.additionalProperties, false);
+  assert.deepEqual(s.properties.records.items.properties.unsure, { type: 'array', items: { type: 'string' } });
+  const body = claudeBody(C.buildBody('QUJD', C.DEFAULT_MODEL, true), { model: 'claude-opus-5-5', effort: 'low' });
+  assert.equal(body.output_config.effort, 'low');
+  assert.equal(body.output_config.format.type, 'json_schema');
+  assert.deepEqual(body.system[0].cache_control, { type: 'ephemeral' });
+  assert.ok(!('thinking' in body) && !('temperature' in body));
+  assert.deepEqual(body.messages[0].content.map((b) => b.type), ['text', 'image']);      // 照片放后面
+  const plain = claudeBody(C.buildBody('QUJD', C.DEFAULT_MODEL, true), { model: 'm', effort: 'low' }, false);
+  assert.ok(!plain.output_config.format);
+  assert.match(plain.messages[0].content.at(-2).text, /JSON Schema/);
+});
+
+test('167 API works: every photo read twice by Claude, the butler and Gemini never asked, model from /ai/conf', async () => {
+  const srv = server();
+  const R = relay(srv);
+  const b = butler(async () => { throw new Error('不该问大管家'); });
+  const { res, out, logs } = await goB(photos(5), srv, b, { reads: 2, claude: claudeOf(R, b) });
+  assert.equal(res.ok, 5);
+  assert.equal(res.requests, 0);
+  assert.equal(b.calls, 0);
+  assert.equal(R.msgs.length, 10);
+  assert.equal(R.conf, 1);                                     // 开工问一次，缓存着
+  assert.ok(R.msgs.every((m) => m.model === 'claude-opus-5-5' && m.output_config.effort === 'low'));
+  assert.ok(R.heads.every((h) => h === 'c'.repeat(22)));
+  assert.ok(out.every((p) => p.by === 'claude'));
+  assert.deepEqual(out.map((p) => p.recs[0].opr_no).sort(), [...Array(5).keys()].map((i) => String(800 + i)));
+  assert.ok(!logs.some((m) => m.includes('Claude')), logs);
+});
+
+test('167 API resting (503 quota): the butler takes over, said once, /ai left alone for 30 minutes', async () => {
+  const srv = server();
+  const t = { now: 1_000_000 };
+  const R = relay(srv, { mode: () => 'quota' });
+  const b = butler(fromSrv(srv));
+  const a = claudeOf(R, b, t);
+  const { res, out, logs } = await goB(photos(3), srv, b, { reads: 2, claude: a });
+  assert.equal(res.ok, 3);
+  assert.ok(out.every((p) => p.by === 'dagj'));
+  assert.equal(logs.filter((m) => m.includes('Claude 先歇着')).length, 1, logs);
+  const asked = R.msgs.length;
+  assert.ok(asked >= 1 && asked <= 3);
+  const again = await goB(photos(2), srv, b, { claude: a });
+  assert.ok(again.out.every((p) => p.by === 'dagj'));
+  assert.equal(R.msgs.length, asked);                          // 歇着：不再问
+  t.now += QUOTA_REST + 1;
+  a.fetch = relay(srv).fetch;
+  const back = await goB(photos(1), srv, b, { claude: a });
+  assert.equal(back.out[0].by, 'claude');
+});
+
+test('167 API error: the butler; the butler not there either: Gemini', async () => {
+  const srv = server();
+  const R = relay(srv, { mode: () => '500' });
+  const b = butler(async () => { throw new Miss('大管家不在'); });
+  const { res, out, logs } = await goB(photos(1), srv, b, { reads: 2, claude: claudeOf(R, b) });
+  assert.equal(res.ok, 1);
+  assert.equal(out[0].by, 'gemini');
+  assert.equal(res.requests, 2);
+  assert.ok(logs.some((m) => m.includes('Claude 没认成') && m.includes('500')), logs);
+  assert.ok(logs.some((m) => m.includes('大管家没认成')), logs);
+});
+
+test('167 three API misses in a row: five minutes without /ai, then Claude again', async () => {
+  const srv = server();
+  const t = { now: 1_000_000 };
+  const R = relay(srv, { mode: () => '500' });
+  const b = butler(fromSrv(srv));
+  const a = claudeOf(R, b, t);
+  const n = DAGJ_BATCH + 3;
+  const { res, out, logs } = await goB(photos(n), srv, b, { claude: a });
+  assert.equal(res.ok, n);
+  assert.ok(out.every((p) => p.by === 'dagj'));
+  assert.equal(R.msgs.length, DAGJ_BATCH);                     // 头一批同时问了；第二批直接大管家
+  assert.equal(logs.filter((m) => m.includes('Claude 连着 3 张')).length, 1);
+  t.now += CLAUDE_REST + 1;
+  a.fetch = relay(srv).fetch;
+  const later = await goB(photos(1), srv, b, { claude: a });
+  assert.equal(later.out[0].by, 'claude');
+});
+
+test('167 one of the two reads fails: the whole photo goes to the butler (both reads there)', async () => {
+  const srv = server();
+  const R = relay(srv, { mode: (n) => (n === 2 ? '500' : 'ok') });
+  const b = butler(fromSrv(srv));
+  const { res, out } = await goB(photos(1), srv, b, { reads: 2, claude: claudeOf(R, b) });
+  assert.equal(res.ok, 1);
+  assert.equal(out[0].by, 'dagj');
+  assert.equal(R.msgs.length, 2);
+  assert.equal(b.calls, 2);
+});
+
+test('167 not paired: /ai never asked, Gemini as before', async () => {
+  const srv = server();
+  const R = relay(srv);
+  const mem = new Map();
+  const b = new Butler({ storage: { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, v), removeItem: (k) => mem.delete(k) } });
+  const { res, out } = await goB(photos(2), srv, b, { claude: claudeOf(R, b) });
+  assert.equal(res.ok, 2);
+  assert.ok(out.every((p) => p.by === 'gemini'));
+  assert.equal(R.msgs.length + R.conf, 0);
+});
+
+test('167 structured output refused: asked again with the schema in the words, JSON dug out', async () => {
+  const srv = server();
+  const R = relay(srv, { mode: () => 'noformat' });
+  const b = butler(fromSrv(srv));
+  const a = claudeOf(R, b);
+  const { out } = await goB(photos(2), srv, b, { claude: a });
+  assert.ok(out.every((p) => p.by === 'claude'));
+  assert.equal(a.useFormat, false);
+  assert.ok(R.msgs.at(-1).messages[0].content.at(-1).text.includes('只输出 JSON'));
+  assert.ok(new ClaudeMiss('x', { quota: true }) instanceof Miss);
+});

@@ -2,6 +2,10 @@
 
 When there's a new version, the app shows you the sections newer than the one you have.
 
+## 1.13.6
+- Connected to the Butler? Photos now go to Claude first, on the Butler's credit. The key lives on the relay, never on this computer. If the credit runs dry or something hiccups, the Butler and then Gemini take over, same as before. You don't click a thing. Claude's reads get a “C” in the log.
+- The desktop app also picks up 1.13.5's SHIFT fix.
+
 ## 1.13.5
 - SHIFT is just a Day or Night tick. If it reads as D or N and every pass agrees, it no longer turns red just because the model muttered “not sure.” A monk who can't read a tick should go back to sweeping the temple.
 

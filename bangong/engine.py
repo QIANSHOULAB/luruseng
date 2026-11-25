@@ -33,7 +33,7 @@ from openpyxl.utils import get_column_letter
 
 from .strings import T, join
 
-VERSION = '1.12.3'
+VERSION = '1.13.6'
 APP_NAME = '录入僧'
 SUBTITLE = '施主去玩，贫僧填表'
 TITLE = '入我千手院，凡事尽释手；千僧替牛马，施主自风流。'      # 窗口标题栏只写这一句（Song 定的）
@@ -1133,10 +1133,11 @@ class Engine:
                  clock=time.time, sleep=None, names_path: str | None = None,
                  kb_path: str | None = None, feed_dir: str | None = None, reads: int | None = None,
                  keep_originals: bool = True, discard=recycle, spec=None, collect: bool = False,
-                 redo: bool = False, butler=None):
+                 redo: bool = False, butler=None, claude=None):
         self.folder = folder
         self.butler = butler        # 089 dagj.Butler：配上了就每张先问大管家，问不成跳回 Gemini
-        self.by: dict[str, str] = {}   # 照片 -> 谁认的（'dagj' / 'gemini'）
+        self.claude = claude        # 167 claude.Claude：配上了大管家的，每张先走 Claude API（钥匙在中转站），没成再问大管家
+        self.by: dict[str, str] = {}   # 照片 -> 谁认的（'claude' / 'dagj' / 'gemini'）
         self.redo = redo            # ⚙「干过的照片也重干」（测试用）：账本里有的也照样认，不挪进 已识别\重复
         self.collect = collect      # ⚙「发数据给方丈」开着：每张怎么认的都记下来，干完写进 识别结果\.回传（见 report.py）
         self.collect_photos = False
@@ -1196,6 +1197,26 @@ class Engine:
         """089：配上了大管家、它也没在歇着，先整张交给大管家认（跟 Gemini 一样两遍对答案）；哪一遍没成（没连上、
         不在、明说接不了；慢到 2 次 5 分钟都没回、回错 2 次）整张换 Gemini 重认。连着 3 张是「用不了」，5 分钟里直接走 Gemini。"""
         from . import dagj
+        a = self.claude
+        if a is not None and a.ready():         # 167：先走 Claude API；额度歇着 30 分钟里不问，别的错这一张换，连着 3 张没成 5 分钟里不问
+            try:
+                out = self._recognize_with(path, self._claude_read)
+                a.hit()
+                self.by[path] = 'claude'
+                return out
+            except (Stopped, Fatal):
+                raise
+            except Exception as e:
+                if self.stop.is_set():
+                    raise Stopped() from None
+                if getattr(e, 'quota', False):
+                    if getattr(e, 'first', False):
+                        self.log(T('eng.claudeQuota', why=str(e)[:60]))
+                else:
+                    rest = a.miss() if getattr(e, 'down', True) else False
+                    self.log(T('eng.claudeMiss', name=os.path.basename(path), why=str(e)[:80]))
+                    if rest:
+                        self.log(T('eng.claudeRest'))
         b = self.butler
         if b is not None and b.ready():
             try:
@@ -1215,6 +1236,17 @@ class Engine:
         out = self._recognize_with(path, self._read)
         self.by[path] = 'gemini'
         return out
+
+    def _claude_read(self, jpeg: bytes, path: str) -> tuple[list[dict], str]:
+        """167 Claude 认一遍：交的是翻过来的 Gemini 请求，回来的也翻回 Gemini 的样子。认不出的整张换（ClaudeMiss，down=False）。"""
+        from . import claude, dagj
+        data = self.claude.read(self._body(dagj.fit(jpeg), True), self.stop)
+        if self.stop.is_set():
+            raise Stopped()
+        try:
+            return self.spec.parse(data) if self.spec else parse_response(data)
+        except Exception as e:
+            raise claude.ClaudeMiss(f'回的认不出：{e}', down=False) from None
 
     def _dagj_read(self, jpeg: bytes, path: str) -> tuple[list[dict], str]:
         """大管家认一遍：交的就是要发给 Gemini 的那个请求，回来的也是 Gemini 的样子。认不出的一律算没成（换 Gemini）。"""
@@ -1502,7 +1534,7 @@ class Engine:
 
         try:
             n = BATCH
-            if self.butler is not None and self.butler.ready():     # 093：交大管家的，一批多交几张，中转站分给电脑、掌机
+            if (self.butler is not None and self.butler.ready()) or (self.claude is not None and self.claude.ready()):     # 093：交大管家的，一批多交几张，中转站分给电脑、掌机；167 Claude 也是
                 from . import dagj
                 n = max(BATCH, dagj.BATCH)
             with ThreadPoolExecutor(n) as pool:
@@ -1535,7 +1567,7 @@ class Engine:
                             ledger[h] = {'file': name, 'no': no, 'xlsx': os.path.basename(book.path),
                                          'at': datetime.now().isoformat(timespec='seconds')}
                             self.log(T('eng.ok', tag=tag, name=name, n=len(recs))
-                                     + (' · ' + T('eng.by.dagj' if self.by[p] == 'dagj' else 'eng.by.gemini') if p in self.by else ''))
+                                     + (' · ' + T({'dagj': 'eng.by.dagj', 'claude': 'eng.by.claude'}.get(self.by[p], 'eng.by.gemini')) if p in self.by else ''))
                         else:
                             res.failed += 1
                             res.errors.append((name, err))

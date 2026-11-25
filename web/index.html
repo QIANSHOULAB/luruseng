@@ -526,7 +526,7 @@
   // 不然刚更新那十分钟，浏览器会拿新页面配缓存里的旧代码（按钮在、点了没反应）。
   (() => {
     const v = Date.parse(document.lastModified) || Date.now();
-    const mods = ['app', 'strings', 'core', 'sheets', 'store', 'image', 'book', 'engine', 'pair', 'inbox', 'fill', 'dagj', 'quad', 'quadui'];
+    const mods = ['app', 'strings', 'core', 'sheets', 'store', 'image', 'book', 'engine', 'pair', 'inbox', 'fill', 'dagj', 'claude', 'quad', 'quadui'];
     const map = document.createElement('script');
     map.type = 'importmap';
     map.textContent = JSON.stringify({ imports: Object.fromEntries(mods.map((m) => [`./${m}.js`, `./${m}.js?v=${v}`])) });

@@ -2,6 +2,7 @@
 import './strings.js';
 import * as C from './core.js';
 import { Miss, fit, BATCH as DAGJ_BATCH } from './dagj.js';
+import { ClaudeMiss } from './claude.js';
 
 const t = (k, v) => globalThis.LURU_I18N.t(k, v);
 
@@ -15,7 +16,7 @@ function when(ms) { const d = new Date(ms); return `${two(d.getMonth() + 1)}-${t
 export class Engine {
   // prepare(file, enhance) -> base64 JPG；stampIt(file, no, side) -> 印好编号的照片（可空）
   constructor({ keys, model, spec = null, names = [], hints = '', reads = C.READS, log = () => {}, base,
-    fetchImpl, clock = () => Date.now(), sleep = null, prepare, stampIt = null, butler = null }) {
+    fetchImpl, clock = () => Date.now(), sleep = null, prepare, stampIt = null, butler = null, claude = null }) {
     this.keys = new C.Keys(keys, clock);
     this.model = C.modelName(model);
     this.spec = spec;
@@ -30,7 +31,8 @@ export class Engine {
     this.prepare = prepare;
     this.stampIt = stampIt;
     this.butler = butler;                      // 089 dagj.Butler：配上了就每张先问大管家，问不成跳回 Gemini
-    this.by = new Map();                       // 照片 -> 谁认的（'dagj' / 'gemini'）
+    this.claude = claude;                      // 167 claude.Claude：配上了大管家的，每张先走 Claude API（钥匙在中转站），没成再问大管家
+    this.by = new Map();                       // 照片 -> 谁认的（'claude' / 'dagj' / 'gemini'）
     this.useSchema = true;
     this.fatal = '';
     this.res = new Result();
@@ -139,9 +141,28 @@ export class Engine {
 
   // 089：配上了大管家、它也没在歇着，先整张交给大管家认（跟 Gemini 一样两遍对答案）；哪一遍没成（没连上、不在、
   // 明说接不了；慢到 2 次 5 分钟都没回、回错 2 次）整张换 Gemini 重认。连着 3 张是「用不了」，5 分钟里直接走 Gemini。
+  // 167：再往前一步：配上了大管家的先走 Claude API（两遍对答案照旧，哪一遍没成整张换）；额度歇着 30 分钟里不问，
+  // 别的错这一张换，连着 3 张没成 5 分钟里不问。没成的接着走上面那套（大管家 → Gemini）。
   async _recognize(file) {
     const b = this.butler;
     const name = file.name || t('eng.photo');
+    const a = this.claude;
+    if (a && a.ready()) {
+      try {
+        const out = await this._recognizeWith(file, (img, nm) => this.claudeRead(img, nm));
+        a.hit();
+        this.by.set(file, 'claude');
+        return out;
+      } catch (e) {
+        if (e instanceof C.Stopped || e instanceof C.Fatal || this.stopped) throw e instanceof C.Fatal ? e : new C.Stopped('stopped');
+        if (e && e.quota) { if (e.first) this.log(t('eng.claudeQuota', { why: String(e.message || e).slice(0, 60) })); }
+        else {
+          const rest = e && e.down === false ? false : a.miss();
+          this.log(t('eng.claudeMiss', { name, why: String(e.message || e).slice(0, 80) }));
+          if (rest) this.log(t('eng.claudeRest'));
+        }
+      }
+    }
     if (b && b.ready()) {
       try {
         const out = await this._recognizeWith(file, (img, nm) => this.dagjRead(img, nm));
@@ -159,6 +180,14 @@ export class Engine {
     const out = await this._recognizeWith(file, (img, nm) => this.read(img, nm));
     this.by.set(file, 'gemini');
     return out;
+  }
+
+  async claudeRead(b64) {                      // 167 Claude 认一遍：交的是翻过来的 Gemini 请求，回来的也翻回 Gemini 的样子
+    const data = await this.claude.read(this.body(await fit(b64), true), this.halt.signal);
+    if (this.stopped) throw new C.Stopped('stopped');
+    try {
+      return this.spec ? this.spec.parse(data) : C.parseResponse(data);
+    } catch (e) { throw new ClaudeMiss(`回的认不出：${e.message}`, { down: false }); }
   }
 
   async dagjRead(b64, name) {                  // 大管家认一遍：交的就是要发给 Gemini 的那个请求，回来的也是 Gemini 的样子
@@ -228,7 +257,7 @@ export class Engine {
       }
       return { recs, side, err, stamped, by: this.by.get(it.file) || '' };
     };
-    const n = this.butler && this.butler.ready() ? Math.max(C.BATCH, DAGJ_BATCH) : C.BATCH;   // 093：交大管家的一批多交几张，中转站分给电脑、掌机
+    const n = (this.butler && this.butler.ready()) || (this.claude && this.claude.ready()) ? Math.max(C.BATCH, DAGJ_BATCH) : C.BATCH;   // 093：交大管家的一批多交几张，中转站分给电脑、掌机
     for (let b = 0; b < items.length; b += n) {
       const batch = items.slice(b, b + n);
       const settled = await Promise.allSettled(batch.map(async (it) => {

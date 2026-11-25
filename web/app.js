@@ -10,6 +10,7 @@ import { Engine } from './engine.js';
 import * as PR from './pair.js';
 import { Inbox } from './inbox.js';
 import { Butler } from './dagj.js';
+import { Claude } from './claude.js';
 import { Quad } from './quadui.js';
 
 const $ = (s) => document.querySelector(s);
@@ -713,7 +714,7 @@ async function start(auto = false, woke = false, steal = false) {
 
     const base = total - items.length;             // 接着干的：之前已经干完（或者记过）几张
     eng = S.eng = new Engine({
-      keys: [k1, k2], model, spec, names, hints, butler: S.dagj,
+      keys: [k1, k2], model, spec, names, hints, butler: S.dagj, claude: S.claude,
       log: (m, wait) => { log(m); if (wait) { const [k, v] = waitLine(wait); slogan(k, v); phoneSay(t(k, v), true); } },
       prepare: (file, enhance) => exclusive(async () => I.prepare(await openFor(file, !enhance), enhance)),
       stampIt: (file, no, side) => exclusive(async () => I.stamp(await openFor(file, false), no, side)),
@@ -757,7 +758,7 @@ async function start(auto = false, woke = false, steal = false) {
             try { await S.st.put('ledger', it.q.hash, { file: name, no: it.no, xlsx: run.xlsx, at: nowIso(), ms: Date.now() }); } catch (e) { log(t('log.ledgerSave', { tag, e: e.message })); }
           }
           drop(it.q);
-          log(t('log.ok', { tag, name, n: recs.length }) + (by ? ' · ' + (by === 'dagj' ? t('eng.by.dagj') : t('eng.by.gemini')) : ''));   // 089：谁认的，一个字
+          log(t('log.ok', { tag, name, n: recs.length }) + (by ? ' · ' + (by === 'dagj' ? t('eng.by.dagj') : by === 'claude' ? t('eng.by.claude') : t('eng.by.gemini')) : ''));   // 089：谁认的，一个字
         },
         onBatch: saveRun,
       });
@@ -962,6 +963,7 @@ function refreshDagj() {
 
 function setupDagj() {
   S.dagj = new Butler();
+  S.claude = new Claude({ butler: S.dagj });   // 167：配上了大管家的，先走 Claude API
   let was = S.dagj.paired;
   S.dagj.onChange = () => {
     refreshDagj();
