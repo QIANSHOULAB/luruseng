@@ -239,13 +239,14 @@ def main():
                 shot(p, '14-原因贴在开始上面.png')
                 p.click('#start')
                 p.click('#dagjkey')                                     # 「或者填钥匙」：框收掉，打开设置，光标进钥匙 1
-                assert not p.is_visible('#dlg-dagj') and p.is_visible('#dlg-set') and p.evaluate('document.activeElement.id') == 'key1'
+                p.wait_for_function('() => document.querySelector("#dlg-set").open && document.activeElement.id === "key1"', timeout=10000)
+                assert not p.is_visible('#dlg-dagj')
                 p.click('#dlg-set [data-close]')
                 p.click('#start')
                 reason(p, '开不了工', ['连接大管家', '填谷歌钥匙'])
                 p.click('#dlg-dagj [data-close]')
                 p.click('#whyacts button:nth-child(2)')                 # 原因条上「填谷歌钥匙」：一样打开设置、光标进钥匙 1
-                assert p.is_visible('#dlg-set') and p.evaluate('document.activeElement.id') == 'key1'
+                p.wait_for_function('() => document.querySelector("#dlg-set").open && document.activeElement.id === "key1"', timeout=10000)
                 p.click('#dlg-set [data-close]')
                 p.click('#start')
                 p.fill('#dagjcode', '0000')
