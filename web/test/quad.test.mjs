@@ -233,3 +233,13 @@ test('手拖：整条的缝整条挪；错开的只挪拖的那半；拖中间�
   assert.equal(drag(one, 'center', -5, -5).v[0][0], 0.08);
   assert.deepEqual(arms(one).center, [0.5, 0.5]);
 });
+
+// 155 开关默认开着：昏暗处拍的单张（整张找不出纸那么亮的东西）整张认，别从正中间切成四份
+test('太暗的单张照片：整张认，不切', () => {
+  const p = picture({ papers: [{ cx: 0.5, cy: 0.5, w: 0.75, h: 0.75 }] });
+  for (let i = 0; i < p.data.length; i++) if (i % 4 !== 3) p.data[i] = Math.round(p.data[i] * 0.42);
+  const r = layout(p);
+  assert.equal(r.count, 1);
+  assert.equal(r.regions.length, 1);
+  assert.deepEqual(r.regions[0].poly, [[0, 0], [1, 0], [1, 1], [0, 1]]);
+});

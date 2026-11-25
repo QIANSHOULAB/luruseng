@@ -1,4 +1,4 @@
-"""146 点开始干不了：原因贴在开始按钮上面、下一步的按钮就在旁边（iPhone 尺寸，假谷歌 + 假中转站）。
+"""146 点开始干不了：原因贴在开始按钮上面、下一步的按钮就在旁边；155「一张拍四份」默认开着（iPhone 尺寸，假谷歌 + 假中转站）。
 
 跑：python web/test/start_why.py [截图放哪]
 要：playwright（chromium）、Pillow、cryptography；本机只装了 Edge 就设 E2E_CHANNEL=msedge
@@ -17,7 +17,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from PIL import Image
+from PIL import Image, ImageDraw
 from playwright.sync_api import sync_playwright
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -43,6 +43,31 @@ def make_images(name, n, start):
         os.utime(p, (1_700_000_000 + i, 1_700_000_000 + i))
         out.append(p)
     return out
+
+
+def sheet_photo(name, spots, stamp, bright=1.0, size=(4032, 3024)):
+    """深色桌面上摆几张画出来的单子（spots：每张中心的比例坐标）"""
+    W, H = size
+    im = Image.new('RGB', size, (92, 70, 52))
+    k = 0.40 if len(spots) > 1 else 0.75
+    pw, ph = int(W * k), int(H * k)
+    for n, (fx, fy) in enumerate(spots):
+        s = Image.new('RGB', (pw, ph), (246, 246, 242))
+        d = ImageDraw.Draw(s)
+        d.rectangle([pw * .08, ph * .07, pw * (.30 + .05 * n), ph * .18], fill=(40, 40, 50))
+        for r in range(9):
+            y = int(ph * (.28 + r * .075))
+            d.line([(pw * .07, y), (pw * .93, y)], fill=(70, 70, 70), width=4)
+            for c in range(5):
+                x = int(pw * (.09 + c * .17))
+                d.rectangle([x, y - ph * .045, x + pw * (.05 + .02 * ((r + c + n) % 3)), y - ph * .018], fill=(40, 40, 50))
+        im.paste(s, (int(W * fx - pw / 2), int(H * fy - ph / 2)))
+    if bright != 1.0:
+        im = im.point(lambda v: int(v * bright))
+    p = os.path.join(WORK, name)
+    im.save(p, quality=92)
+    os.utime(p, (stamp, stamp))
+    return p
 
 
 def serve(root):
@@ -117,9 +142,11 @@ def main():
         channel = os.environ.get('E2E_CHANNEL')
         browser = pw.chromium.launch(**({'channel': channel} if channel else {}))
 
-        def iphone():
+        def iphone(quad_off=True):             # quad_off：146 那几项拿纯色图当单子，把「一张拍四份」的默认拨成关
             m = browser.new_context(viewport={'width': 390, 'height': 844}, device_scale_factor=2, is_mobile=True,
                                     has_touch=True, locale='zh-CN')
+            if quad_off:
+                m.add_init_script('window.LURUSENG_QUAD = false')
             m.add_init_script("try { if (!localStorage.getItem('luruseng.lang')) localStorage.setItem('luruseng.lang', 'zh') } catch (e) {}")
             return m
 
@@ -285,7 +312,57 @@ def main():
             finally:
                 m.close()
 
-        for fn in (nothing_set_up_asks_to_pair_then_runs, auto_start_with_nothing_set_up, another_tab_working_take_over):
+        def four_per_photo_is_on_by_default():
+            m = iphone(quad_off=False)
+            try:
+                p = tab(m, 'quad')
+                assert p.is_checked('#quad'), '干净的浏览器：开关是勾着的'
+                p.fill('#key1', KEY)
+
+                def listed(n):
+                    p.wait_for_function('w => document.querySelector("#droptxt").textContent.startsWith(w)',
+                                        arg=f'{n} 张：', timeout=30000)
+
+                def reload():
+                    p.wait_for_timeout(900)
+                    p.reload()
+                    p.wait_for_function('() => document.querySelector("#log p") && document.querySelector("#phinttxt").textContent',
+                                        timeout=60000)
+
+                # 一张一单（亮的、昏暗的）：列表里就 1 张，认完 1 行
+                for name, stamp, bright in (('single.jpg', 1_700_200_000, 1.0), ('dim.jpg', 1_700_200_100, .42)):
+                    p.set_input_files('#files', sheet_photo(name, [(.5, .5)], stamp, bright))
+                    listed(1)
+                    if bright == 1.0:
+                        p.eval_on_selector('#quadbox', 'e => e.scrollIntoView({block: "center"})')
+                        shot(p, '21-默认开着-一张一单.png')
+                    p.click('#start')
+                    finished(p, '干完：成功1·失败0')
+                    close_viewer(p)
+                p.set_input_files('#files', sheet_photo('four.jpg', [(.27, .27), (.73, .27), (.27, .73), (.73, .73)], 1_700_200_200))
+                listed(4)
+                p.eval_on_selector('#quadbox', 'e => e.scrollIntoView({block: "center"})')
+                shot(p, '22-默认开着-四张.png')
+                p.click('#start')
+                finished(p, '干完：成功4·失败0')
+                close_viewer(p)
+
+                p.click('label:has(#quad)')           # 自己关掉：刷新还是关着；再开：记住开着
+                reload()
+                assert not p.is_checked('#quad')
+                p.click('label:has(#quad)')
+                reload()
+                assert p.is_checked('#quad')
+                # 老版本随手存下的 quad:false（他没点过开关）算没存过
+                p.evaluate('''async () => { const S = await import('./store.js'); const st = await S.openStore();
+                    const c = await st.get('kv', 'cfg'); delete c.quadPick; c.quad = false; await st.put('kv', 'cfg', c); }''')
+                reload()
+                assert p.is_checked('#quad')
+            finally:
+                m.close()
+
+        for fn in (nothing_set_up_asks_to_pair_then_runs, auto_start_with_nothing_set_up, another_tab_working_take_over,
+                   four_per_photo_is_on_by_default):
             fn()
             print(f'  ✓ {fn.__name__}', flush=True)
         browser.close()

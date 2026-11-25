@@ -2,6 +2,9 @@
 
 When there's a new version, the app shows you the sections newer than the one you have.
 
+## 1.13.3
+- Web: “4 forms per photo” is now on out of the box. Lay four in a cross and shoot, nothing to tick. One form per photo still reads as one. Turn it off and it stays off.
+
 ## 1.13.2
 - Web: Start never just sits there now. The reason shows up right above the button, with the fix next to it. No Butler and no key? The pairing box pops up and work begins once you’re in. Another tab hogging the job? Take over. Photos already read? Read again.
 

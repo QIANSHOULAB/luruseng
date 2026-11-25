@@ -226,7 +226,8 @@ def main():
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
         # 界面默认英文；这份测试对着中文的字写：每个浏览器环境一开就把语言拨成中文（英文那套在 web/test/bilingual.cjs）
-        pin = f"try {{ localStorage.setItem('luruseng.lang', '{E2E_LANG}') }} catch (e) {{}}"
+        # 155：「一张拍四份」默认开着；这份测试拿纯色图当单子，没点过开关时拨成关（默认开着那套在 start_why.py）
+        pin = f"window.LURUSENG_QUAD = false; try {{ localStorage.setItem('luruseng.lang', '{E2E_LANG}') }} catch (e) {{}}"
         _new_context, _persistent = browser.new_context, pw.chromium.launch_persistent_context
 
         def new_context(**kw):

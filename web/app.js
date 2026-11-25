@@ -21,7 +21,7 @@ const JSZIP_LIB = new URL('./vendor/jszip.min.js', import.meta.url).href;
 const QR_LIB = new URL('./vendor/qrcode.js', import.meta.url).href;
 const CONTACT = ['oilsongchengmin', 'gmail.com'].join('@');
 const SETTINGS = ['auto_open', 'remember_keys', 'redo'];          // 字在 strings.js 的 row.<键>、row.<键>.d
-const DEFAULTS = { category: C.BUILTIN, model: C.DEFAULT_MODEL, auto: false, quad: false, auto_open: true, remember_keys: true, redo: false };
+const DEFAULTS = { category: C.BUILTIN, model: C.DEFAULT_MODEL, auto: false, auto_open: true, remember_keys: true, redo: false };
 
 const S = {
   st: null, cfg: { ...DEFAULTS }, cats: [], queue: [], seen: new Set(), eng: null, busy: false,
@@ -125,7 +125,6 @@ let saveTimer = null;
 function saveCfg(now = false) {
   S.cfg.model = $('#model').value.trim() || C.DEFAULT_MODEL;
   S.cfg.auto = $('#auto').checked;
-  S.cfg.quad = $('#quad').checked;
   S.cfg.category = $('#cat').value || C.BUILTIN;
   if (S.cfg.remember_keys) { S.cfg.key1 = $('#key1').value.trim(); S.cfg.key2 = $('#key2').value.trim(); }
   else { delete S.cfg.key1; delete S.cfg.key2; }     // 不记钥匙：只在这次开着时有效，不存进浏览器
@@ -1723,9 +1722,11 @@ async function boot() {
   for (const m of C.MODELS) dl.appendChild(new Option(m, m));
   $('#model').value = S.cfg.model || C.DEFAULT_MODEL;
   $('#auto').checked = !!S.cfg.auto;
-  $('#quad').checked = !!S.cfg.quad;
+  // 155 一张拍四份默认开着。只认他自己点过的（quadPick）：1.13.2 以前随便存一次设置就记下 quad:false，那不是他关的。
+  // LURUSENG_QUAD：测试用，拨「没点过」时的默认值
+  $('#quad').checked = S.cfg.quadPick ?? globalThis.LURUSENG_QUAD ?? true;
   setupQuad();
-  $('#quad').onchange = () => saveCfg();
+  $('#quad').onchange = () => { S.cfg.quadPick = $('#quad').checked; saveCfg(true); };
   $('#key1').value = S.cfg.key1 || '';
   $('#key2').value = S.cfg.key2 || '';
   for (const id of ['#key1', '#key2', '#model']) $(id).addEventListener('input', () => saveCfg());

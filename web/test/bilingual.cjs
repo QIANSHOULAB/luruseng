@@ -124,6 +124,7 @@ async function shot(page, name) {
 
 async function webRun(ctx, base, lang, w) {           // 网页版：空着 → 选照片开始 → 核对里改一格 → ⚙
   const page = await ctx.newPage();
+  await page.addInitScript(() => { window.LURUSENG_QUAD = false; });   // 155：默认开着；这里一张照片就是一张单子
   watch(page, `web-${w}-${lang}`);
   await page.goto(`${base}web/`);
   await page.waitForFunction(() => document.querySelectorAll('#log p').length >= 2);

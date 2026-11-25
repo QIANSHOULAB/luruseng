@@ -468,6 +468,10 @@ export function layout(image) {
     const list = tighten(regions(cross, off).map((r, i) => ({ ...r, empty: (!owner || owner[i] < 0) && r.ids.every((q) => empty[q]) })), owner && papers);
     return { cross, off, boxes: null, sure: found.sure || !!owner, count: list.filter((r) => !r.empty).length, regions: list, a, papers: owner ? papers : null };
   };
+  if (a.top < 120) {                    // 155 开关默认开着：整张暗得找不出纸（昏暗处拍的），别从正中间切成四份，整张认
+    const all = [[0, 0], [1, 0], [1, 1], [0, 1]];
+    return { cross: found.cross, off: { ...WHOLE }, boxes: [all], sure: true, count: 1, regions: [{ ids: [0], poly: all, empty: false }], a };
+  }
   if (!papers) return result(found.cross, { ...WHOLE }, null);         // 分不开：照十字缝切
   if (papers.length === 1) {
     const j = joined(a, papers[0]);
