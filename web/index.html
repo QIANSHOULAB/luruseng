@@ -172,6 +172,14 @@
 
   hr.sep { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
   .bar { display: flex; flex-wrap: wrap; gap: 10px; }
+  /* 点开始干不了：原因贴在开始按钮上面 */
+  .why { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 12px; padding: 12px 14px; border-radius: 12px;
+         background: var(--orange-bg); color: var(--orange); scroll-margin: 12px; }
+  .why p { flex: 1 1 240px; min-width: 0; margin: 0; font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
+  .why .acts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .why .pill:not(.primary) { background: #fff; color: var(--text); }
+  .why .acts:empty { display: none; }
+  .textlink { display: block; margin: 10px auto 0; padding: 4px 8px; border: 0; background: none; color: var(--link); font-size: 13.5px; cursor: pointer; }
 
   .side .top { display: flex; align-items: center; justify-content: space-between; font-size: 16px; }
   .status { font-weight: 700; font-size: 26px; line-height: 1.25; margin: 4px 0 0; white-space: nowrap; overflow: hidden; }
@@ -291,6 +299,8 @@
     .form .side-btn { min-width: 0; }
     .bar .pill.big { flex: 1 1 calc(50% - 5px); padding: 0 10px; }
     .bar .pill.primary { flex-basis: 100%; }
+    .why .acts { width: 100%; }
+    .why .pill { flex: 1; height: 44px; }
     .status { font-size: 22px; }
     .vwrap { padding: 8px; gap: 8px; }
     .vbar { padding: 8px; gap: 6px; }
@@ -372,6 +382,7 @@
       </div>
     </div>
     <hr class="sep">
+    <div class="why" id="why" role="alert" hidden><p id="whytxt"></p><div class="acts" id="whyacts"></div></div>
     <div class="bar">
       <button type="button" class="pill big primary" id="start"><svg class="i"><use href="#i-play"/></svg><span data-i18n="app.start">Start</span></button>
       <button type="button" class="pill big" id="stop" disabled><svg class="i"><use href="#i-stop"/></svg><span data-i18n="app.stop">Stop</span></button>
@@ -432,6 +443,7 @@
   <p class="para" data-i18n="dagj.para"></p>
   <input id="dagjcode" class="field" inputmode="numeric" autocomplete="off" spellcheck="false">
   <div class="err" id="dagjerr"></div>
+  <button type="button" class="textlink" id="dagjkey" data-i18n="dagj.orKey" hidden>Or paste a Gemini key</button>
   <div class="foot2"><button type="button" class="pill" data-close data-i18n="cancel">Cancel</button><button type="button" class="pill primary" id="dagjok" data-i18n="dagj.ok">Connect</button></div>
 </div></dialog>
 

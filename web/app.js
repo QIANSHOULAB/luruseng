@@ -29,6 +29,7 @@ const S = {
   pair: null, inbox: null, phoneWaiting: false,           // 手机传图：配对、收图的长连接、手机传齐了等着开工
   cohandle: null, filling: false,                         // 填进公司表：选过的那本（这回开着页面先用手上这个）、正在填
   quad: null,                                             // 一张拍四份：切照片、摆预览（quadui.js）
+  why: null,                                              // 开始按钮上面那块：现在写着哪个干不了的原因
   shown: null, said: null, finished: false,               // 右边大字、小字现在显示的是哪句（换语言时照这个重写）；finished：大字是「干完：…」
 };
 const two = (n) => String(n).padStart(2, '0');
@@ -205,7 +206,7 @@ function stash(q) {                           // -> Promise：存好了（存不
       const f = q.file, buf = await f.arrayBuffer();
       if (!q.hash) q.hash = await I.sha256(buf);           // 顺手算好指纹，开工查重不用再读一遍
       await S.st.put('photos', PEND + q.id, { blob: new Blob([buf], { type: f.type }), name: f.name, type: f.type,
-        lastModified: f.lastModified, hash: q.hash, added: Date.now() });
+        lastModified: f.lastModified, hash: q.hash, added: Date.now(), redo: q.redo });
     } catch (e) {
       if (!P.warned) { P.warned = true; log(t('log.notStashed', { e: e.message })); }
     } finally {
@@ -233,6 +234,7 @@ async function restore() {                     // 上回选了还没干完的照
   for (const [key, v] of all) {
     const id = key.slice(PEND.length);
     if (v && v.quad && v.blob instanceof Blob) {            // 切到一半页面被关了：原图还在，重新切
+      if (S.seen.has(v.orig)) continue;                     // 这个窗口已经在切了（抢过来时会再拿一遍）
       const file = new File([v.blob], v.name || 'photo.jpg', { type: v.type || v.blob.type || '', lastModified: v.lastModified || 0 });
       S.seen.add(v.orig);
       S.quad.add(file, { id: v.orig, phone: v.phone });
@@ -240,7 +242,7 @@ async function restore() {                     // 上回选了还没干完的照
     }
     if (S.seen.has(id)) continue;
     let done = v && v.hash && await S.st.get('ledger', v.hash).catch(() => null);
-    if (done && S.cfg.redo && v.added && !doneSince(done, v.added)) done = null;   // 开着重干：放进来之后还没干完的照样拿回来
+    if (done && (S.cfg.redo || v.redo) && v.added && !doneSince(done, v.added)) done = null;   // 要重干的：放进来之后还没干完的照样拿回来
     if (!v || !(v.blob instanceof Blob) || done) {
       if (done) gone.add(id);
       S.st.del('photos', key).catch(() => {});             // 坏了的，或者其实已经干完了：清掉
@@ -248,20 +250,24 @@ async function restore() {                     // 上回选了还没干完的照
     }
     const file = new File([v.blob], v.name || 'photo.jpg', { type: v.type || v.blob.type || '', lastModified: v.lastModified || 0 });
     S.seen.add(id);
-    S.queue.push({ file, id, hash: v.hash, old: true });
+    S.queue.push({ file, id, hash: v.hash, old: true, redo: v.redo });
     back++;
   }
   return back;
 }
 
-async function grab(tries = 1) {              // 一次只让一个窗口干活：两个窗口一起接着干同一批，表就乱了
+// 一次只让一个窗口干活：两个窗口一起接着干同一批，表就乱了。steal：点了「抢过来」（切到后台的标签页拿着锁会一直不放）；
+// lost：自己手上的锁被别的窗口抢走了
+async function grab(tries = 1, { steal = false, lost = () => {} } = {}) {
   if (!navigator.locks) return () => {};
   for (let i = 0; i < tries; i++) {
     const release = await new Promise((ok) => {
-      navigator.locks.request('luruseng-work', { ifAvailable: true }, (lock) => {
+      let held = false;
+      navigator.locks.request('luruseng-work', steal ? { steal: true } : { ifAvailable: true }, (lock) => {
         if (!lock) { ok(null); return undefined; }
+        held = true;
         return new Promise((done) => ok(done));          // 拿着锁，干完 release() 才放
-      }).catch(() => ok(() => {}));                        // 这个浏览器不让用锁：那就不管
+      }).catch(() => { if (held) lost(); else ok(() => {}); });   // 没拿到过就出错：这个浏览器不让用锁，那就不管
     });
     if (release) return release;
     if (i + 1 < tries) await new Promise((r) => setTimeout(r, 1500));   // 刚被关掉的那个窗口还没撒手：等等
@@ -272,7 +278,7 @@ async function grab(tries = 1) {              // 一次只让一个窗口干活�
 async function wakeUp(back) {                  // 打开页面：上回干到一半被关了，自己接着干；留下的照片说一声
   const w = canStash() ? await S.st.get('kv', 'work').catch(() => null) : null;
   if (!w) { if (back) log(t('log.backLeft', { n: back })); return; }
-  if (!$('#key1').value.trim() && !$('#key2').value.trim()) { log(t('log.wokeNoKey')); return; }
+  if (!$('#key1').value.trim() && !$('#key2').value.trim() && !S.dagj.paired) { log(t('log.wokeNoKey')); return; }
   if ((w.stuck || 0) >= 3) { log(t('log.wokeStuck')); return; }
   w.stuck = (w.stuck || 0) + 1;                // 接着干一回记一回；干完一张就清零（一张都干不动才是被哪张照片撑爆了）
   await S.st.put('kv', 'work', w).catch(() => {});
@@ -280,6 +286,7 @@ async function wakeUp(back) {                  // 打开页面：上回干到一
 }
 
 async function clearList() {                   // 清空：照片不要了，上回没干完的那批也不接着干了
+  hideWhy();
   S.quad.clear();
   for (const q of S.queue) unstash(q);
   S.queue = [];
@@ -313,6 +320,7 @@ function addFiles(files) {
     added++;
     if (S.busy) S.fresh++;
   }
+  if (added || cut) hideWhy();
   if ((added || cut) && canStash()) ST.persist();       // 跟浏览器要「别清」
   if (sheets) log(t('log.sheets', { n: sheets }));
   if (other) log(t('log.notPhotos', { n: other }));
@@ -434,6 +442,7 @@ function setBusy(on) {
   $('#stop').disabled = !on;
   $('#clear').hidden = on || !S.queue.length;
   keepAwake(on);
+  drawWhy();
 }
 
 let chain = Promise.resolve();
@@ -454,20 +463,71 @@ function runId(d = new Date()) {
   return `${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}_${two(d.getHours())}${two(d.getMinutes())}${two(d.getSeconds())}`;
 }
 
+// ---------------------------------------------------------------- 点开始干不了：原因摆在开始按钮上面（日志在最下面，手机上看不见）
+const focusKey = () => { const k = $('#key1'); k.scrollIntoView({ block: 'center' }); k.focus({ preventScroll: true }); };
+const WHY = {                                  // 原因 -> 底下给的按钮 [字的键, 点了干啥]；第一个是蓝的
+  noKey: () => [['app.dagj', () => S.askDagj(false)], ['why.addKey', focusKey]],
+  sameKey: () => [['why.dropKey2', () => { $('#key2').value = ''; saveCfg(); start(false); }]],
+  otherTab: () => [['why.steal', () => start(false, false, true)]],
+  stolen: () => [['why.steal', () => start(false, false, true)]],
+  noPhotos: () => [['app.pick', () => $('#files').click()]],
+  done: (list) => [['why.again', () => redoDone(list)]],
+};
+function why(kind, vars, extra) {
+  S.why = { kind, vars, extra };
+  drawWhy();
+  $('#why').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+function hideWhy() { S.why = null; drawWhy(); }
+function drawWhy() {
+  const box = $('#why'), acts = $('#whyacts');
+  box.hidden = !S.why;
+  acts.textContent = '';
+  if (!S.why) return;
+  const { kind, vars, extra } = S.why;
+  $('#whytxt').textContent = t(`why.${kind}`, vars);
+  for (const [i, [key, fn]] of (WHY[kind] ? WHY[kind](extra) : []).entries()) {
+    const b = Object.assign(document.createElement('button'), { type: 'button', className: i ? 'pill' : 'pill primary', textContent: t(key) });
+    b.onclick = fn;
+    b.disabled = S.busy;                       // 还在收尾：按钮先灰着，别点了没反应
+    acts.appendChild(b);
+  }
+}
+function redoDone(list) {                      // 「再认一遍」：刚才查重拿掉的放回列表，这回不管认没认过
+  for (const old of list) {
+    const there = S.queue.find((q) => q.id === old.id);
+    if (there) { there.redo = true; stash(there); continue; }
+    const q = { file: old.file, id: old.id, hash: old.hash, shot: old.shot, redo: true };
+    S.seen.add(q.id);
+    S.queue.push(q);
+    stash(q);
+  }
+  refreshQueue();
+  start(false);
+}
+
 // 新开一批：干过的照片（改了名也认得出）跳过，剩下的按拍摄顺序排好
+// -> {todo, skipped：以前认过、拿掉了的, bad：读不了的头一张}
 async function freshTodo() {
-  const todo = [], hashes = new Map(), again = [];
+  const todo = [], hashes = new Map(), again = [], forced = [], skipped = [];
+  let bad = null;
   for (const q of S.queue.filter((x) => !x.hold)) {
     if (!q.hash) {
-      try { q.hash = await I.sha256(q.file); } catch (e) { log(t('log.unreadable', { name: q.file.name, e: e.message })); continue; }
+      try { q.hash = await I.sha256(q.file); } catch (e) {
+        log(t('log.unreadable', { name: q.file.name, e: e.message }));
+        bad = bad || { name: q.file.name, e: e.message };
+        continue;
+      }
     }
     const done = await S.st.get('ledger', q.hash);
-    if (done && S.cfg.redo && !hashes.has(q.hash)) {   // ⚙「干过的照片也重干」开着（测试用）：照样认
-      again.push(q.file.name);
+    const redo = S.cfg.redo || q.redo;
+    if (done && redo && !hashes.has(q.hash)) {   // ⚙「干过的照片也重干」开着（测试用），或者点了「再认一遍」：照样认
+      (S.cfg.redo ? again : forced).push(q.file.name);
       hashes.set(q.hash, q.file.name);
       todo.push(q);
-    } else if (done && !S.cfg.redo) {
+    } else if (done && !redo) {
       log(t('log.doneBefore', { name: q.file.name, xlsx: done.xlsx || '', no: done.no ?? '?' }));
+      skipped.push(q);
       drop(q);
     } else if (hashes.has(q.hash)) {
       log(t('log.samePhoto', { name: q.file.name, other: hashes.get(q.hash) }));
@@ -477,10 +537,12 @@ async function freshTodo() {
       todo.push(q);
     }
   }
-  if (again.length) log(t('log.redoing', { n: again.length, names: I18N.list(again.slice(0, 5)) + (again.length > 5 ? '…' : '') }));
+  for (const [key, list] of [['log.redoing', again], ['log.redoAgain', forced]]) {
+    if (list.length) log(t(key, { n: list.length, names: I18N.list(list.slice(0, 5)) + (list.length > 5 ? '…' : '') }));
+  }
   for (const q of todo) if (q.shot === undefined) q.shot = await I.shotTime(q.file);
   todo.sort((a, b) => a.shot - b.shot || a.file.name.toLowerCase().localeCompare(b.file.name.toLowerCase()));
-  return todo;
+  return { todo, skipped, bad };
 }
 
 async function rules(cat) {                    // 拿数据库当准绳
@@ -533,21 +595,48 @@ async function reopen(run, work) {
   return { items: plan.todo.map((x) => { const q = byId.get(x.qid); return { no: x.no, file: q.file, q }; }), lost: plan.lost.length };
 }
 
-async function start(auto = false, woke = false) {     // woke：打开页面时发现上回干到一半被关了，自己接着干
+class Taken extends Error {}                   // 干活的锁被别的窗口抢走了：这边放手，什么都别再往浏览器里写
+
+// woke：打开页面时发现上回干到一半被关了，自己接着干。steal：点了「抢过来」
+async function start(auto = false, woke = false, steal = false) {
   if (S.busy) return;
+  hideWhy();
   const k1 = $('#key1').value.trim(), k2 = $('#key2').value.trim();
-  if (!k1 && !k2 && !S.dagj.paired) { log(t('log.noKey')); return; }   // 089：连着大管家的，没钥匙也能干
-  if (k1 && k1 === k2) { log(t('log.sameKey')); return; }
+  if (!k1 && !k2 && !S.dagj.paired) {          // 089：连着大管家的，没钥匙也能干
+    log(t('log.noKey'));
+    why('noKey');
+    S.askDagj(auto);                           // 直接把该做的那一步弹出来；对上暗号自己接着开工
+    return;
+  }
+  if (k1 && k1 === k2) { log(t('log.sameKey')); why('sameKey'); return; }
   setBusy(true);                                 // 马上占住：下面要等，别让人连点两下开出两批
   S.fresh = 0;
   let release = null, mine = false, halted = true, extra = null, eng;
+  let lost = false, owner = null;
+  const taken = () => {
+    if (lost) return;
+    lost = true;
+    if (eng) eng.stop();
+    log(t('log.stolen'));
+    why('stolen');                             // 按钮先灰着，收尾完才能抢回来
+  };
+  // 往浏览器里写东西之前问一声还是不是自己的：后台标签页醒过来时，「锁被抢了」的信可能还没到
+  const still = async () => {
+    if (!lost && owner && (await S.st.get('kv', 'owner').catch(() => owner)) !== owner) taken();
+    return !lost;
+  };
+  const check = async () => { if (!(await still())) throw new Taken(); };
   try {
-    release = await grab(woke ? 3 : 1);
-    if (!release) { log(t('log.otherTab')); return; }
+    release = await grab(woke ? 3 : 1, { steal, lost: taken });
+    if (!release) { log(t('log.otherTab')); why('otherTab'); return; }
+    const token = `${Date.now()}.${Math.random()}`;
+    await S.st.put('kv', 'owner', token).then(() => { owner = token; }).catch(() => {});
+    const was = await S.st.get('kv', 'work').catch(() => null);
+    // 接手别的窗口的（抢来的、它被关了的）：它存下的照片先拿进这边的列表，不然会被记成「没存住」
+    if (steal || was) { await P.chain; if (await restore()) refreshQueue(); }
     await S.quad.settled();                      // 还在切的先切完
     if (!auto) S.quad.releaseAll();              // 人点的开始：不用再等十字
     const ready = () => S.queue.filter((q) => !q.hold);
-    const was = await S.st.get('kv', 'work').catch(() => null);
     const prev = was && was.run ? await S.st.get('runs', was.run).catch(() => null) : null;
     if (was && !prev && was.want) {              // 点了开始、照片还没存完页面就被关了：存住的接着干，没存住的点名
       const have = new Set(S.queue.map((q) => q.id));
@@ -557,7 +646,7 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
     if (!ready().length && !prev) {
       if (S.queue.length) return;                // 都在等十字放手：到时候自己开工
       if (was) await S.st.del('kv', 'work').catch(() => {});
-      if (!woke) log(t('log.noPhotos'));
+      if (!woke) { log(t('log.noPhotos')); why('noPhotos'); }
       return;
     }
     if (woke && !prev) log(t('log.wokeRestart'));
@@ -566,28 +655,38 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
     // 先记一笔「在干活」再等照片存完：存照片、查重、干活的时候页面被关了，重新打开都自己接着干
     const work = prev ? { ...was, at: Date.now(), stuck: woke ? was.stuck || 0 : 0 }
       : { at: Date.now(), auto, stuck: woke ? (was && was.stuck) || 0 : 0, want: ready().map((q) => q.id) };
+    await check();
     await S.st.put('kv', 'work', work).catch(() => {});
     mine = true;
     await stashed();
+    await check();
 
     const model = C.modelName($('#model').value);
-    let run, items, todoQ = null, lost = 0;
+    let run, items, todoQ = null, gonePhotos = 0;
     if (prev) {
       run = prev;
       if (!woke) {                               // 手动点的开始：上回那批干完，接着干列表里别的照片
         const inRun = new Set(work.items.map((x) => x.qid));
         extra = new Set(ready().filter((q) => !inRun.has(q.id)));
       }
-      ({ items, lost } = await reopen(run, work));
+      ({ items, lost: gonePhotos } = await reopen(run, work));
     } else {
       status('st.dedupe');
       bar(0, 0);
       S.phoneWaiting = false;                    // 手机传齐等着的照片，这一批就带上了
-      todoQ = await freshTodo();
-      if (!todoQ.length) { log(t('log.nothingNew')); halted = false; return; }
+      const { todo, skipped, bad } = await freshTodo();
+      todoQ = todo;
+      if (!todoQ.length) {
+        log(t('log.nothingNew'));
+        if (skipped.length) why('done', {}, skipped);
+        else if (bad) why('unreadable', bad);
+        halted = false;
+        return;
+      }
     }
     const cat = run ? run.cat : $('#cat').value;
     const { spec, snapshot, names, hints, what } = await rules(cat);
+    await check();
     if (!run) {
       run = await newRun(cat, todoQ.length, spec);
       items = todoQ.map((q, i) => ({ no: i + 1, file: q.file, q }));
@@ -602,6 +701,7 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
     S.run = run;
     let saveErr = '';
     const saveRun = async () => {                     // 存这批的表：认完一张存一回
+      if (!(await still())) return false;
       try { await S.st.put('runs', id, run); saveErr = ''; return true; } catch (e) {
         if (saveErr !== e.message) { saveErr = e.message; log(t('log.cantSave', { e: e.message })); }
         return false;
@@ -618,6 +718,7 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
       prepare: (file, enhance) => exclusive(async () => I.prepare(await openFor(file, !enhance), enhance)),
       stampIt: (file, no, side) => exclusive(async () => I.stamp(await openFor(file, false), no, side)),
     });
+    if (lost) eng.stop();
     const tagOf = (no) => String(no).padStart(width, '0');
     const assess = (rec) => {
       if (!spec) return { kind: 'rec', ...C.assessRecord(rec, { snapshot, names }) };
@@ -628,12 +729,13 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
     if (items.length) {
       meterStart(total, base, woke ? WOKE : FISH);
       res = await eng.run(items, {
-        progress: (d) => meterTick(base + d, total),
+        progress: (d) => { if (!lost) meterTick(base + d, total); },
         onUnfinished: async (it, why) => {
           C.placeRows(run.rows, [{ no: it.no, kind: 'blank', fill: 'grey', left: true, note: `未完成：${why}（照片还在列表里，再点开始接着干）` }]);
         },
         onPhoto: async (it, recs, err, side, stamped, by) => {   // 认完一张马上存：表、编号照片、干过的记录，最后清掉存的原照片
           const tag = tagOf(it.no), name = it.file.name;
+          if (!(await still())) return;
           if (recs === null) {
             C.placeRows(run.rows, [{ no: it.no, kind: 'blank', fill: 'red', retry: true, note: `✗ 识别失败：${err}（照片还在列表里，再点开始会重干）` }]);
             log(`✗ ${tag} ${name} · ${err}`);
@@ -662,11 +764,12 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
       const manual = res.stopped === C.MANUAL_STOP;
       if (res.stopped) log(manual ? t('log.stopped') : t('log.halted', { why: res.stopped }));
       if (res.stopped) phoneSay(manual ? t('say.stopped') : t('say.halt', { why: res.stopped }), true);
-    } else if (lost) {
-      log(t('log.lostLeft', { n: lost }));
+    } else if (gonePhotos) {
+      log(t('log.lostLeft', { n: gonePhotos }));
     } else {
       log(t('log.wasDone', { xlsx: run.xlsx }));
     }
+    await check();                                 // 中途被抢走了：这批归那个窗口收尾
     halted = !!(res && res.stopped);
     const tl = C.tally(run.rows), kept = tl.ok + tl.failed > 0;
     if (!kept) await S.st.del('runs', id).catch(() => {});
@@ -683,21 +786,28 @@ async function start(auto = false, woke = false) {     // woke：打开页面时
     if (!halted && res) phoneSay(t('say.done', { ok: tl.ok, bad: tl.failed }), true);
     const more = extra && S.queue.some((q) => extra.has(q));
     if (kept && res && res.ok && !halted && !work.auto && !more && S.cfg.auto_open) openViewer(id);
+    if (res && res.stopped && res.stopped !== C.MANUAL_STOP) why('halted', { why: res.stopped });
+    else if (res && !res.stopped && !res.ok && res.errors.length) why('failed', { e: res.errors[0][1] });
   } catch (e) {
-    log(t('log.crash', { e: `${e.name || 'Error'}: ${e.message}` }));
-    console.error(e);
+    if (!(e instanceof Taken) && !lost) {
+      const msg = `${e.name || 'Error'}: ${e.message}`;
+      log(t('log.crash', { e: msg }));
+      why('crash', { e: msg });
+      console.error(e);
+    }
   } finally {
     meterStop();
     cache.clear();
     S.eng = null;
     S.run = null;
-    if (mine) await S.st.del('kv', 'work').catch(() => {});   // 这一笔了结了（干完、停了、出错了）；只有页面被关才留着
+    if (mine && await still()) await S.st.del('kv', 'work').catch(() => {});   // 这一笔了结了（干完、停了、出错了）；页面被关、被抢走才留着
     if (release) release();
     setBusy(false);
     for (const q of S.queue) q.taken = false;     // 没认成、留在列表里的：十字又能拖了
     S.quad.render();
     refreshQueue(S.finished);
-    if (extra && !halted && S.queue.some((q) => extra.has(q))) {
+    if (lost) why('stolen');                       // 让给别的窗口了：别自己又开工
+    else if (extra && !halted && S.queue.some((q) => extra.has(q))) {
       log(t('log.next'));
       setTimeout(() => start(auto), 500);
     } else if (((S.fresh && $('#auto').checked) || (mine && S.phoneWaiting)) && S.queue.length) setTimeout(() => start(true), 500);
@@ -861,7 +971,18 @@ function setupDagj() {
   refreshDagj();
   const dlg = $('#dlg-dagj');
   const code = $('#dagjcode'), err = $('#dagjerr'), ok = $('#dagjok');
-  $('#dagj').onclick = () => { code.value = ''; err.textContent = ''; dlg.showModal(); code.focus(); };
+  let then = null;                              // 从「开始」弹出来的：对上暗号接着开工，不用再点一次
+  const open = (next) => {
+    then = next;
+    $('#dagjkey').hidden = !next;
+    if (dlg.open) return;
+    code.value = ''; err.textContent = '';
+    dlg.showModal(); code.focus();
+  };
+  S.askDagj = (auto) => open({ auto });
+  $('#dagj').onclick = () => open(null);
+  $('#dagjkey').onclick = () => { dlg.close(); focusKey(); };
+  dlg.addEventListener('close', () => { if (!dlg.open) then = null; });
   let busy = false;
   const go = async () => {
     const c = code.value.trim();
@@ -873,7 +994,14 @@ function setupDagj() {
     try { r = await S.dagj.pair(c); } catch (e) { r = { error: `${e.name || 'Error'}: ${e.message}` }; }
     busy = false;
     ok.disabled = false;
-    if (r.ok) { dlg.close(); log(t('log.dagjOn')); return; }
+    if (r.ok) {
+      const next = then;                         // 先记下：关框会把它清掉
+      dlg.close();
+      log(t('log.dagjOn'));
+      if (S.why && S.why.kind === 'noKey') hideWhy();
+      if (next) start(next.auto);
+      return;
+    }
     err.textContent = r.locked ? t('dagj.locked') : r.wrong ? t('dagj.wrong') : r.off ? t('dagj.off') : t('dagj.err', { e: r.error || '' });
     if (r.wrong) code.value = '';
   };
@@ -1486,6 +1614,7 @@ async function phoneFile(file, info) {          // 手机传来一张：跟选�
   const q = { file, id, phone: info.batch };
   S.queue.push(q);
   if (S.busy) S.fresh++;
+  else hideWhy();
   refreshQueue(S.busy || S.finished);
   if (info.seq === 1 || info.seq === info.total) log(t('log.phoneGot', { i: info.seq, n: info.total, name: file.name }));
   await stash(q);
@@ -1565,6 +1694,7 @@ async function relabel() {                       // 换了语言：开着的、�
   if (S.shown) status(...S.shown);
   if (S.said) slogan(...S.said);
   S.quad.render();
+  drawWhy();
   phoneState(S.phoneState || 'off');
   settingsText();
   if ($('#dlg-set').open) await companyRow();
@@ -1599,6 +1729,7 @@ async function boot() {
   $('#key1').value = S.cfg.key1 || '';
   $('#key2').value = S.cfg.key2 || '';
   for (const id of ['#key1', '#key2', '#model']) $(id).addEventListener('input', () => saveCfg());
+  for (const id of ['#key1', '#key2']) $(id).addEventListener('input', () => { if (S.why && /^(noKey|sameKey)$/.test(S.why.kind)) hideWhy(); });
   $('#model').addEventListener('change', () => { $('#model').value = C.modelName($('#model').value); saveCfg(); });
   $('#auto').onchange = () => { saveCfg(); if ($('#auto').checked && S.queue.length && !S.busy) start(true); };
   $('#cat').onchange = () => { saveCfg(); refreshCategory(true); };

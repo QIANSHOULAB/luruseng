@@ -2,6 +2,9 @@
 
 When there's a new version, the app shows you the sections newer than the one you have.
 
+## 1.13.2
+- Web: Start never just sits there now. The reason shows up right above the button, with the fix next to it. No Butler and no key? The pairing box pops up and work begins once you’re in. Another tab hogging the job? Take over. Photos already read? Read again.
+
 ## 1.13.1
 - Web, “4 forms per photo”: two or three left (or just one)? Shoot them anyway. Luru finds each sheet and cuts only where there’s something to cut. Nothing gets sliced in half.
 

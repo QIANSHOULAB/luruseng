@@ -332,7 +332,10 @@ def main():
             add_photos(make_images(os.path.join(WORK, 'none'), 1, start=90))
             page.click('#start')
             wait_log('✗ 先填钥匙')
+            page.click('#dlg-dagj [data-close]')                 # 146：对暗号的框自己弹出来，原因贴在开始上面
+            assert page.is_visible('#why') and '开不了工' in page.inner_text('#whytxt'), page.inner_text('#why')
             page.click('#clear')
+            assert not page.is_visible('#why')
             assert page.inner_text('#status').replace('\n', '') == '待识别 0 张'
 
         imgs = make_images(os.path.join(WORK, 'a'), 12)
@@ -1522,4 +1525,6 @@ def main():
 
 
 if __name__ == '__main__':
+    if not os.environ.get('E2E_ONLY'):       # 146：点开始干不了时的原因条，单独一份验收
+        subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'start_why.py'), SHOTS], check=True)
     main()
