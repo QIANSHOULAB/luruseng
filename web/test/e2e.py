@@ -1211,6 +1211,24 @@ def main():
                 assert left == [], left                                                # 取走就删
                 if a.is_visible('#dlg-view'):
                     a.click('#vclose')
+                assert b.locator('#thumbs img').count() == 3                           # 163：每发一张手机上留个小图
+
+                # 163 白纸：手机量出来是白的就不发照片，只报「第 N 张是白纸」；电脑弹提示条，不开工、不查重
+                wp = os.path.join(WORK, 'white', 'image.jpg')
+                os.makedirs(os.path.dirname(wp), exist_ok=True)
+                Image.new('RGB', (4032, 3024), (255, 255, 255)).save(wp, quality=90)
+                b.set_input_files('#files', [wp])
+                b.wait_for_function('() => document.querySelector("#thumbs figure.blank")', timeout=30000)
+                assert '从相册选着传' in b.inner_text('#thumbs'), b.inner_text('#thumbs')
+                a.wait_for_function('() => !document.querySelector("#why").hidden && '
+                                    'document.querySelector("#whytxt").textContent.includes("第 1 张是白纸")', timeout=30000)
+                assert 'image.jpg 是白纸' in logs_of(a), logs_of(a)
+                b.wait_for_function('() => document.querySelector("#st").textContent.includes("电脑收齐 1 张")', timeout=15000)
+                assert a.evaluate(f"fetch('{relay_url}/r/{room}/items').then(r => r.json())") == []
+                a.wait_for_timeout(1500)
+                assert not any('以前干过' in x or '开工' in x for x in logs_of(a).split('\n')[-3:]), logs_of(a)
+                b.screenshot(path=os.path.join(SHOTS, '10-手机白纸不发.png'))
+                a.screenshot(path=os.path.join(SHOTS, '10-电脑白纸提示.png'))
 
                 a.close()                                                              # 电脑关了：照片先存在中转站
                 b.wait_for_function('() => document.querySelector("#pcstate").textContent.includes("电脑没开")', timeout=15000)
@@ -1528,4 +1546,6 @@ def main():
 if __name__ == '__main__':
     if not os.environ.get('E2E_ONLY'):       # 146：点开始干不了时的原因条，单独一份验收
         subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'start_why.py'), SHOTS], check=True)
+        # 163：手机「拍照」传成白纸——诊断页、画法、白纸不发不认
+        subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'blank_163.py'), SHOTS], check=True)
     main()

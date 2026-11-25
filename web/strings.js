@@ -459,6 +459,7 @@
     'log.blank': ['✗ {name} 是白纸（平整度 {flat}）：没认、不查重，重拍一张', '✗ {name} is blank (flatness {flat}). Not reading it, not checking for repeats. Take another.'],
     'log.phoneGot': ['📱 手机传来第 {i}/{n} 张：{name}', '📱 Photo {i}/{n} from phone: {name}'],
     'log.phoneAll': ['📱 手机传来 {n} 张，收齐了，开工', '📱 All {n} photos in from the phone. Starting.'],
+    'log.phoneAllBlank': ['📱 手机这趟 {n} 张全是白纸，不开工', ['📱 The one photo from the phone was blank. Not starting.', '📱 All {n} photos from the phone were blank. Not starting.']],
     'log.phonePart': ['📱 手机这趟只到了 {got}/{n} 张，两分钟没动静，先干收到的', '📱 Only {got}/{n} arrived and it’s been quiet for two minutes. Starting with what’s here.'],
     'log.phoneJoined': ['📱 手机连上了，二维码收起来了：拍完一传，这边收齐自己开工', '📱 Phone connected, QR code put away. Shoot, send, and it starts here.'],
     'log.qrNew': ['换了个手机传图的二维码：以前扫过的手机得重新扫', 'New QR code. Phones need to scan again.'],

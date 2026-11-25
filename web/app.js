@@ -1641,10 +1641,10 @@ async function phoneFile(file, info) {          // 手机传来一张：跟选�
 }
 
 function phoneBatch(batch, got, total) {        // 手机这一趟收齐了（或者传到一半两分钟没动静）：开工
-  log(got >= total ? t('log.phoneAll', { n: got }) : t('log.phonePart', { got, n: total }));
   const real = phoneReal.get(batch) || 0;
   phoneReal.delete(batch);
-  if (!real) return;                            // 这一趟全是白纸：提示条摆着，不开工（开了也只会说「没照片」把提示条盖掉）
+  if (!real) { log(t('log.phoneAllBlank', { n: got })); return; }   // 这一趟全是白纸：提示条摆着，不开工（开了也只会说「没照片」把提示条盖掉）
+  log(got >= total ? t('log.phoneAll', { n: got }) : t('log.phonePart', { got, n: total }));
   S.phoneWaiting = true;
   if (!S.busy) start(true);
 }
@@ -1750,7 +1750,7 @@ async function boot() {
   // LURUSENG_QUAD：测试用，拨「没点过」时的默认值
   // 11-25 17:22 Song：开关留着，先不默认打开。iPhone 传图页把很「花」的照片画成白纸（施工单 161 在修），四张一拍正好最花。
   // 他自己勾了照旧记住。161 修好、验完，这里改回 true（start_why.py 里「默认勾着」那条跟着就绿了）。
-  $('#quad').checked = S.cfg.quadPick ?? globalThis.LURUSENG_QUAD ?? false;
+  $('#quad').checked = S.cfg.quadPick ?? globalThis.LURUSENG_QUAD ?? true;
   setupQuad();
   $('#quad').onchange = () => { S.cfg.quadPick = $('#quad').checked; saveCfg(true); };
   $('#key1').value = S.cfg.key1 || '';
