@@ -1231,7 +1231,9 @@ def main():
                 b.wait_for_function('() => document.querySelector("#st").textContent.includes("电脑收齐 1 张")', timeout=15000)
                 assert a.evaluate(f"fetch('{relay_url}/r/{room}/items').then(r => r.json())") == []
                 a.wait_for_timeout(1500)
-                assert not any('以前干过' in x or '开工' in x for x in logs_of(a).split('\n')[-3:]), logs_of(a)
+                tail = logs_of(a).split('\n')[-3:]
+                assert '📱 手机这趟 1 张全是白纸，不开工' in tail, tail
+                assert not any('以前干过' in x or '收齐了' in x or x.startswith('▶') for x in tail), tail
                 b.screenshot(path=os.path.join(SHOTS, '10-手机白纸不发.png'))
                 a.screenshot(path=os.path.join(SHOTS, '10-电脑白纸提示.png'))
 
