@@ -2,7 +2,7 @@
 // 假的四联图自己画（桌面 + 四张带表格线和字的纸），知道每张纸在哪儿：切出来的四块要把各自那张纸整个装下。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { FIND_SIDE, findCross, quads, drag, arms, meet, CENTER } from '../quad.js';
+import { FIND_SIDE, findCross, layout, quads, regions, inside, drag, arms, meet, CENTER } from '../quad.js';
 
 let seed = 1;
 const rnd = () => ((seed = (seed * 48271) % 2147483647) / 2147483647);
@@ -72,32 +72,44 @@ function four({ x = 0.5, y = 0.5, gap = 0.05, pw = 0.4, ph = 0.4, deg = 0, each 
   });
 }
 
-function inside(poly, x, y) {
-  let hit = false;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const [xi, yi] = poly[i], [xj, yj] = poly[j];
-    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) hit = !hit;
+/** 一张纸有多少落在这个多边形里（在照片外面的不算）。part：只看纸的这一部分（[左, 右, 上, 下]） */
+function coveredBy(img, p, poly, part = [0, 1, 0, 1]) {
+  let all = 0, ok = 0;
+  for (let i = 0; i <= 80; i++) {
+    for (let j = 0; j <= 80; j++) {
+      const dx = (part[0] + (i / 80) * (part[1] - part[0]) - 0.5) * p.W, dy = (part[2] + (j / 80) * (part[3] - part[2]) - 0.5) * p.H;
+      const x = (p.X + dx * p.cos - dy * p.sin) / img.width, y = (p.Y + dx * p.sin + dy * p.cos) / img.height;
+      if (x < 0 || x > 1 || y < 0 || y > 1) continue;
+      all++;
+      if (inside(poly, x, y)) ok++;
+    }
   }
-  return hit;
+  return ok / all;
 }
 
-/** 每张纸有多少落在自己那一块里（在照片外面的不算）。part：只看纸的这一部分（[左, 右, 上, 下]） */
-function covered(img, cross, part = [0, 1, 0, 1]) {
+/** 每张纸有多少落在自己那一格里 */
+function covered(img, cross, part) {
   const q = quads(cross);
-  return img.sheets.map((p, n) => {
-    if (!p) return null;
-    let all = 0, ok = 0;
-    for (let i = 0; i <= 80; i++) {
-      for (let j = 0; j <= 80; j++) {
-        const dx = (part[0] + (i / 80) * (part[1] - part[0]) - 0.5) * p.W, dy = (part[2] + (j / 80) * (part[3] - part[2]) - 0.5) * p.H;
-        const x = (p.X + dx * p.cos - dy * p.sin) / img.width, y = (p.Y + dx * p.sin + dy * p.cos) / img.height;
-        if (x < 0 || x > 1 || y < 0 || y > 1) continue;
-        all++;
-        if (inside(q[n], x, y)) ok++;
-      }
-    }
-    return ok / all;
-  });
+  return img.sheets.map((p, n) => (p ? coveredBy(img, p, q[n], part) : null));
+}
+
+/** 148 页面用的切法 layout()：认的块数 = 纸数，每张纸整个在某一块里，一块只装一张 */
+function whole(img, l, name, touching = false) {
+  const live = l.regions.filter((g) => !g.empty);
+  const sheets = img.sheets.filter(Boolean);
+  assert.equal(live.length, sheets.length, `${name}：切成 ${live.length} 块 ${JSON.stringify(l.regions.map((g) => [g.ids, g.empty]))}`);
+  const used = new Set();
+  for (const [n, p] of img.sheets.entries()) {
+    if (!p) continue;
+    const part = touching ? [0.07, 0.93, 0.1, 0.92] : [0.01, 0.99, 0.01, 0.99];
+    // 收紧到纸边的块（tight）：纸也得整个在那个框里
+    const crop = (g) => (g.tight ? Math.min(coveredBy(img, p, g.poly, part), coveredBy(img, p, [[g.tight[0], g.tight[1]], [g.tight[2], g.tight[1]],
+      [g.tight[2], g.tight[3]], [g.tight[0], g.tight[3]]], part)) : coveredBy(img, p, g.poly, part));
+    const best = live.map((g, i) => [crop(g), i]).sort((x, y) => y[0] - x[0])[0];
+    assert.ok(best[0] >= (touching ? 0.999 : 0.985), `${name}：第 ${n + 1} 张只装下 ${(best[0] * 100).toFixed(1)}%（切开了）${JSON.stringify(l.cross)} ${JSON.stringify(l.off)}`);
+    assert.ok(!used.has(best[1]), `${name}：两张纸装进了同一块`);
+    used.add(best[1]);
+  }
 }
 
 const CASES = [
@@ -127,6 +139,8 @@ for (const [name, desk, lay] of CASES) {
       assert.ok(r.sure, `${name} #${s} 说没找准：${JSON.stringify(r.cross)}`);
       for (const [n, v] of c.entries()) assert.ok(v >= (lay.gap === 0 ? 1 : 0.985), `${name} #${s} 第 ${n + 1} 张只装下 ${(v * 100).toFixed(1)}%：${JSON.stringify(r.cross)}`);
       assert.deepEqual(r.empty, [false, false, false, false], `${name} #${s} 说有空块`);
+      const l = layout(img);                            // 页面实际走的是这个：四张照样一张一块
+      whole(img, l, `${name} #${s}`, lay.gap === 0);
     }
   });
 }
@@ -144,6 +158,49 @@ for (const desk of ['dark', 'wood', 'flowers', 'white']) {
     });
   }
 }
+
+// ---------------------------------------------------------------- 148 最后只剩两三张（照 Song 那几张拼图的摆法）
+const at = (cx, cy, deg = 0, w = 0.38, h = 0.4) => ({ cx, cy, w, h, deg });
+const FEW = [
+  ['二联：左右并排摆在上下正中（C）', [at(0.27, 0.5, 1.5), at(0.73, 0.5, -2), null, null], 2],
+  ['二联：上下叠摆在左右正中', [at(0.5, 0.27, -2), null, at(0.5, 0.74, 1), null], 2],
+  ['二联：斜对角', [at(0.27, 0.27, 2), null, null, at(0.74, 0.73, -1.5)], 2],
+  ['三联：三格，右下空着（D）', [at(0.27, 0.27, 1), at(0.73, 0.27, -2), at(0.27, 0.73, 2), null], 3],
+  ['三联：上两张，下一张摆在左右正中（F）', [at(0.26, 0.27, -1), at(0.74, 0.27, 2), at(0.5, 0.74, 1), null], 3],
+  ['三联：上一张摆在正中，下两张', [at(0.5, 0.26, 2), null, at(0.26, 0.74, -1), at(0.74, 0.73, 1.5)], 3],
+  ['三联：左两张，右一张摆在上下正中', [at(0.26, 0.26, 1), at(0.74, 0.5, -2), at(0.26, 0.74, -1), null], 3],
+  ['只剩一张，摆在正中', [at(0.5, 0.5, 3, 0.5, 0.55), null, null, null], 1],
+  ['只剩一张，拍得近', [at(0.5, 0.5, -2, 0.8, 0.82), null, null, null], 1],
+];
+for (const desk of ['dark', 'wood', 'flowers']) {
+  for (const [name, papers, n] of FEW) {
+    test(`少几张：${desk} · ${name}`, () => {
+      for (const s of [2, 9]) {
+        const img = picture({ desk, papers, s });
+        const l = layout(img);
+        assert.equal(l.count, n);
+        whole(img, l, `${desk} ${name} #${s}`);
+      }
+    });
+  }
+}
+
+test('两张挨在一起、分不开：沿着中间那一刀切成两张', () => {
+  const img = picture({ desk: 'dark', papers: [at(0.29, 0.5, 0, 0.42, 0.45), at(0.71, 0.5, 0, 0.42, 0.45), null, null], s: 4 });
+  const l = layout(img);
+  whole(img, l, '挨着两张', true);
+});
+
+test('少几张时的十字：没用的胳膊不画不拖，合起来的块盖满整张照片', () => {
+  const cross = { v: [[0.5, 0.5], [0.5, 0.5]], h: [[0.5, 0.5], [0.5, 0.5]] };
+  const area = (p) => Math.abs(p.reduce((a, [x, y], i) => { const [x2, y2] = p[(i + 1) % p.length]; return a + x * y2 - x2 * y; }, 0)) / 2;
+  for (const off of [{ bottom: true }, { top: true }, { left: true }, { right: true }, { left: true, right: true }, { top: true, bottom: true }]) {
+    const g = regions(cross, off);
+    assert.equal(g.length, Object.keys(off).length === 2 ? 2 : 3, JSON.stringify(off));
+    assert.ok(Math.abs(g.reduce((a, r) => a + area(r.poly), 0) - 1) < 1e-9, JSON.stringify(off));
+  }
+  assert.deepEqual(regions(cross).map((g) => g.ids), [[0], [1], [2], [3]]);
+});
 
 test('只有桌面、没有缝：切正中间，说没找准，不把四块全跳过', () => {
   const r = findCross(picture({ desk: 'wood', papers: [null, null, null, null] }));

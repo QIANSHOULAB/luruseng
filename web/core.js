@@ -6,7 +6,7 @@ import './strings.js';
 const t = (k, v) => globalThis.LURU_I18N.t(k, v);
 const list = (a) => globalThis.LURU_I18N.list(a);
 
-export const VERSION = '1.13.0';
+export const VERSION = '1.13.1';
 export const MANUAL_STOP = '手动停止';      // 点了「停止」（只当记号比，给人看的字在 strings.js）
 export const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 export const DEFAULT_MODEL = 'gemini-3.5-flash-lite';

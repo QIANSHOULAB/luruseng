@@ -230,6 +230,270 @@ export function findCross(image) {
   return { cross, sure, empty: emptyIn(a, cross), a };
 }
 
+// ---------------------------------------------------------------- 一张一张纸（148：只剩两三张时别按十字硬切）
+// 纸是一块块白的，中间隔着底：先把每一张找出来。找得出像样的几张，就照它们决定十字的哪几条胳膊要、哪几条不要；
+// 纸挨在一起分不开（连成一大块、形状不像一张纸）就返回 null，照旧按十字缝切。
+const MIN_SHEET = 0.03;                  // 一张纸至少占照片这么多
+const TILT = 20;                         // 摆歪最多认这么多度
+
+/** 连成一片的亮块（从照片四边往里灌「底」，灌不到的都算纸：纸里的表格线、大字）-> 够大的几块 {size, edge: 边上的点, first, labels} */
+function blobs(mask, w, h, min) {
+  const n = w * h, bg = new Uint8Array(n), stack = new Int32Array(n);
+  let sp = 0;
+  const seed = (i) => { if (!mask[i] && !bg[i]) { bg[i] = 1; stack[sp++] = i; } };
+  for (let x = 0; x < w; x++) { seed(x); seed((h - 1) * w + x); }
+  for (let y = 0; y < h; y++) { seed(y * w); seed(y * w + w - 1); }
+  while (sp) {
+    const i = stack[--sp], x = i % w;
+    if (x) seed(i - 1);
+    if (x < w - 1) seed(i + 1);
+    if (i >= w) seed(i - w);
+    if (i < n - w) seed(i + w);
+  }
+  const seen = new Uint8Array(n), found = [];
+  for (let start = 0; start < n; start++) {
+    if (bg[start] || seen[start]) continue;
+    seen[start] = 1;
+    sp = 0;
+    stack[sp++] = start;
+    const mine = [], edge = [];
+    while (sp) {
+      const i = stack[--sp], x = i % w, y = (i - x) / w;
+      mine.push(i);
+      let rim = false;
+      for (const [ok, j] of [[x > 0, i - 1], [x < w - 1, i + 1], [y > 0, i - w], [y < h - 1, i + w]]) {
+        if (!ok || bg[j]) { rim = true; continue; }
+        if (!seen[j]) { seen[j] = 1; stack[sp++] = j; }
+      }
+      if (rim) edge.push(x, y);
+    }
+    if (mine.length < n * min) continue;
+    const labels = new Uint8Array(n);
+    for (const i of mine) labels[i] = 1;
+    found.push({ size: mine.length, edge, first: start, labels });
+  }
+  return found;
+}
+
+/** -> [{area, fill, aspect, box: [x0, y0, x1, y1], poly: 转正的外框（往外放一点）, pts: 纸边往里一点取的一圈点}]，坐标都是占照片的比例；认不准 -> null */
+export function sheets(a) {
+  if (!a.byPaper) return null;
+  let split = false;                                                    // 有哪一块其实是两张（缝太窄，补框线时粘上了）
+  const w = a.w >> 1, h = a.h >> 1, n = w * h;                          // 找整张纸用不着那么细：长宽各减半，快四倍
+  const half = new Uint8Array(n);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = 2 * y * a.w + 2 * x;
+      half[y * w + x] = a.paper[i] + a.paper[i + 1] + a.paper[i + a.w] + a.paper[i + a.w + 1] >= 2 ? 1 : 0;
+    }
+  }
+  const shut = erode(dilate(half, w, h, 2), w, h, 2);                   // 粗框线补上：不然纸边一窄，「底」顺着框线灌进纸里
+  const open = dilate(erode(shut, w, h, 1), w, h, 1);                    // 花布上的亮点、细毛边去掉
+  const found = blobs(open, w, h, MIN_SHEET);
+  if (!found.length || found.length > 4) return null;
+  const bare = blobs(half, w, h, MIN_SHEET);                             // 不补线再数一遍：一块里露出两大片，是两张挨得很近
+  if (found.length > 1) for (const f of found) {                      // 只有一块的下面另有判法（单子自己的粗框会把里头分开）
+    const parts = bare.filter((b) => b.size > f.size * 0.3 && f.labels[b.first]);
+    if (parts.length > 1) split = true;
+  }
+  if (split) return null;
+  const out = found.map(({ size, edge }) => {
+    let best = null;
+    for (let d = -TILT; d <= TILT; d++) {                              // 转到哪个角度外框最小，那就是它摆歪的角度
+      const r = (d * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r);
+      let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+      for (let k = 0; k < edge.length; k += 2) {
+        const u = edge[k] * c + edge[k + 1] * s, v = edge[k + 1] * c - edge[k] * s;
+        if (u < u0) u0 = u;
+        if (u > u1) u1 = u;
+        if (v < v0) v0 = v;
+        if (v > v1) v1 = v;
+      }
+      const area = (u1 - u0 + 1) * (v1 - v0 + 1);
+      if (!best || area < best.area) best = { area, c, s, u0, u1, v0, v1 };
+    }
+    const { c, s, u0, u1, v0, v1 } = best;
+    const point = (u, v) => [(u * c - v * s) / w, (u * s + v * c) / h];
+    const du = u1 - u0, dv = v1 - v0, pad = Math.max(du, dv) * 0.03;
+    const poly = [point(u0 - pad, v0 - pad), point(u1 + pad, v0 - pad), point(u1 + pad, v1 + pad), point(u0 - pad, v1 + pad)]
+      .map(([x, y]) => [Math.min(1, Math.max(0, x)), Math.min(1, Math.max(0, y))]);
+    const pts = [];
+    for (const fu of [0.04, 0.5, 0.96]) for (const fv of [0.04, 0.5, 0.96]) pts.push(point(u0 + du * fu, v0 + dv * fv));
+    const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+    return { area: size / n, fill: size / best.area, aspect: Math.max(du, dv) / Math.max(1, Math.min(du, dv)),
+      box: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], poly, pts };
+  });
+  const areas = out.map((o) => o.area);
+  if (out.some((o) => o.fill < (out.length > 1 ? 0.78 : 0.65))) return null;   // 形状不像纸：几张挨成一团了（只有一块时花布粘边，放宽点）
+  if (out.length > 1 && (out.some((o) => o.aspect > 2.4) || Math.max(...areas) > Math.min(...areas) * 1.9)) return null;   // 有一块顶别的两张大
+  return out;
+}
+
+/** 只找出一块纸色：是一张纸，还是几张挨在一起？挨着的纸之间有一条笔画一点不沾的直道；一张单子里横着有、竖着穿不过表格线。
+ *  -> 'cross'（照十字缝切）、'sides'（左右两张）、'stack'（上下两张）、'one' */
+function joined(a, p) {
+  const [x0, y0, x1, y1] = p.box;
+  const clear = (vertical) => {
+    const len = vertical ? a.h : a.w, from = vertical ? y0 : x0, to = vertical ? y1 : x1;
+    const r = scan(a, a.ink, a.dark, vertical, Math.round(from * len), Math.round(to * len));
+    return r && r.cost <= INK_OK ? r : null;
+  };
+  const v = clear(true), h = clear(false), wide = ((x1 - x0) * a.w) / ((y1 - y0) * a.h);
+  if (v && h) return { how: 'cross' };
+  if (v && wide > 1.6) return { how: 'sides', line: v.line };
+  if (h && wide < 1 / 1.6) return { how: 'stack', line: h.line };
+  return { how: 'one' };
+}
+
+export function inside(poly, x, y) {
+  let hit = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) hit = !hit;
+  }
+  return hit;
+}
+
+const WHOLE = { top: false, bottom: false, left: false, right: false };
+const MERGE = {                          // 去掉一条胳膊，它两边那两格合成一块
+  top: [0, 1], bottom: [2, 3], left: [0, 2], right: [1, 3],
+};
+
+/** 照现在的十字（off：哪几条胳膊不要）分成几块 -> [{ids: 占哪几格（0 左上 1 右上 2 左下 3 右下）, poly}] */
+export function regions(cross, off = WHOLE) {
+  const group = [0, 1, 2, 3];
+  const root = (i) => (group[i] === i ? i : root(group[i]));
+  for (const [arm, [i, j]] of Object.entries(MERGE)) if (off[arm]) group[Math.max(root(i), root(j))] = Math.min(root(i), root(j));
+  const q = quads(cross), [vt, vb] = cross.v, [hl, hr] = cross.h;
+  const union = {
+    '0,1': () => [[0, 0], [1, 0], [1, hr[1]], meet(vt, hr), meet(vt, hl), [0, hl[0]]],
+    '2,3': () => [[0, hl[0]], meet(vb, hl), meet(vb, hr), [1, hr[1]], [1, 1], [0, 1]],
+    '0,2': () => [[0, 0], [vt[0], 0], meet(vt, hl), meet(vb, hl), [vb[1], 1], [0, 1]],
+    '1,3': () => [[vt[0], 0], [1, 0], [1, 1], [vb[1], 1], meet(vb, hr), meet(vt, hr)],
+    '0,1,2,3': () => [[0, 0], [1, 0], [1, 1], [0, 1]],
+  };
+  const out = [];
+  for (let i = 0; i < 4; i++) {
+    if (root(i) !== i) continue;
+    const ids = [0, 1, 2, 3].filter((k) => root(k) === i);
+    out.push({ ids, poly: ids.length === 1 ? q[i] : (union[ids.join(',')] || union['0,1,2,3'])() });
+  }
+  return out;
+}
+
+/** 一块的外框 [x0, y0, x1, y1] */
+export function frame(poly) {
+  const xs = poly.map((p) => p[0]), ys = poly.map((p) => p[1]);
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+}
+
+/** 认出一整张纸在里头、可纸只占这块一小片的（两三张时合起来的大块）：只抠纸那一圈（留宽边），不然缩小以后字太小。
+ *  给这样的块记上 tight = [x0, y0, x1, y1] */
+export function tighten(list, papers) {
+  return list.map((g) => {
+    const mine = (papers || []).filter((p) => p.pts.every(([x, y]) => inside(g.poly, x, y)));
+    if (g.empty || mine.length !== 1) return g;
+    const [x0, y0, x1, y1] = frame(mine[0].poly), pad = 0.06 * Math.max(x1 - x0, y1 - y0), r = frame(g.poly);
+    const t = [Math.max(r[0], x0 - pad), Math.max(r[1], y0 - pad), Math.min(r[2], x1 + pad), Math.min(r[3], y1 + pad)];
+    return (t[2] - t[0]) * (t[3] - t[1]) < 0.6 * (r[2] - r[0]) * (r[3] - r[1]) ? { ...g, tight: t } : g;
+  });
+}
+
+/** 每张纸整个落在某一块里、每一块最多装一张 -> 每块装的是第几张（没装 -1）；不然 -> null */
+function holds(list, papers) {
+  const owner = list.map(() => -1);
+  for (const [k, p] of papers.entries()) {
+    const at = list.findIndex((r) => p.pts.every(([x, y]) => inside(r.poly, x, y)));
+    if (at < 0 || owner[at] >= 0) return null;
+    owner[at] = k;
+  }
+  return owner;
+}
+
+/** 十字缝找得不对时，照纸摆的位置重摆：先按一整条横缝分上下排（不行再按竖缝分左右列），每排两张的中间才有那条胳膊。-> [cross, off] 的候选 */
+function byPapers(papers, found) {
+  const tries = [];
+  for (const across of [true, false]) {                                  // across：主缝是横的
+    const lo = across ? 1 : 0, other = across ? 0 : 1;
+    const order = [...papers].sort((p, q) => (p.box[lo] + p.box[lo + 2]) - (q.box[lo] + q.box[lo + 2]));
+    let split = null;
+    for (let k = 1; k < order.length; k++) {
+      const end = Math.max(...order.slice(0, k).map((p) => p.box[lo + 2])), begin = Math.min(...order.slice(k).map((p) => p.box[lo]));
+      if (begin - end > -0.015 && (!split || begin - end > split.gap)) split = { k, gap: begin - end, at: (end + begin) / 2 };
+    }
+    const groups = split ? [order.slice(0, split.k), order.slice(split.k)] : [order, []];
+    if (!split && order.length > 2) continue;
+    const main = split ? [split.at, split.at] : [0.5, 0.5];
+    const subs = [], missing = [];
+    let ok = true;
+    for (const g of groups) {
+      if (g.length > 2) { ok = false; break; }
+      if (g.length < 2) { subs.push(null); continue; }
+      const [p, q] = [...g].sort((x, y) => (x.box[other] + x.box[other + 2]) - (y.box[other] + y.box[other + 2]));
+      if (q.box[other] - p.box[other + 2] < -0.015) { ok = false; break; }
+      const m = (p.box[other + 2] + q.box[other]) / 2;
+      subs.push([m, m]);
+    }
+    if (!ok) continue;
+    for (const i of [0, 1]) missing.push(!subs[i]);
+    const one = subs[0] || subs[1] || [0.5, 0.5];
+    const flat = [subs[0] || one, subs[1] || one];
+    const mains = [main, main];
+    // 没分出两排（全在一排）：主缝整条不要
+    const off = across ? { top: missing[0], bottom: split ? missing[1] : missing[0], left: !split, right: !split }
+      : { left: missing[0], right: split ? missing[1] : missing[0], top: !split, bottom: !split };
+    if (!split) {
+      const both = across ? { top: false, bottom: false } : { left: false, right: false };
+      if (order.length === 2) Object.assign(off, both);                  // 并排两张：中间那条整条都要
+    }
+    const secondary = !split && order.length === 2 ? [flat[0], flat[0]] : flat;
+    const plain = across ? { v: secondary, h: mains } : { v: mains, h: secondary };
+    if (found) {                                                         // 原来找到的缝（会跟着纸斜）能用就用它的
+      tries.push([across ? { v: plain.v, h: found.h } : { v: found.v, h: plain.h }, off]);
+      tries.push([across ? { v: found.v, h: plain.h } : { v: plain.v, h: found.h }, off]);
+      tries.push([found, off]);
+    }
+    tries.push([plain, off]);
+  }
+  return tries;
+}
+
+/** 缩小图 -> 怎么切。{cross, off, boxes, sure, count, regions: [{ids, poly, empty}], a}
+ *  cross 模式：十字（off 里的胳膊不要）；boxes 模式（只有一张、或者摆法十字装不下）：一张纸一个框，不能拖。 */
+export function layout(image) {
+  const a = analyze(image);
+  const found = findIn(a), papers = sheets(a);
+  const result = (cross, off, owner) => {
+    const empty = emptyIn(a, cross);
+    const list = tighten(regions(cross, off).map((r, i) => ({ ...r, empty: (!owner || owner[i] < 0) && r.ids.every((q) => empty[q]) })), owner && papers);
+    return { cross, off, boxes: null, sure: found.sure || !!owner, count: list.filter((r) => !r.empty).length, regions: list, a, papers: owner ? papers : null };
+  };
+  if (!papers) return result(found.cross, { ...WHOLE }, null);         // 分不开：照十字缝切
+  if (papers.length === 1) {
+    const j = joined(a, papers[0]);
+    if (j.how === 'cross') return result(found.cross, { ...WHOLE }, null);
+    if (j.how !== 'one') {                                              // 两张挨着：只切中间那一刀
+      const mid = [[0.5, 0.5], [0.5, 0.5]], line = [j.line, j.line], side = j.how === 'sides';
+      const cross = side ? { v: line, h: mid } : { v: mid, h: line };
+      return result(cross, { top: !side, bottom: !side, left: side, right: side }, [0, 0]);
+    }
+  } else {
+    const whole = holds(regions(found.cross), papers);
+    if (found.sure && whole) return result(found.cross, { ...WHOLE }, whole);
+    for (const [cross, off] of byPapers(papers, found.cross)) {
+      const owner = holds(regions(cross, off), papers);
+      if (owner && owner.filter((k) => k >= 0).length === papers.length) return result(cross, off, owner);
+    }
+    if (whole) return result(found.cross, { ...WHOLE }, whole);
+  }
+  const order = [...papers].sort((p, q) => {                            // 先上后下、一排里先左后右
+    const dy = (p.box[1] + p.box[3] - q.box[1] - q.box[3]) / 2;
+    return Math.abs(dy) > 0.2 ? dy : p.box[0] - q.box[0];
+  });
+  return { cross: found.cross, off: { ...WHOLE }, boxes: order.map((p) => p.poly), sure: true, count: order.length,
+    regions: order.map((p, i) => ({ ids: [i], poly: p.poly, empty: false })), a };
+}
+
 // ---------------------------------------------------------------- 手拖
 const clamp = (n) => Math.min(0.92, Math.max(0.08, n));
 const sameLine = (p, q) => Math.abs(p[0] - q[0]) < 1e-6 && Math.abs(p[1] - q[1]) < 1e-6;

@@ -72,8 +72,9 @@ def make_images(folder, n, start=0):
 MARKS = [(220, 30, 30), (30, 160, 50), (30, 60, 220), (210, 140, 0)]     # 四张单子各带一个色块：左上、右上、左下、右下
 
 
-def make_four(path, skip=(), size=(4032, 3024), tilt=(0, 0, 0, 0), stamp=1_700_100_000, desk=(92, 70, 52)):
-    """假的四联照片：深色桌面上十字摆着四张单子（表格线、字），每张一个色块，skip 里的位置空着。"""
+def make_four(path, skip=(), size=(4032, 3024), tilt=(0, 0, 0, 0), stamp=1_700_100_000, desk=(92, 70, 52), places={}):
+    """假的四联照片：深色桌面上十字摆着四张单子（表格线、字），每张一个色块，skip 里的位置空着。
+    places：{第几张: (中心 x, 中心 y)}，不按十字格子摆的那几张"""
     W, H = size
     im = Image.new('RGB', size, desk)
     pw, ph = int(W * 0.40), int(H * 0.40)
@@ -90,7 +91,8 @@ def make_four(path, skip=(), size=(4032, 3024), tilt=(0, 0, 0, 0), stamp=1_700_1
                 d.rectangle([x, y - ph * 0.045, x + pw * (0.05 + 0.02 * ((r + c + n) % 3)), y - ph * 0.018], fill=(40, 40, 50))
         d.rectangle([pw * 0.08, ph * 0.07, pw * 0.30, ph * 0.18], fill=MARKS[n])
         sheet = sheet.rotate(tilt[n], expand=True, resample=Image.BICUBIC, fillcolor=desk)
-        cx, cy = W * (0.27 + 0.46 * i), H * (0.27 + 0.46 * j)
+        fx, fy = places.get(n, (0.27 + 0.46 * i, 0.27 + 0.46 * j))
+        cx, cy = W * fx, H * fy
         im.paste(sheet, (int(cx - sheet.width / 2), int(cy - sheet.height / 2)))
     os.makedirs(os.path.dirname(path), exist_ok=True)
     im.save(path, quality=92)
@@ -1311,6 +1313,8 @@ def main():
 
             def done(q, want):
                 q.wait_for_function('w => document.querySelector("#status").textContent.replace(/\\s/g, "") === w', arg=want, timeout=60000)
+                if not q.is_checked('#auto'):             # 手动开工的干完会自己打开核对：等它开出来再关
+                    q.wait_for_selector('#dlg-view[open]')
                 if q.is_visible('#dlg-view'):
                     q.click('#vclose')
 
@@ -1442,6 +1446,40 @@ def main():
                 p.wait_for_function('() => document.querySelector("#droptxt").textContent === "1 张：broken.jpg"')
                 assert not p.is_visible('#quadbox')
                 p.click('#clear')
+
+                # 148 最后只剩两三张：摆成什么样就切几张，一张也不切两半
+                def few(name, want, caps, **kw):
+                    p.set_input_files('#files', make_four(os.path.join(d, name), **kw))
+                    p.wait_for_function('w => document.querySelector("#droptxt").textContent.startsWith(w + " 张：")', arg=str(want), timeout=15000)
+                    p.wait_for_selector('#quadbox:not([hidden])')
+                    got = p.eval_on_selector_all('.qthumbs figure:not([hidden]) figcaption', 'e => e.map(x => x.textContent)')
+                    assert got == caps, got
+                    p.eval_on_selector('#quadbox', 'e => e.scrollIntoView({block: "center"})')
+                    p.screenshot(path=os.path.join(SHOTS, f'12-少几张-{name[:-4]}.png'))
+
+                # 上两张、下一张摆正中：竖缝只到一半，拖胳膊照样能改
+                few('f.jpg', 3, ['1 左上', '2 右上', '3 下面'], skip=(3,), places={2: (0.5, 0.74)}, stamp=1_700_100_700)
+                said(p, 'f.jpg 找到 3 张纸，切成 3 张')
+                assert not p.is_visible('.q-bottom') and p.is_visible('.q-top') and p.is_visible('.q-left')
+                n = text(p).count('重切了')
+                finger(p, '.q-top', 14, 0)
+                p.wait_for_function('n => [...document.querySelectorAll("#log p")].filter(p => p.textContent.includes("重切了")).length > n', arg=n)
+                assert p.inner_text('#droptxt').startswith('3 张：f_1.jpg、f_2.jpg、f_3.jpg'), p.inner_text('#droptxt')
+                p.click('#start')
+                done(p, '干完：成功3·失败0')
+                assert colours(p) == {'1': '0', '2': '1', '3': '2'}, colours(p)
+                # 并排两张摆在上下正中：只切中间一刀
+                few('c.jpg', 2, ['1 左边', '2 右边'], skip=(2, 3), places={0: (0.27, 0.5), 1: (0.73, 0.5)}, stamp=1_700_100_800)
+                assert not p.is_visible('.q-left') and not p.is_visible('.q-center') and p.is_visible('.q-top')
+                p.click('#start')
+                done(p, '干完：成功2·失败0')
+                assert colours(p) == {'1': '0', '2': '1'}, colours(p)
+                # 只剩一张：整张留着，不按十字切
+                few('one.jpg', 1, ['第 1 张'], skip=(1, 2, 3), places={0: (0.5, 0.5)}, stamp=1_700_100_900)
+                assert p.inner_text('.qnote') == '好了点开始' and not p.is_visible('.q-top')
+                p.click('#start')
+                done(p, '干完：成功1·失败0')
+                assert colours(p) == {'1': '0'}, colours(p)
 
                 # ⑥ 关掉开关：一张照片还是一张单子
                 p.click('label:has(#quad)')

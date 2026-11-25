@@ -2,6 +2,9 @@
 
 When there's a new version, the app shows you the sections newer than the one you have.
 
+## 1.13.1
+- Web, “4 forms per photo”: two or three left (or just one)? Shoot them anyway. Luru finds each sheet and cuts only where there’s something to cut. Nothing gets sliced in half.
+
 ## 1.13.0
 - Web: new switch, “4 forms per photo”. Lay four forms in a cross, shoot once, and Luru cuts along the gaps and reads them one by one. Wrong cut? Drag the cross. Empty corner? Skipped. Keep them tight and fill the frame.
 

@@ -1,5 +1,5 @@
-// 「一张拍四份」：照片进来先沿十字缝切成四张，给人看四块小图和那道十字（能拖），再进列表照常认。
-// 找缝在 quad.js（只看像素）；列表、开工还是 app.js 管，这里只通过 host 跟它打交道。
+// 「一张拍四份」：照片进来先切开（最多四张；只摆了两三张就切两三张），给人看切出来的小图和那道十字（能拖），再进列表照常认。
+// 找纸、找缝在 quad.js（只看像素）；列表、开工还是 app.js 管，这里只通过 host 跟它打交道。
 import './strings.js';
 import * as Q from './quad.js';
 import * as I from './image.js';
@@ -10,17 +10,21 @@ const VIEW_SIDE = 800;                     // 预览、小图用的缩小图（�
 const CUT_SIDE = 2560;                     // 切出来那张最长边（手机 1200 万像素拍的，一块本来就两千上下）
 const BLEED = 0.006;                       // 沿缝多留一丝：缝认偏一点点也不切到字
 const AT = ['quad.tl', 'quad.tr', 'quad.bl', 'quad.br'];
+const PAIR = { '0,1': 'quad.top', '2,3': 'quad.bottom', '0,2': 'quad.left', '1,3': 'quad.right' };     // 少一条胳膊，两格合成一块
+const where = (ids) => t(ids.length === 1 ? AT[ids[0]] : PAIR[ids.join(',')]);
+const full = (s) => s.regions.filter((r) => !r.empty).length;
 const ARMS = ['top', 'bottom', 'left', 'right', 'center'];
 const SVG = 'http://www.w3.org/2000/svg';
 
-/** 从原图上把一块四边形（比例坐标）抠出来：外面垫白，隔壁那张纸漏不进来 */
-export async function cutOut(img, poly, file) {
+/** 从原图上把一块多边形（比例坐标）抠出来：外面垫白，隔壁那张纸漏不进来。tight：只要这一框里头的 */
+export async function cutOut(img, poly, file, tight) {
   const W = img.naturalWidth || img.width, H = img.naturalHeight || img.height;
-  const cx = poly.reduce((s, p) => s + p[0], 0) / 4, cy = poly.reduce((s, p) => s + p[1], 0) / 4;
+  const cx = poly.reduce((s, p) => s + p[0], 0) / poly.length, cy = poly.reduce((s, p) => s + p[1], 0) / poly.length;
   const grow = (v, c) => Math.min(1, Math.max(0, v + (v > c ? BLEED : -BLEED)));
   const pts = poly.map(([x, y]) => [grow(x, cx) * W, grow(y, cy) * H]);
-  const x0 = Math.floor(Math.min(...pts.map((p) => p[0]))), x1 = Math.ceil(Math.max(...pts.map((p) => p[0])));
-  const y0 = Math.floor(Math.min(...pts.map((p) => p[1]))), y1 = Math.ceil(Math.max(...pts.map((p) => p[1])));
+  let [x0, y0, x1, y1] = Q.frame(pts);
+  if (tight) [x0, y0, x1, y1] = [Math.max(x0, tight[0] * W), Math.max(y0, tight[1] * H), Math.min(x1, tight[2] * W), Math.min(y1, tight[3] * H)];
+  [x0, y0, x1, y1] = [Math.floor(x0), Math.floor(y0), Math.ceil(x1), Math.ceil(y1)];
   const sw = Math.max(1, x1 - x0), sh = Math.max(1, y1 - y0), k = Math.min(1, CUT_SIDE / Math.max(sw, sh));
   const c = I.canvas(Math.max(1, Math.round(sw * k)), Math.max(1, Math.round(sh * k)));
   const g = c.getContext('2d');
@@ -54,7 +58,7 @@ export class Quad {
 
   // ------------------------------------------------------------ 进来一张
   add(file, meta) {
-    const gen = this.gen, sheet = { ...meta, file, name: file.name, items: [], cross: null, empty: [false, false, false, false], holding: false, busy: 0, timer: 0, left: 0 };
+    const gen = this.gen, sheet = { ...meta, file, name: file.name, items: [], cross: null, regions: [], holding: false, busy: 0, timer: 0, left: 0 };
     this.keeping.add(sheet);
     const kept = this.host.keep(sheet);                 // 原图先存进浏览器：切到一半页面被手机杀了也丢不了
     this.chain = this.chain.then(() => (gen === this.gen ? this.split(sheet, gen) : null)).catch((e) => { console.error(e); });
@@ -73,9 +77,9 @@ export class Quad {
       img = await I.openImage(sheet.file);
       sheet.view = I.draw(img, VIEW_SIDE);
       const small = I.draw(sheet.view, Q.FIND_SIDE);
-      const r = Q.findCross(small.getContext('2d').getImageData(0, 0, small.width, small.height));
+      const r = Q.layout(small.getContext('2d').getImageData(0, 0, small.width, small.height));
       const { w, h, V, dark, top } = r.a;                 // 拖十字时重看哪块空着，只要这几样
-      Object.assign(sheet, { cross: r.cross, sure: r.sure, empty: r.empty, pixels: { w, h, V, dark, top } });
+      Object.assign(sheet, { cross: r.cross, off: r.off, boxes: r.boxes, papers: r.papers, sure: r.sure, regions: r.regions, pixels: { w, h, V, dark, top } });
     } catch (e) {
       if (gen === this.gen) this.whole(sheet, e);
       return;
@@ -91,7 +95,8 @@ export class Quad {
     if (!this.root.hidden && this.root.getBoundingClientRect().bottom > innerHeight) this.root.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     await new Promise((ok) => setTimeout(ok, 0));       // 让浏览器先画出来，再慢慢做大图
     if (!sheet.sure) this.host.log(t('log.quadUnsure', { name: sheet.name }));
-    sheet.empty.forEach((e, i) => { if (e) this.host.log(t('log.quadEmpty', { name: sheet.name, where: t(AT[i]) })); });
+    for (const g of sheet.regions) if (g.empty) this.host.log(t('log.quadEmpty', { name: sheet.name, where: where(g.ids) }));
+    if (sheet.regions.length < 4) this.host.log(t('log.quadFound', { name: sheet.name, n: full(sheet) }));
     let shot = await I.shotTime(sheet.file);
     shot = Math.max(shot || Date.now(), this.last + 10);
     this.last = sheet.shot = shot;
@@ -116,13 +121,12 @@ export class Quad {
     this.host.go(sheet);
   }
 
-  /** 照现在的十字切出要认的那几张（空块不要）：原名_1…_4 = 左上、右上、左下、右下 */
+  /** 照现在的切法切出要认的那几张（空块不要）：原名_1…_4 = 左上、右上、左下、右下（合起来的一块用它靠前的那个号） */
   async files(sheet, img) {
-    const polys = Q.quads(sheet.cross), dot = sheet.name.lastIndexOf('.'), stem = dot > 0 ? sheet.name.slice(0, dot) : sheet.name;
+    const dot = sheet.name.lastIndexOf('.'), stem = dot > 0 ? sheet.name.slice(0, dot) : sheet.name;
     const out = [];
-    for (let i = 0; i < 4; i++) {
-      if (sheet.empty[i]) continue;
-      out.push(await cutOut(img, polys[i], { name: `${stem}_${i + 1}.jpg`, lastModified: sheet.shot + i }));
+    for (const { ids, poly, empty, tight } of sheet.regions) {
+      if (!empty) out.push(await cutOut(img, poly, { name: `${stem}_${ids[0] + 1}.jpg`, lastModified: sheet.shot + ids[0] }, tight));
     }
     return out;
   }
@@ -240,7 +244,7 @@ export class Quad {
     this.root.hidden = !s;
     if (!s) return;
     const i = this.sheets.indexOf(s), v = s.view;
-    this.title.textContent = t('quad.title', { name: s.name });
+    this.title.textContent = t('quad.title', { name: s.name, n: full(s) });
     this.pager.hidden = this.sheets.length < 2;
     this.num.textContent = `${i + 1}/${this.sheets.length}`;
     this.prev.disabled = i <= 0;
@@ -264,8 +268,10 @@ export class Quad {
   note() {
     const s = this.cur;
     if (!s) return;
+    const box = s.boxes ? 'Box' : '';                  // 一张纸一个框的：没有十字可拖
     const text = !this.free(s) ? (s.items.some((q) => q.taken) ? t('quad.locked') : '')
-      : s.holding ? t(s.busy ? 'quad.cutting' : 'quad.wait', { s: s.left }) : t('quad.manual');
+      : s.holding ? (s.busy ? t('quad.cutting') : t(box ? 'quad.waitBox' : 'quad.wait', { s: s.left }))
+        : t(box ? 'quad.manualBox' : 'quad.manual');
     if (this.line.textContent !== text) this.line.textContent = text;
   }
 
@@ -280,27 +286,33 @@ export class Quad {
       this.svg.appendChild(e);
       return e;
     };
-    const polys = Q.quads(s.cross);
-    polys.forEach((p, i) => { if (s.empty[i]) add('polygon', { class: 'qoff', points: p.map(([x, y]) => `${x * W},${y * H}`).join(' ') }); });
-    const arms = Q.arms(s.cross);
-    const lines = [[s.cross.v[0], true, 0], [s.cross.v[1], true, 1], [s.cross.h[0], false, 0], [s.cross.h[1], false, 1]];
+    const points = (p) => p.map(([x, y]) => `${x * W},${y * H}`).join(' ');
+    for (const g of s.regions) if (g.empty) add('polygon', { class: 'qoff', points: points(g.poly) });
+    const arms = Q.arms(s.cross), off = s.off;
     const [vt, vb] = s.cross.v, [hl, hr] = s.cross.h;
-    const ends = [
-      [[vt[0], 0], Q.meet(vt, hl)], [Q.meet(vb, hl), [vb[1], 1]], [[0, hl[0]], Q.meet(vt, hl)], [Q.meet(vt, hr), [1, hr[1]]],
-    ];
-    // 上下错开时中间有一小截台阶：沿着另一道缝把两头连上
-    ends.push([Q.meet(vt, hl), Q.meet(vt, hr)], [Q.meet(vb, hl), Q.meet(vb, hr)], [Q.meet(vt, hl), Q.meet(vb, hl)], [Q.meet(vt, hr), Q.meet(vb, hr)]);
+    const ends = [];
+    if (!s.boxes) {
+      if (!off.top) ends.push([[vt[0], 0], Q.meet(vt, hl)]);
+      if (!off.bottom) ends.push([Q.meet(vb, hl), [vb[1], 1]]);
+      if (!off.left) ends.push([[0, hl[0]], Q.meet(vt, hl)]);
+      if (!off.right) ends.push([Q.meet(vt, hr), [1, hr[1]]]);
+      // 上下（左右）错开时中间有一小截台阶：沿着另一道缝把两头连上
+      if (!off.left || !off.right) ends.push([Q.meet(vt, hl), Q.meet(vt, hr)], [Q.meet(vb, hl), Q.meet(vb, hr)]);
+      if (!off.top || !off.bottom) ends.push([Q.meet(vt, hl), Q.meet(vb, hl)], [Q.meet(vt, hr), Q.meet(vb, hr)]);
+    }
     for (const cls of ['qhalo', 'qline']) {
       for (const [[x1, y1], [x2, y2]] of ends) add('line', { class: cls, x1: x1 * W, y1: y1 * H, x2: x2 * W, y2: y2 * H });
+      if (s.boxes) for (const g of s.regions) add('polygon', { class: cls, points: points(g.poly) });
     }
-    polys.forEach((p, i) => {
-      const x = (p.reduce((a, q) => a + q[0], 0) / 4) * W, y = (p.reduce((a, q) => a + q[1], 0) / 4) * H;
-      add('text', { class: s.empty[i] ? 'qno off' : 'qno', x, y }).textContent = s.empty[i] ? t('empty') : String(i + 1);
-    });
+    for (const g of s.regions) {
+      const x = (g.poly.reduce((a, q) => a + q[0], 0) / g.poly.length) * W, y = (g.poly.reduce((a, q) => a + q[1], 0) / g.poly.length) * H;
+      add('text', { class: g.empty ? 'qno off' : 'qno', x, y }).textContent = g.empty ? t('empty') : String(g.ids[0] + 1);
+    }
     const box = this.stage.getBoundingClientRect(), bw = box.width, bh = box.height;
+    const cut = { v: !off.top || !off.bottom, h: !off.left || !off.right };
     for (const a of ARMS) {
       const h = this.handles[a];
-      h.hidden = !free;
+      h.hidden = !free || !!s.boxes || (a === 'center' ? !(cut.v && cut.h) : off[a]);
       if (a === 'center') { h.style.left = `${arms.center[0] * 100}%`; h.style.top = `${arms.center[1] * 100}%`; continue; }
       const [[x1, y1], [x2, y2]] = arms[a];
       const dx = (x2 - x1) * bw, dy = (y2 - y1) * bh;
@@ -311,27 +323,37 @@ export class Quad {
     }
   }
 
-  small() {                                 // 四块小图
+  small() {                                 // 切出来的小图
     const s = this.cur;
-    const polys = Q.quads(s.cross);
     this.cells.forEach(({ f, c, cap }, i) => {
-      const W = s.view.width, H = s.view.height, xs = polys[i].map((p) => p[0] * W), ys = polys[i].map((p) => p[1] * H);
-      const x0 = Math.min(...xs), y0 = Math.min(...ys), sw = Math.max(1, Math.max(...xs) - x0), sh = Math.max(1, Math.max(...ys) - y0);
+      const g0 = s.regions[i];
+      f.hidden = !g0;
+      if (!g0) return;
+      const { ids, poly, empty, tight } = g0;
+      const W = s.view.width, H = s.view.height, [px0, py0, px1, py1] = Q.frame(poly), [a0, b0, a1, b1] = tight || [0, 0, 1, 1];
+      const x0 = Math.max(px0, a0) * W, y0 = Math.max(py0, b0) * H;
+      const sw = Math.max(1, Math.min(px1, a1) * W - x0), sh = Math.max(1, Math.min(py1, b1) * H - y0);
       const k = Math.min(1, 240 / Math.max(sw, sh));
       c.width = Math.max(1, Math.round(sw * k));
       c.height = Math.max(1, Math.round(sh * k));
       const g = c.getContext('2d');
       g.beginPath();
-      polys[i].forEach(([x, y], n) => g[n ? 'lineTo' : 'moveTo']((x * W - x0) * k, (y * H - y0) * k));
+      poly.forEach(([x, y], n) => g[n ? 'lineTo' : 'moveTo']((x * W - x0) * k, (y * H - y0) * k));
       g.closePath();
       g.clip();
       g.drawImage(s.view, x0, y0, sw, sh, 0, 0, c.width, c.height);
-      f.classList.toggle('off', s.empty[i]);
-      cap.textContent = s.empty[i] ? t('quad.off', { n: i + 1, where: t(AT[i]) }) : `${i + 1} ${t(AT[i])}`;
+      f.classList.toggle('off', empty);
+      cap.textContent = s.boxes ? t('quad.nth', { n: i + 1 })
+        : empty ? t('quad.off', { n: ids[0] + 1, where: where(ids) }) : `${ids[0] + 1} ${where(ids)}`;
     });
   }
 
   // ------------------------------------------------------------ 手拖
+  recount(s) {                              // 十字挪了：哪几块、哪块空着重新算
+    const empty = Q.emptyIn(s.pixels, s.cross);
+    s.regions = Q.tighten(Q.regions(s.cross, s.off).map((g) => ({ ...g, empty: g.ids.every((q) => empty[q]) })), s.papers);
+  }
+
   down(e, arm) {
     const s = this.cur;
     if (!s || this.grab || !this.free(s) || (s.busy && !s.items.length)) return;
@@ -352,6 +374,7 @@ export class Quad {
     if (!g.moved && Math.hypot(e.clientX - g.x, e.clientY - g.y) < 3) return;
     g.moved = true;
     g.s.cross = Q.drag(g.cross, g.arm, dx, dy);
+    this.recount(g.s);
     this.place();
     this.small();
   }
@@ -370,11 +393,12 @@ export class Quad {
     }
     if (!this.free(s)) {                     // 手还按着，那边已经点了开始：认的是原来的切法，十字放回去
       s.cross = g.cross;
+      this.recount(s);
       s.busy--;
       this.render();
       return;
     }
-    s.empty = Q.emptyIn(s.pixels, s.cross);
+    this.recount(s);
     this.place();
     this.small();
     const gen = this.gen;
