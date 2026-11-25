@@ -269,3 +269,199 @@ export async function rotate(blob, clockwise) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   return toBlob(c, 0.9);
 }
+
+// ---------------------------------------------------------------- 163：白纸、几种画法、照片的底细
+// iPhone 上「拍照」当场交给网页的那张，老画法（<img> load 一到就往 OffscreenCanvas 上画）画出来整张白；相册里选的没事。
+// 每种画法都能单独叫（诊断页挨个画）；paint() 按顺序画，第一条画出来不白的就用它。
+
+export const FLAT = 4;                          // 缩成 48 像素看灰度标准差：真照片 45 往上，白纸 0
+function plain(w, h) {                          // 普通 <canvas>（没有 document 的地方才用 OffscreenCanvas）
+  if (typeof document === 'undefined') return new OffscreenCanvas(w, h);
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  return c;
+}
+export function flatness(src, n = 48) {        // 这张图有多「平」：灰度标准差
+  const [w, h] = sizeOf(src);
+  if (!w || !h) return 0;
+  const s = Math.min(1, n / Math.max(w, h));
+  const W = Math.max(1, Math.round(w * s)), H = Math.max(1, Math.round(h * s));
+  const c = plain(W, H), ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, W, H);
+  ctx.drawImage(src, 0, 0, W, H);
+  const d = ctx.getImageData(0, 0, W, H).data;
+  let s1 = 0, s2 = 0;
+  const k = d.length / 4;
+  for (let i = 0; i < d.length; i += 4) {
+    const g = (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000;
+    s1 += g; s2 += g * g;
+  }
+  const m = s1 / k;
+  return Math.round(Math.sqrt(Math.max(0, s2 / k - m * m)) * 10) / 10;
+}
+export const isBlank = (src) => flatness(src) < FLAT;
+
+export async function blobFlatness(blob) {     // 压好的 JPG 解开再量（量的是真要发出去的那份）
+  if (typeof createImageBitmap === 'function') {
+    try { const b = await createImageBitmap(blob); try { return flatness(b); } finally { if (b.close) b.close(); } } catch (e) { /* 退回 <img> */ }
+  }
+  const { img, url } = await viaImg(blob);
+  try { return flatness(img); } finally { URL.revokeObjectURL(url); }
+}
+
+export function thumb(src, side = 160, q = 0.72) {   // 小图（data: 网址），手机上一眼看出白不白
+  const [w, h] = sizeOf(src);
+  const s = Math.min(1, side / Math.max(w, h));
+  const c = plain(Math.max(1, Math.round(w * s)), Math.max(1, Math.round(h * s)));
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(src, 0, 0, c.width, c.height);
+  return c.toDataURL ? c.toDataURL('image/jpeg', q) : '';
+}
+
+// JPEG 的底细：EXIF 方向、没转过的宽高、有没有 HDR 增益图（苹果的 / ISO 21496 / Ultra HDR）
+export function jpegInfo(buf) {
+  const v = new DataView(buf), out = { jpeg: false, orient: 0, w: 0, h: 0, mpf: false, gain: [] };
+  try {
+    if (v.getUint16(0) !== 0xffd8) return out;
+    out.jpeg = true;
+    let off = 2;
+    while (off + 4 < v.byteLength) {
+      const marker = v.getUint16(off), len = v.getUint16(off + 2);
+      if ((marker & 0xff00) !== 0xff00) break;
+      if (marker === 0xffe1 && v.getUint32(off + 4) === 0x45786966) {
+        const t0 = off + 10, le = v.getUint16(t0) === 0x4949;
+        const p = t0 + v.getUint32(t0 + 4, le), n = v.getUint16(p, le);
+        for (let i = 0; i < n; i++) {
+          const e = p + 2 + i * 12;
+          if (v.getUint16(e, le) === 0x0112) out.orient = v.getUint16(e + 8, le);
+        }
+      }
+      if (marker === 0xffe2 && v.getUint32(off + 4) === 0x4d504600) out.mpf = true;   // 'MPF\0'：后面还挂着别的图（增益图、深度图）
+      if (marker >= 0xffc0 && marker <= 0xffcf && ![0xffc4, 0xffc8, 0xffcc].includes(marker)) {
+        out.h = v.getUint16(off + 5); out.w = v.getUint16(off + 7);
+        break;
+      }
+      off += 2 + len;
+    }
+  } catch (e) { /* 读到哪算哪 */ }
+  const s = new TextDecoder('latin1').decode(new Uint8Array(buf, 0, Math.min(buf.byteLength, 4 << 20)));
+  for (const [k, name] of [['HDRGainMap', 'apple'], ['urn:iso:std:iso:ts:21496', 'iso'], ['hdrgm:', 'ultrahdr']]) if (s.includes(k)) out.gain.push(name);
+  return out;
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function viaImg(blob) {                  // <img>：load 完了再等 decode()（页面在后台 decode() 可能不回来：最多等 4 秒，过了照画，画白了 paint() 换下一种）
+  const url = URL.createObjectURL(blob);
+  const img = new Image();
+  try {
+    await new Promise((ok, bad) => { img.onload = ok; img.onerror = () => bad(new Error(t('img.cantOpen'))); img.src = url; });
+    if (img.decode) await Promise.race([img.decode().catch(() => {}), sleep(document.hidden ? 1000 : 4000)]);
+  } catch (e) { URL.revokeObjectURL(url); throw e; }
+  return { img, url };
+}
+
+const EXIF_FIX = {                             // 解出来没按 EXIF 转：自己转（方向 -> 画原图之前的变换）
+  2: (w, h) => [-1, 0, 0, 1, w, 0], 3: (w, h) => [-1, 0, 0, -1, w, h], 4: (w, h) => [1, 0, 0, -1, 0, h],
+  5: () => [0, 1, 1, 0, 0, 0], 6: (w, h) => [0, 1, -1, 0, h, 0], 7: (w, h) => [0, -1, -1, 0, h, w], 8: (w) => [0, -1, 1, 0, 0, w],
+};
+function drawPlain(src, side, orient = 1, mk = plain) {   // 画到一张新画布上，最长边 side；orient≠1 时自己转
+  const [w, h] = sizeOf(src);
+  const swap = orient >= 5;
+  const ow = swap ? h : w, oh = swap ? w : h;
+  const s = Math.min(1, side / Math.max(ow, oh));
+  const W = Math.max(1, Math.round(ow * s)), H = Math.max(1, Math.round(oh * s));
+  const c = mk(W, H), ctx = c.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, W, H);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.scale(W / ow, H / oh);
+  if (EXIF_FIX[orient]) ctx.transform(...EXIF_FIX[orient](w, h));
+  ctx.drawImage(src, 0, 0, w, h);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  return c;
+}
+export function scaled(c, side) { return drawPlain(c, side); }   // 要缩小：画布画画布，不再从原图重画
+
+async function bitmapOf(blob, opts, info) {    // createImageBitmap；没按 EXIF 转（宽高跟原图一样、方向又要换宽高）就自己转
+  const b = opts ? await createImageBitmap(blob, opts) : await createImageBitmap(blob);
+  let orient = 1;
+  if (info && info.orient >= 5 && info.w !== info.h && b.width === info.w && b.height === info.h) orient = info.orient;
+  return { b, orient };
+}
+
+// 几种画法：都返回一张画好的画布（最长边 side）
+export const WAYS = ['img', 'bitmap', 'bitmapRaw', 'offscreen'];
+export async function paintWith(way, blob, side, info) {
+  if (way === 'img' || way === 'imgOff') {     // <img> 等解完码 -> 普通画布（imgOff：画到 OffscreenCanvas，诊断用）
+    const { img, url } = await viaImg(blob);
+    try { return drawPlain(img, side, 1, way === 'imgOff' ? canvas : plain); } finally { URL.revokeObjectURL(url); }
+  }
+  if (way === 'bitmap' || way === 'bitmapRaw') {
+    if (typeof createImageBitmap !== 'function') throw new Error('no createImageBitmap');
+    const { b, orient } = await bitmapOf(blob, way === 'bitmap' ? { imageOrientation: 'from-image' } : null, info);
+    try { return drawPlain(b, side, orient); } finally { if (b.close) b.close(); }
+  }
+  if (way === 'offscreen') return draw(await imgFrom(blob), side);   // 1.13.3 的画法：load、decode 谁先到用谁，画到 OffscreenCanvas
+  throw new Error(`no way ${way}`);
+}
+
+// 按顺序画，第一条不白的就用它 -> {canvas|null, way, tried:[{way, flat|err, ms}], info}
+export async function paint(blob, side, ways = WAYS) {
+  let info = null;
+  try { info = jpegInfo(await blob.slice(0, 4 << 20).arrayBuffer()); } catch (e) { /* 不是 JPG 也照画 */ }
+  const tried = [];
+  for (const way of ways) {
+    const t0 = performance.now();
+    try {
+      const c = await paintWith(way, blob, side, info);
+      const flat = flatness(c);
+      tried.push({ way, flat, ms: Math.round(performance.now() - t0) });
+      if (flat >= FLAT) return { canvas: c, way, tried, info };
+      c.width = c.height = 1;                  // 白的：画布先还给手机
+    } catch (e) {
+      tried.push({ way, err: e.message || String(e), ms: Math.round(performance.now() - t0) });
+    }
+  }
+  return { canvas: null, way: '', tried, info };
+}
+
+// paint() 都打不开（不是白，是报错）：可能是 Safari 以外的浏览器碰上 HEIC，走老路转成 JPG 再画
+export async function paintAny(file, side) {
+  const r = await paint(file, side);
+  if (r.canvas || r.tried.some((x) => x.err === undefined)) return r;
+  const img = await openImage(file);           // 还打不开就让它报「这不是照片」
+  const c = drawPlain(img, side);
+  const flat = flatness(c);
+  r.tried.push({ way: 'heic', flat });
+  return flat >= FLAT ? { ...r, canvas: c, way: 'heic' } : r;
+}
+export const legacyImg = imgFrom;
+
+// 传图页用的：画一次、压到 limit 以内 -> {blob|null（白的）, look（小图）, flat（压完那份的平整度）, way, tried, info}
+// 原图只画一次；压不够小先降质量（拿同一张画布重新压），还不够再缩小（画布画画布，不再从原图重画）
+export async function squeeze(file, side = 2560, limit = 1_800_000) {
+  const r = await paintAny(file, side);
+  if (!r.canvas) return { ...r, blob: null, look: '', flat: null };
+  const full = r.canvas;
+  let s = side, q = 0.86, blob, c = full;
+  for (;;) {
+    blob = await toBlob(c, q);
+    if (blob.size <= limit || s <= 1400) break;
+    if (q > 0.62) q -= 0.12;
+    else {
+      s = Math.round(s * 0.8); q = 0.8;
+      if (c !== full) c.width = c.height = 1;
+      c = scaled(full, s);
+    }
+  }
+  const look = thumb(c);
+  const flat = await blobFlatness(blob);
+  if (c !== full) c.width = c.height = 1;
+  full.width = full.height = 1;                // 画布还给手机（iPhone 的画布内存有上限）
+  return { ...r, canvas: null, blob: flat >= FLAT ? blob : null, look, flat };
+}              // 诊断页照 1.13.3 原样画一遍用

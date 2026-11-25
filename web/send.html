@@ -60,12 +60,27 @@
   .say { margin-top: 10px; color: var(--grey); font-size: 14.5px; min-height: 1.45em; }
   .bad { color: var(--red); font-size: 14px; margin-top: 8px; white-space: pre-wrap; }
   .foot { color: var(--grey); font-size: 12.5px; text-align: center; margin-top: 18px; }
+  .thumbs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .thumbs:empty { display: none; }
+  .thumbs figure { margin: 0; width: 72px; }
+  .thumbs img, .thumbs .no { display: block; width: 72px; height: 72px; object-fit: cover; border-radius: 8px; background: #E5E5EA; box-shadow: inset 0 0 0 1px rgba(0,0,0,.08); }
+  .thumbs figcaption { font-size: 11px; line-height: 1.3; color: var(--grey); margin-top: 3px; text-align: center; }
+  .thumbs figure.blank { width: 100%; display: flex; gap: 10px; align-items: center; }
+  .thumbs figure.blank figcaption { color: var(--red); font-size: 14px; text-align: left; margin: 0; }
+  .drow { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .dimg { width: 96px; flex: none; }
+  .dimg img { width: 96px; border-radius: 6px; display: block; box-shadow: 0 0 0 1px rgba(0,0,0,.1); }
+  .dtxt { font-size: 14px; min-width: 0; overflow-wrap: anywhere; }
+  .dv { font-weight: 700; } .dv.good { color: var(--green); } .dv.bad { color: var(--red); }
+  .dhow, .dnum { color: var(--grey); font-size: 12px; }
+  .dinfo { font-size: 12.5px; padding: 4px 0; overflow-wrap: anywhere; }
+  .pill { font: inherit; font-size: 15px; height: 40px; padding: 0 16px; border-radius: 10px; border: 0; background: rgba(120,120,128,.12); color: var(--text); margin-top: 12px; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <div id="lang" class="lang"></div>
-  <h1 data-i18n="send.h1">Send to computer</h1>
+  <h1 id="h1" data-i18n="send.h1">Send to computer</h1>
   <p class="sub" data-i18n="send.sub">Luru · Snap the forms. Skip the typing.</p>
 
   <div class="card" id="nopair" hidden>
@@ -87,8 +102,18 @@
       <div class="track"><div id="bar"></div></div>
       <div class="say" id="say"></div>
       <div class="bad" id="bad"></div>
+      <div class="thumbs" id="thumbs"></div>
     </div>
     <p class="tip" id="home" style="text-align:center" data-i18n="send.home"></p>
+  </div>
+
+  <div class="card" id="diag" hidden>
+    <div class="st" style="font-size:19px">诊断：哪种画法白</div>
+    <p class="tip" style="font-size:14px">点下面，选「拍照」拍一张（跟平时一样拍），几种画法各画一遍。只看不发，拍完截个图就行。</p>
+    <button type="button" class="go" id="dpick">拍一张试试</button>
+    <input type="file" id="dfile" accept="image/*" hidden>
+    <div id="dout"></div>
+    <button type="button" class="pill" id="dcopy" hidden>复制结果</button>
   </div>
 
   <div class="foot" data-i18n="send.foot"></div>
@@ -98,7 +123,7 @@
   // 不然刚更新那十分钟，浏览器会拿新页面配缓存里的旧代码（按钮在、点了没反应）。
   (() => {
     const v = Date.parse(document.lastModified) || Date.now();
-    const mods = ['send', 'strings', 'pair', 'image', 'core'];
+    const mods = ['send', 'strings', 'pair', 'image', 'core', 'diag'];
     const map = document.createElement('script');
     map.type = 'importmap';
     map.textContent = JSON.stringify({ imports: Object.fromEntries(mods.map((m) => [`./${m}.js`, `./${m}.js?v=${v}`])) });

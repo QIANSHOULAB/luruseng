@@ -64,7 +64,7 @@ export class Inbox {
     const h = got.head || {};
     const name = String(h.name || `phone_${item.batch}_${item.seq}.jpg`).replace(/[\\/:*?"<>|]/g, '_').slice(0, 120);
     const file = new File([got.bytes], name, { type: h.type || 'image/jpeg', lastModified: Number(h.shot) || item.at || Date.now() });
-    await this.onFile(file, { batch: item.batch, seq: item.seq, total: item.total });   // 存进浏览器了才让中转站删
+    await this.onFile(file, { batch: item.batch, seq: item.seq, total: item.total, blank: !!h.blank });   // 存进浏览器了才让中转站删
     await P.delItem(this.pair, item.id).catch(() => {});
     const b = this.batchOf(item);
     b.got.add(item.seq);

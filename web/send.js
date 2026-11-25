@@ -48,21 +48,46 @@ function draw() {
   $('#bar').style.width = `${Math.round((100 * (T.sent + got)) / (2 * T.total))}%`;
 }
 
-async function shrink(file) {                      // 缩小、转 JPG；拍摄时间另外记着（转完 EXIF 就没了，电脑按它排编号）
+class Blank extends Error {}
+// 缩小、转 JPG；拍摄时间另外记着（转完 EXIF 就没了，电脑按它排编号）。
+// 163：原图只画一次（几种画法挨个试，第一条不白的就用它）；压不够小就拿这张画布重新压，要缩小就画布画画布。
+// 压完的那份解开再量一遍：还是白的就不发。
+async function shrink(file) {
   const shot = await I.shotTime(file);
-  const img = await I.openImage(file);
-  let side = SIDE, q = 0.86, blob;
-  for (;;) {
-    blob = await I.toBlob(I.draw(img, side), q);
-    if (blob.size <= LIMIT || side <= 1400) break;
-    if (q > 0.62) q -= 0.12; else { side = Math.round(side * 0.8); q = 0.8; }
-  }
+  const r = await I.squeeze(file, SIDE, LIMIT);
+  if (!r.blob) throw new Blank(r.tried.map((x) => `${x.way} ${x.err || x.flat}`).join(', ') + ` jpg ${r.flat ?? '-'}`);
   const name = (file.name || 'photo').replace(/\.[^.]*$/, '') + '.jpg';
-  return { bytes: new Uint8Array(await blob.arrayBuffer()), head: { v: 1, name, shot: shot || file.lastModified || Date.now(), type: 'image/jpeg' } };
+  return { look: r.look, bytes: new Uint8Array(await r.blob.arrayBuffer()), head: { v: 1, name, shot: shot || file.lastModified || Date.now(), type: 'image/jpeg' } };
+}
+
+function addThumb(i, look, blank) {                // 每张留个小图：一眼看出白不白
+  const f = document.createElement('figure');
+  if (blank) {
+    f.className = 'blank';
+    f.innerHTML = '<div class="no"></div><figcaption></figcaption>';
+    f.querySelector('figcaption').textContent = t('send.blank', { i });
+  } else {
+    f.innerHTML = '<img alt=""><figcaption></figcaption>';
+    f.querySelector('img').src = look;
+    f.querySelector('figcaption').textContent = String(i);
+  }
+  $('#thumbs').appendChild(f);
 }
 
 async function sendOne(p, file, seq) {
-  const { bytes, head } = await shrink(file);
+  let bytes, head;
+  try {
+    const r = await shrink(file);
+    ({ bytes, head } = r);
+    addThumb(seq, r.look, false);
+  } catch (e) {
+    if (!(e instanceof Blank)) throw e;
+    // 白的：照片不发，只发一个空的「第 seq 张是白纸」：电脑那头张数对得上（不用干等两分钟），也能当场提示
+    console.warn('blank', e.message);
+    addThumb(seq, '', true);
+    bytes = new Uint8Array(0);
+    head = { v: 1, name: (file.name || 'photo').replace(/\.[^.]*$/, '') + '.jpg', shot: file.lastModified || Date.now(), type: 'image/jpeg', blank: true };
+  }
   const sealed = await P.seal(p.key, head, bytes);
   if (sealed.length > P.MAX_SEALED) throw new Error(t('send.tooBig'));
   let last;
@@ -91,6 +116,7 @@ async function send(p, files) {
   $('#bad').textContent = '';
   $('#say').textContent = '';
   Object.assign(T, { batch: P.newBatch(), total: files.length, sent: 0, got: new Set(), files: [] });
+  $('#thumbs').textContent = '';
   draw();
   keepAwake(true);
   const failed = [];
@@ -142,6 +168,16 @@ function boot() {
   pageText();
   I18N.toggle($('#lang'));
   I18N.onChange(pageText);
+  // 163 诊断：网址 # 后面带 diag，或者连点大标题 5 下
+  const diag = () => import('./diag.js').then((m) => m.open());
+  let taps = 0, tapAt = 0;
+  $('#h1').addEventListener('click', () => {
+    const now = Date.now();
+    taps = now - tapAt < 800 ? taps + 1 : 1;
+    tapAt = now;
+    if (taps >= 5) diag();
+  });
+  if (/(^#|&)diag\b/.test(location.hash)) { diag(); return; }
   const p = pairing();
   if (!p) { $('#nopair').hidden = false; return; }
   $('#paired').hidden = false;

@@ -185,6 +185,8 @@
     'why.otherTab': ['另一个窗口在干活（切到后台的标签页也算），老衲分身乏术。', 'Another tab is already working (a backgrounded one counts). One monk, one desk.'],
     'why.stolen': ['这批让另一个窗口抢走了，这边放手。', 'Another tab took over. This one has stepped back.'],
     'why.steal': ['抢过来', 'Take over'],
+    'why.blank': ['手机传来的第 {list} 张是白纸，没认，重拍一张。', ['Phone photo #{list} came through blank. Skipped it. Take another.', 'Phone photos #{list} came through blank. Skipped them. Take them again.']],
+    'why.blankFile': ['{list} 是一张白纸，没认，重拍一张。', '{list} is a blank page. Skipped it. Take another.'],
     'why.noPhotos': ['还没选照片。老衲总不能凭空变表。', 'No photos yet. Even a monk needs something to read.'],
     'why.done': ['这几张都认过了，老衲过目不忘。', 'Already read every one of these. Monks never forget.'],
     'why.again': ['再认一遍', 'Read again'],
@@ -454,6 +456,7 @@
     'log.restored': ['✓ 恢复好了（合并进来，原来的一条没删）：数据库新增 {r} 条、{p} 人，自建类别新增 {c} 个、{cr} 条，干过的照片 {l} 张，名单 {nm} 行', '✓ Restored and merged, nothing deleted: +{r} records, +{p} people, +{c} custom types ({cr} records), {l} photos in history, {nm} roster lines'],
     'log.undone': ['✓ {name} 退回到 {when} 填之前的样子了', '✓ {name} is back to how it was before {when}.'],
     'log.deleted': ['删掉了 {run}', 'Deleted {run}'],
+    'log.blank': ['✗ {name} 是白纸（平整度 {flat}）：没认、不查重，重拍一张', '✗ {name} is blank (flatness {flat}). Not reading it, not checking for repeats. Take another.'],
     'log.phoneGot': ['📱 手机传来第 {i}/{n} 张：{name}', '📱 Photo {i}/{n} from phone: {name}'],
     'log.phoneAll': ['📱 手机传来 {n} 张，收齐了，开工', '📱 All {n} photos in from the phone. Starting.'],
     'log.phonePart': ['📱 手机这趟只到了 {got}/{n} 张，两分钟没动静，先干收到的', '📱 Only {got}/{n} arrived and it’s been quiet for two minutes. Starting with what’s here.'],
@@ -546,6 +549,7 @@
     'send.item': ['第 {i} 张（{name}）：{e}', '#{i} ({name}): {e}'],
     'send.failed': ['✗ 有 {n} 张没送出去：电脑等两分钟收不齐，就先干收到的。再选一次这几张就行：\n', ['✗ 1 photo didn’t send. The computer waits two minutes, then starts with what it has. Just pick this one again:\n', '✗ {n} photos didn’t send. The computer waits two minutes, then starts with what it has. Just pick these again:\n']],
     'send.waiting': ['照片在中转站等着，电脑一打开录入僧网页版就收、就干（放 3 天）。', 'Photos are waiting at the relay. The computer grabs them as soon as Luru Web opens there (kept 3 days).'],
+    'send.blank': ['这张画不出来，从相册选着传', 'This one came out blank. Pick it from your library instead.'],
     'send.pc': ['电脑：{text}', 'Computer: {text}'],
   };
 

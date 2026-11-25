@@ -355,6 +355,7 @@ function enqueue(files, sheet, at) {           // 切出来的进列表 -> 列�
 function setupQuad() {
   S.quad = new Quad($('#quadbox'), {
     log, keep, unkeep,
+    blank: (sheet, flat) => blankOne(sheet.name, flat, sheet.phone ? { batch: sheet.phone, seq: sheet.seq } : null),
     auto: (sheet) => !!(sheet.phone || $('#auto').checked),           // 手机传来的本来就自己开工
     put: (files, sheet) => {
       const items = enqueue(files, sheet);
@@ -1601,26 +1602,49 @@ function phoneState(state) {                    // 电脑这头的长连接：�
   }
 }
 
+// 163 白纸：整张几乎一个颜色（iPhone「拍照」那种画坏了的）。不认、不查重（白图指纹都一样，会被当成「以前干过」悄悄跳过），
+// 页面上弹提示条，日志写一句。手机那头量出白的不发照片，只发个空的「第 N 张是白纸」过来。
+const BL = { batch: '', list: [] };
+function blankOne(name, flat, phone) {
+  log(t('log.blank', { name, flat: flat ?? 0 }));
+  if (phone) {
+    if (BL.batch !== phone.batch) Object.assign(BL, { batch: phone.batch, list: [] });
+    if (!BL.list.includes(phone.seq)) BL.list.push(phone.seq);
+    BL.list.sort((a, b) => a - b);
+    why('blank', { list: I18N.list(BL.list.map(String)), n: BL.list.length });
+  } else why('blankFile', { list: name, n: 1 });
+}
+async function blankFlat(file) {               // -> 平整度（够平就是白纸）；打不开的不管，后面照常报
+  if (!file.size) return 0;
+  try { return I.flatness(await I.openImage(file)); } catch (e) { return 99; }
+}
+const phoneReal = new Map();                    // 这一趟手机传来几张真照片（全是白纸就不开工）
+
 async function phoneFile(file, info) {          // 手机传来一张：跟选照片一样进列表、先存进浏览器（存好了才让中转站删）
   const id = `${file.name}|${file.size}|${file.lastModified}`;
   if (S.seen.has(id)) return;
   S.seen.add(id);
+  if (info.seq === 1 || info.seq === info.total) log(t('log.phoneGot', { i: info.seq, n: info.total, name: file.name }));
+  const flat = info.blank ? 0 : await blankFlat(file);
+  if (flat < I.FLAT) { blankOne(file.name, flat, info); return; }
+  phoneReal.set(info.batch, (phoneReal.get(info.batch) || 0) + 1);
   if ($('#quad').checked) {                     // 一张拍四份：手机传来的一样先切（原图存好了才让中转站删）
-    if (info.seq === 1 || info.seq === info.total) log(t('log.phoneGot', { i: info.seq, n: info.total, name: file.name }));
-    await S.quad.add(file, { id, phone: info.batch });
+    await S.quad.add(file, { id, phone: info.batch, seq: info.seq });
     return;
   }
   const q = { file, id, phone: info.batch };
   S.queue.push(q);
   if (S.busy) S.fresh++;
-  else hideWhy();
+  else if (!S.why || !/^blank/.test(S.why.kind)) hideWhy();
   refreshQueue(S.busy || S.finished);
-  if (info.seq === 1 || info.seq === info.total) log(t('log.phoneGot', { i: info.seq, n: info.total, name: file.name }));
   await stash(q);
 }
 
 function phoneBatch(batch, got, total) {        // 手机这一趟收齐了（或者传到一半两分钟没动静）：开工
   log(got >= total ? t('log.phoneAll', { n: got }) : t('log.phonePart', { got, n: total }));
+  const real = phoneReal.get(batch) || 0;
+  phoneReal.delete(batch);
+  if (!real) return;                            // 这一趟全是白纸：提示条摆着，不开工（开了也只会说「没照片」把提示条盖掉）
   S.phoneWaiting = true;
   if (!S.busy) start(true);
 }

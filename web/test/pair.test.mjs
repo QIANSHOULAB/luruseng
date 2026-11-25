@@ -118,7 +118,7 @@ test('pages load every module through the versioned import map (a new module can
     if (seen.has(entry)) return seen;
     seen.add(entry);
     const src = readFileSync(new URL(`${entry}.js`, dir), 'utf8');
-    for (const m of src.matchAll(/(?:from|import) '\.\/([\w-]+)\.js'/g)) deps(m[1], seen);   // 只为了副作用 import 的（strings.js）也算
+    for (const m of src.matchAll(/(?:from |import |import\()'\.\/([\w-]+)\.js'/g)) deps(m[1], seen);   // 只为了副作用 import 的（strings.js）、用到才拉的（diag.js）也算
     return seen;
   };
   for (const [page, entry] of [['index.html', 'app'], ['send.html', 'send']]) {

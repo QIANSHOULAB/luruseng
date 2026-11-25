@@ -76,6 +76,10 @@ export class Quad {
     try {
       img = await I.openImage(sheet.file);
       sheet.view = I.draw(img, VIEW_SIDE);
+      if (I.isBlank(sheet.view)) {                      // 163 白纸：不切、不认、不查重
+        if (gen === this.gen) { this.host.blank(sheet, I.flatness(sheet.view)); this.unkeep(sheet); }
+        return;
+      }
       const small = I.draw(sheet.view, Q.FIND_SIDE);
       const r = Q.layout(small.getContext('2d').getImageData(0, 0, small.width, small.height));
       const { w, h, V, dark, top } = r.a;                 // 拖十字时重看哪块空着，只要这几样
