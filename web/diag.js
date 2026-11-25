@@ -5,9 +5,9 @@ import * as I from './image.js';
 const $ = (s) => document.querySelector(s);
 const SIDE = 2560, LIMIT = 1_800_000;
 const WAYS = [
-  ['legacy', '1.13.3 的画法', '<img> load 一到就画 → OffscreenCanvas；压不到 1.8MB 再画一遍'],
-  ['img', 'img 等解码', '<img> 等 decode() → 普通 canvas'],
-  ['imgOff', 'img 等解码 → Offscreen', '<img> 等 decode() → OffscreenCanvas'],
+  ['legacy', '1.13.3 的画法', '<img decoding=async> load 一到就画 → OffscreenCanvas'],
+  ['img', 'img 等解码（传图页用这条）', '<img> 等 decode() → 普通 canvas'],
+  ['offscreen', 'img 等解码 → Offscreen（网页版认字用这条）', 'openImage() 等 decode() → OffscreenCanvas'],
   ['bitmap', 'ImageBitmap 按方向', "createImageBitmap(file, {imageOrientation:'from-image'})"],
   ['bitmapRaw', 'ImageBitmap 默认', 'createImageBitmap(file)'],
 ];

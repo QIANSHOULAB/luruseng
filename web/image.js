@@ -33,16 +33,30 @@ export function loadScript(src, global) {
 }
 
 async function imgFrom(blob) {
+  // 163：iPhone 的 Safari 上，decoding='async' 的大图 load 一到就画，还没解完码，画出来整张白（模拟器里复现了）。
+  // 现在 load 完再等 decode()；页面看不见时（锁屏、切后台）decode() 可能一直不回来，最多等 4 秒（看不见时 1 秒），过了照画。
+  // <img> 按 EXIF 方向转正（跟电脑版 exif_transpose 一样）。网址等这张图没人用了再收（画之前收掉，Safari 可能重解码时拿不到）
+  const url = URL.createObjectURL(blob);
+  const img = new Image();
+  try {
+    await new Promise((ok, bad) => { img.onload = () => ok(); img.onerror = () => bad(new Error(t('img.cantOpen'))); img.src = url; });
+  } catch (e) { URL.revokeObjectURL(url); throw e; }
+  if (img.decode) await Promise.race([img.decode().catch(() => {}), sleep(document.hidden ? 1000 : 4000)]);
+  if (urls) urls.register(img, url); else setTimeout(() => URL.revokeObjectURL(url), 60000);
+  return img;
+}
+const urls = typeof FinalizationRegistry === 'function' ? new FinalizationRegistry((u) => URL.revokeObjectURL(u)) : null;
+
+async function imgFromOld(blob) {                 // 1.13.3 的原样（诊断页对照用）：load、decode 谁先到用谁
   const url = URL.createObjectURL(blob);
   try {
     const img = new Image();
     img.decoding = 'async';
     const loaded = new Promise((ok, bad) => { img.onload = () => ok(); img.onerror = () => bad(new Error(t('img.cantOpen'))); });
     img.src = url;
-    // 页面看不见的时候（锁屏、窗口最小化、切到后台）decode() 可能一直不回来：等到 load 就行，画的时候浏览器自己会解码
     const decoded = img.decode();
-    for (const p of [loaded, decoded]) p.catch(() => {});   // 输的那个后来再出错，别冒成没人接的报错
-    await Promise.race([loaded, decoded]);       // <img> 按 EXIF 方向转正（跟电脑版 exif_transpose 一样）
+    for (const p of [loaded, decoded]) p.catch(() => {});
+    await Promise.race([loaded, decoded]);
     return img;
   } finally {
     setTimeout(() => URL.revokeObjectURL(url), 0);
@@ -422,7 +436,7 @@ export async function paintWith(way, blob, side, info) {
     const { b, orient } = await bitmapOf(blob, way === 'bitmap' ? { imageOrientation: 'from-image' } : null, info);
     try { return drawPlain(b, side, orient); } finally { if (b.close) b.close(); }
   }
-  if (way === 'offscreen') return draw(await imgFrom(blob), side);   // 1.13.3 的画法：load、decode 谁先到用谁，画到 OffscreenCanvas
+  if (way === 'offscreen') return draw(await imgFrom(blob), side);   // 网页版认字用的那条：openImage() 的 <img>（等解完码）画到 OffscreenCanvas
   throw new Error(`no way ${way}`);
 }
 
@@ -456,7 +470,7 @@ export async function paintAny(file, side) {
   r.tried.push({ way: 'heic', flat });
   return flat >= FLAT ? { ...r, canvas: c, way: 'heic' } : r;
 }
-export const legacyImg = imgFrom;
+export const legacyImg = imgFromOld;            // 诊断页照 1.13.3 原样画一遍用
 
 // 传图页用的：画一次、压到 limit 以内 -> {blob|null（白的）, look（小图）, flat（压完那份的平整度）, way, tried, info}
 // 原图只画一次；压不够小先降质量（拿同一张画布重新压），还不够再缩小（画布画画布，不再从原图重画）
