@@ -69,6 +69,8 @@ def answer(mode, body):
             recs = [dict(rec, shift='N' if nth == 2 else 'D')]
         elif mode == 'chaos':                                 # 三遍机台各不一样
             recs = [dict(rec, machine=f'VM-0{nth}')]
+        elif mode == 'quick':                                 # 183：班次、机台几遍不一样，工号看不清（手机核对里一下就定）
+            recs = [dict(rec, shift='N' if nth == 2 else 'D', machine='VM-01' if nth == 2 else 'VM-07', setter='6□9/Lee Ah Kow')]
         elif mode == 'messy':                                 # 格式乱：零件号带空格、刀号混进描述、Φ 写成 ø、班次写「白」
             recs = [dict(rec, part_number='TD-524 613-5', t_no='T9', description='T44. m3 ø6 tap x2', shift='白')]
         elif mode == 'sometimes_none':                        # 第 2 遍什么都没认出来

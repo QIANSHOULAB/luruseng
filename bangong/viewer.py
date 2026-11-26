@@ -139,6 +139,14 @@ def alts_from_note(note: str, name: str, names: list[str] | None = None) -> list
     return out
 
 
+def guesses(note: str, i: int, builtin: bool, names: list[str]) -> list[str]:
+    """红格子、橙格子点开能填的猜（跟网页版 core.js 的 guessesOf 同一套）：核对提示里认出来的写法、候选；
+    班次只有 D / N 两个勾，两个都给（照老班次猜错了、两遍都认成 D，另一个都点得到）。"""
+    if builtin and engine.FIELDS[i] == 'shift':
+        return ['D', 'N']
+    return alts_from_note(note, names[i], names)
+
+
 def _read_row(ws, r: int, layout) -> dict:
     builtin, labels, first, _, note_col = layout
     vals, raw, red, fixed, human = [], [], set(), set(), set()
@@ -151,14 +159,14 @@ def _read_row(ws, r: int, layout) -> dict:
     note = ws.cell(row=r, column=note_col).value
     note = '' if note is None else str(note)
     names = _names(builtin, labels)
-    alts = {i: a for i in sorted(red) if (a := alts_from_note(note, names[i], names))}
+    alts = {i: a for i in sorted(red | fixed) if (a := guesses(note, i, builtin, names))}
     return {'labels': labels, 'values': vals, 'red': red, 'fixed': fixed, 'note': note,
             'human': human, 'raw': raw, 'alts': alts, 'row': r, 'builtin': builtin}
 
 
 def load_rows(xlsx: str) -> dict[int, list[dict]]:
     """{编号: [{'labels': 列名, 'values': 各列, 'red': 标红的列下标, 'fixed': 按库改过的, 'note': 核对提示,
-    'human': 人核过的, 'raw': 放进数据库的写法, 'alts': {标红的列: 几遍认出的写法}, 'row': 在表里第几行}]}
+    'human': 人核过的, 'raw': 放进数据库的写法, 'alts': {标红、标橙的列: 能填的猜}, 'row': 在表里第几行}]}
     刀单那本（TOOL BROKEN RECORD，第 4 行起）和自建类别的表（第 2 行表头，第 3 行起）都认。"""
     rows: dict[int, list[dict]] = {}
     if not xlsx or not os.path.isfile(xlsx):
@@ -607,7 +615,7 @@ class Viewer(tk.Toplevel):
         return bool(d) and os.path.normcase(os.path.abspath(d)) == os.path.normcase(os.path.abspath(self.run_dir))
 
     def open_cell(self, k: int, i: int):
-        """点一格：底下展开一个小框，红格子还列出几遍认出来的不同写法，点一个就填上。再点一下收起。"""
+        """点一格：底下展开一个小框，红格子、橙格子还列出能填的猜，点一个就填上。再点一下收起。"""
         if self._busy_here():
             self.info.set(T('view.busy'))
             return
@@ -631,7 +639,7 @@ class Viewer(tk.Toplevel):
         fld.configure(width=max(ui.px(220), p.winfo_width() - ui.px(48)))
         fld.pack(fill='x')
         red = i in rec['red']
-        alts = rec.get('alts', {}).get(i, []) if red else []
+        alts = rec.get('alts', {}).get(i, [])
         if alts:
             row = tk.Frame(f, bg=ui.CARD)
             row.pack(fill='x', pady=(ui.px(8), 0))

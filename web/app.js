@@ -1231,7 +1231,8 @@ function setupSettings() {
 }
 
 // ---------------------------------------------------------------- 核对
-const V = { runs: [], run: null, nos: [], cur: 0, url: '', rowsByNo: new Map() };
+const V = { runs: [], run: null, nos: [], cur: 0, url: '', rowsByNo: new Map(), tapAt: 0 };
+const TAP_GAP = 400;
 
 function runLabel(run) {
   const m = run.id.match(/^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})/);
@@ -1321,7 +1322,8 @@ function fillPanel(no) {
       // 换刀调试单上本来就没有 BTMP，表里照抄 TOTAL SCREENED：空着、或者就是那份抄的，核对里不列（不用核两遍）
       if (V.run.cat === C.BUILTIN && f === 'btmp' && (!v || v === C.showValue(rec.values.total_screened))
         && !red.has(f) && !orange.has(f)) return;
-      dl.appendChild(add('dt', '', labels[i]));
+      const flag = red.has(f) || orange.has(f);
+      dl.appendChild(add('dt', flag ? 'q' : '', labels[i]));
       const look = red.has(f) ? 'red' : orange.has(f) ? 'fixed' : human.has(f) ? 'human' : '';
       const dd = add('dd', ('edit ' + look).trim(), v || '—');
       dd.tabIndex = 0;                               // 核对时直接改：点哪格改哪格，表跟着改
@@ -1331,7 +1333,7 @@ function fillPanel(no) {
       dd.title = t('view.editTip');
       dd.onclick = () => openCell(dl, dd, rec, k, f, labels[i]);
       dd.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); dd.click(); } };
-      dl.appendChild(dd);
+      dl.appendChild(flag ? quickRow(dd, rec, k, f, labels[i]) : dd);
     });
     wrap.appendChild(dl);
     if (rec.notes) wrap.appendChild(add('div', rec.notes === C.HUMAN_NOTE ? 'note ok' : 'note', I18N.note(rec.notes)));
@@ -1339,7 +1341,28 @@ function fillPanel(no) {
   });
 }
 
-// 点开一格：红格子底下列出几遍认出来的不同写法，点一个就填上；也能自己打；认对了点「对的」
+// 183 红格子、橙格子值的右边直接摆「对的」和猜的值，点一下就定（Song 11-26「对的直接点一下不用点数字再点对的」）
+function quickRow(dd, rec, k, f, label) {
+  const row = Object.assign(document.createElement('div'), { className: 'cellrow' });
+  const put = (cls, text, value) => {
+    const b = Object.assign(document.createElement('button'), { type: 'button', className: `pill quick ${cls}`, textContent: text });
+    b.dataset.k = String(k);
+    b.dataset.f = f;
+    b.onclick = () => {                          // 点完这行变矮、下一行顶上来：手快连点两下别把下一格也定了
+      const now = Date.now();
+      if (now - V.tapAt < TAP_GAP) return;
+      V.tapAt = now;
+      saveCell(rec, k, f, label, value);
+    };
+    row.appendChild(b);
+  };
+  row.appendChild(dd);
+  put('qok', t('view.right'), undefined);
+  for (const a of C.quickGuesses(rec, f, V.run.cat)) put('qalt', a, a);
+  return row;
+}
+
+// 点开一格：红格子、橙格子底下列出能填的猜（几遍认出来的不同写法、公司资料的候选），点一个就填上；也能自己打；认对了点「对的」
 function openCell(dl, dd, rec, k, f, label) {
   const open = $('#vpanel').querySelector('.cell-ed');
   if (open) {
@@ -1357,7 +1380,7 @@ function openCell(dl, dd, rec, k, f, label) {
     ['enterkeyhint', 'done'], ['aria-label', t('view.editAria', { label })]]) input.setAttribute(a, v);
   if (builtin && (C.NUM_FIELDS.has(f) || f === 'mo' || f === 'opr_no')) input.inputMode = 'numeric';
   ed.appendChild(input);
-  const alts = red ? C.altsOf(rec, f, V.run.cat) : [];
+  const alts = C.guessesOf(rec, f, V.run.cat);
   if (alts.length) {
     const box = Object.assign(document.createElement('div'), { className: 'alts' });
     for (const a of alts) {
@@ -1381,7 +1404,7 @@ function openCell(dl, dd, rec, k, f, label) {
     if (e.key === 'Enter') { e.preventDefault(); saveCell(rec, k, f, label, input.value); }
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); ed.remove(); dd.focus(); }
   };
-  dd.after(ed);
+  (dd.closest('.cellrow') || dd).after(ed);
   input.focus();
   input.select();
 }

@@ -6,7 +6,7 @@ import './strings.js';
 const t = (k, v) => globalThis.LURU_I18N.t(k, v);
 const list = (a) => globalThis.LURU_I18N.list(a);
 
-export const VERSION = '1.13.8';
+export const VERSION = '1.13.9';
 export const MANUAL_STOP = '手动停止';      // 点了「停止」（只当记号比，给人看的字在 strings.js）
 export const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 export const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
@@ -1593,6 +1593,20 @@ export function altsOf(row, key, cat = BUILTIN) {
     for (const v of tail.split(' / ').map((x) => x.trim())) if (v && v !== '空' && !out.includes(v)) out.push(v);
   }
   return out;
+}
+
+// 183：红格子、橙格子点开能填的猜。几遍认出来的写法、公司资料给的候选（altsOf）；
+// 班次只有 D / N 两个勾：红了橙了两个都给（两遍都认成 D、照老班次猜错了，另一个都点得到）。别的颜色没有猜。
+export function guessesOf(row, key, cat = BUILTIN) {
+  if (!(row.red || []).includes(key) && !(row.orange || []).includes(key)) return [];
+  if (cat === BUILTIN && key === 'shift') return ['D', 'N'];
+  return altsOf(row, key, cat);
+}
+
+// 核对列表里值右边直接摆的那几个猜：跟现在的值一样的不摆（那是「对的」）
+export function quickGuesses(row, key, cat = BUILTIN) {
+  const cur = showValue((row.values || {})[key]).trim().toUpperCase();
+  return guessesOf(row, key, cat).filter((a) => String(a).trim().toUpperCase() !== cur);
 }
 
 // 人打的字变成表里该有的样子：规矩跟认出来时一样（日期按这批的年份、数字变数字、班次变 D/N、零件号去空格大写）

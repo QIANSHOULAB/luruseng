@@ -380,3 +380,27 @@ test('BTMP：单子上没有就抄 TOTAL SCREENED；核对里改 TOTAL，抄的�
   C.checkCell(own, 'total_screened', { text: '9', today: T });
   assert.equal(own.values.btmp, 7);
 });
+
+test('183 猜：红格子、橙格子才有；班次红了橙了总给另一个', () => {
+  const row = (shift, kw = {}) => ({ values: { shift, machine: 'VM-07' }, red: [], orange: [], notes: '', ...kw });
+  // 两遍都认成 D / 一遍空：红着，另一个照样给
+  assert.deepEqual(C.quickGuesses(row('D', { red: ['shift'], notes: 'SHIFT 几遍认得不一样：D / 空', alts: { shift: ['D'] } }), 'shift'), ['N']);
+  assert.deepEqual(C.quickGuesses(row('N', { red: ['shift'] }), 'shift'), ['D']);
+  // 认不出（空的、不是 D/N）：两个都给
+  assert.deepEqual(C.quickGuesses(row('', { red: ['shift'] }), 'shift'), ['D', 'N']);
+  assert.deepEqual(C.quickGuesses(row('D/N', { red: ['shift'], notes: 'SHIFT 不是 D/N：D/N' }), 'shift'), ['D', 'N']);
+  // 照老班次猜成了 N（橙）、猜错了：点得到 D
+  assert.deepEqual(C.quickGuesses(row('N', { orange: ['shift'], notes: 'SHIFT D→N（639 最近 8 回都是夜班；单子上真圈了 D 就改回来）' }), 'shift'), ['D']);
+  assert.deepEqual(C.guessesOf(row('N', { orange: ['shift'] }), 'shift'), ['D', 'N']);
+  // 没标颜色的、人核过的：没有猜
+  assert.deepEqual(C.guessesOf(row('D'), 'shift'), []);
+  assert.deepEqual(C.guessesOf(row('D', { human: ['shift'], alts: { shift: ['D', 'N'] } }), 'shift'), []);
+  // 别的格子照核对提示、存着的候选；跟现在一样的不摆在列表里
+  const m = row('D', { red: ['machine'], alts: { machine: ['VM-07', 'VM-01'] } });
+  assert.deepEqual(C.guessesOf(m, 'machine'), ['VM-07', 'VM-01']);
+  assert.deepEqual(C.quickGuesses(m, 'machine'), ['VM-01']);
+  assert.deepEqual(C.quickGuesses(row('D', { orange: ['machine'], notes: 'MACHINE 几遍认得不一样：VM-07 / VM-O1，公司只有 VM-07' }), 'machine'), ['VM-O1']);
+  assert.deepEqual(C.quickGuesses(row('D', { red: ['machine'], notes: 'MACHINE 模型拿不准' }), 'machine'), []);
+  // 自建类别：照列名
+  assert.deepEqual(C.quickGuesses({ values: { 'Part No': 'B1' }, red: ['Part No'], notes: 'Part No 几遍认得不一样：B1 / B7' }, 'Part No', '质检单'), ['B7']);
+});

@@ -1321,6 +1321,65 @@ def main():
             m.close()
 
         @step
+        def phone_one_tap():                    # 183：红格子后面直接「对的」和猜的值，点一下就定
+            mock_server.STATE['modes'] = {K1: 'quick'}
+            m = browser.new_context(viewport={'width': 390, 'height': 844}, device_scale_factor=2, is_mobile=True, has_touch=True)
+            try:
+                p = m.new_page()
+                p.on('pageerror', lambda e: errors.append(f'quick pageerror: {e}'))
+                offline(p)
+                p.goto(base)
+                p.wait_for_function('() => document.querySelectorAll("#log p").length >= 1')
+                p.set_input_files('#files', make_images(os.path.join(WORK, 'q1'), 1, start=193))
+                fill_key(p, K1, '#key1')
+                p.click('#start')
+                p.wait_for_selector('#dlg-view[open]', timeout=60000)
+                p.wait_for_selector('#vpanel .cellrow .quick')
+
+                def quick():
+                    return p.eval_on_selector_all('#vpanel .cellrow', 'rs => Object.fromEntries(rs.map(r => '
+                                                  '[r.querySelector("dd").dataset.f, [...r.querySelectorAll(".quick")].map(b => b.textContent)]))')
+
+                def cell(f):
+                    return tuple(p.eval_on_selector(f'#vpanel dd[data-f="{f}"]', 'd => [d.className, d.textContent]'))
+
+                def said(text):
+                    p.wait_for_function('t => document.querySelector("#vinfo").textContent.includes(t)', arg=text)
+                    p.wait_for_timeout(500)      # 连着两下隔开点（太快的第二下页面故意不认）
+
+                got = quick()
+                assert got == {'machine': ['对的', 'VM-01'], 'shift': ['对的', 'N'], 'setter': ['对的']}, got
+                boxes = p.eval_on_selector_all('#vpanel .cellrow .quick', 'bs => bs.map(b => { const r = b.getBoundingClientRect(); return [r.width, r.height, r.right]; })')
+                assert all(w >= 44 and h >= 44 and right <= 390 for w, h, right in boxes), boxes
+                sw = p.evaluate('() => [document.documentElement.scrollWidth, window.innerWidth]')
+                assert sw[0] <= sw[1], sw
+                assert cell('shift') == ('edit red', 'D') and cell('machine') == ('edit red', 'VM-07'), (cell('shift'), cell('machine'))
+                p.eval_on_selector('#vpanel dd[data-f="machine"]', 'e => e.scrollIntoView({block: "start"})')
+                p.screenshot(path=os.path.join(SHOTS, '11-手机一下就定.png'))
+                p.tap('#vpanel dd[data-f="shift"]')                        # 点值本身照旧打开改，D、N 都在
+                p.wait_for_selector('#vpanel .cell-ed .alt')
+                assert p.eval_on_selector_all('#vpanel .cell-ed .alt', 'bs => bs.map(b => b.textContent)') == ['D', 'N']
+                assert p.input_value('#vpanel .cell-ed input') == 'D'
+                p.eval_on_selector('#vpanel .cell-ed', 'e => e.scrollIntoView({block: "center"})')
+                p.screenshot(path=os.path.join(SHOTS, '11-手机点开的猜.png'))
+                p.tap('#vpanel dd[data-f="shift"]')                        # 再点一下收起
+                p.tap('#vpanel button.qalt[data-f="shift"]')               # D 错了点 N
+                said('SHIFT 改成 N')
+                assert cell('shift') == ('edit human', 'N'), cell('shift')
+                p.tap('#vpanel button.qok[data-f="machine"]')              # 「对的」一下就定
+                said('MACHINE 核过了')
+                assert cell('machine') == ('edit human', 'VM-07'), cell('machine')
+                assert quick() == {'setter': ['对的']}, quick()
+                p.eval_on_selector('#vpanel dd[data-f="shift"]', 'e => e.scrollIntoView({block: "center"})')
+                p.screenshot(path=os.path.join(SHOTS, '11-手机点完变绿.png'))
+                p.tap('#vpanel button.qok[data-f="setter"]')
+                said('SETTER 核过了')
+                assert quick() == {} and '✓ 人核过' in p.inner_text('#vpanel'), p.inner_text('#vpanel')
+            finally:
+                mock_server.STATE['modes'] = {}
+                m.close()
+
+        @step
         def quad_one_photo_four_forms():
             m = browser.new_context(viewport={'width': 390, 'height': 844}, device_scale_factor=3, is_mobile=True, has_touch=True,
                                     user_agent='Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 '
@@ -1558,7 +1617,8 @@ def main():
                    bad_key_stops_and_keeps_photos, stop_button_marks_unfinished, photos_of_all_kinds,
                    title_on_the_right_turns_upright_number_in_top_right, settings_backup_restore_and_forget_keys, delete_a_batch, redo_switch_does_done_photos_again,
                    progress_counts_up_and_says_go_slack,
-                   killed_midway_comes_back_and_finishes, phone_sends_and_pc_starts_by_itself, phone_layout, quad_one_photo_four_forms):
+                   killed_midway_comes_back_and_finishes, phone_sends_and_pc_starts_by_itself, phone_layout, phone_one_tap,
+                   quad_one_photo_four_forms):
             if os.environ.get('E2E_ONLY') and fn.__name__ not in os.environ['E2E_ONLY'].split(','):
                 continue                      # 只跑某几项：E2E_ONLY=项名,项名
             try:

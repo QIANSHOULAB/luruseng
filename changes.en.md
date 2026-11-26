@@ -2,6 +2,10 @@
 
 When there's a new version, the app shows you the sections newer than the one you have.
 
+## 1.13.9
+- Checking in the web app: every red or orange box now shows Correct right next to it, plus the other guesses. Right answer? Tap Correct. Wrong? Tap the right one. It turns green on the spot, no need to open the box first. Tapping the value still opens it so you can type.
+- Shift guessed wrong from someone’s usual shift? Open the box and the other one is there again: D wrong, tap N, and the other way round, on web and desktop. The monk lost those buttons a while back and is copying “D N” a hundred times as penance.
+
 ## 1.13.8
 - Connected to the Butler and Claude says “slow down”? The monk now waits as long as Claude asks, sends that page to the back of the line and carries on, instead of giving up on the first bump. Only after three in a row on the same page does it go to the Butler. Web and desktop alike.
 

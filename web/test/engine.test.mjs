@@ -606,3 +606,46 @@ test('180 stop while waiting: no more requests', async () => {
   await assert.rejects(a.read(body, ctl.signal, () => setTimeout(() => ctl.abort(), 20)), (e) => e instanceof ClaudeMiss && e.down === false);
   assert.equal(R.msgs.length, 1);
 });
+
+// ---------------------------------------------------------------- 183 点开错格子的「猜」：三条路认出来的记录都带
+const FAKE_BOOK = () => {                       // 编的公司资料：机台、工序、调试员、简写
+  const recs = [];
+  for (let i = 0; i < 8; i++) {
+    recs.push({ date: { y: 2026, m: 10, d: i + 1 }, machine: ['QM-7', 'QM-8', 'QM-9', 'QM-14'][i % 4], part_number: 'PX-101202-5',
+      mo: String(90001000 + i), opr_no: String([150, 170][i % 2]), description: ['EM3', 'EM8'][i % 2], shift: 'D', setter: ['9471', '9491'][i % 2] });
+  }
+  return new C.Snapshot(recs, [['9471', 'TAN AH MENG'], ['9491', 'GOH KIM SENG']], { machine: ['QM-7', 'QM-8', 'QM-9', 'QM-14'], opr_no: ['150', '170'] });
+};
+function twoReads() {                           // 假回答：第一遍夜白不一样、机台、工序、工号公司都没有，刀具编码两遍直径不同
+  const srv = server();
+  let n = 0;
+  srv.answer = () => {
+    const second = ++n === 2;
+    const rec = { date: '30/10', machine: 'QM-2', part_number: 'XY-1', mo: '90009999', opr_no: '140', t_no: 'T4',
+      description: second ? '4FEM-M0800C-0080-04' : '4FEM-M0300C-0080-04', btmp: '1', total_screened: '1', passed: '1', failed: '0',
+      shift: second ? 'N' : 'D', setter: '9441', unsure: [] };
+    return [200, { candidates: [{ content: { parts: [{ text: JSON.stringify({ title_side: 'top', records: [rec] }) }] }, finishReason: 'STOP' }] }];
+  };
+  return srv;
+}
+
+for (const path of ['gemini', 'dagj', 'claude']) {
+  test(`183 ${path}: the record keeps both reads and the company candidates, so every wrong cell has its guesses`, async () => {
+    const srv = twoReads();
+    const b = butler(fromSrv(srv));
+    const opts = { reads: 2, butler: path === 'gemini' ? null : b };
+    if (path === 'claude') opts.claude = claudeOf(relay(srv), b);
+    const { out } = await goB(photos(1), srv, b, opts);
+    assert.equal(out[0].by, path);
+    const book = FAKE_BOOK();
+    const row = C.assessRecord(out[0].recs[0], { snapshot: book, names: book.roster(), today: new Date(2026, 10, 1) });
+    for (const f of ['shift', 'machine', 'opr_no', 'setter', 'description']) assert.ok(row.red.includes(f), `${path} ${f} ${row.red} ${row.notes}`);
+    assert.deepEqual(row.alts.shift, ['D', 'N']);
+    assert.ok(row.alts.machine.length >= 2 && row.alts.machine.every((m) => m.startsWith('QM-')), row.alts.machine);
+    assert.deepEqual([...row.alts.opr_no].sort(), ['150', '170']);
+    assert.ok(row.alts.setter.includes('9491/GOH KIM SENG') || row.alts.setter.includes('9471/TAN AH MENG'), row.alts.setter);
+    assert.deepEqual(row.alts.description, ['EM3', 'EM8']);
+    assert.deepEqual(C.quickGuesses(row, 'shift'), ['N']);
+    for (const f of ['machine', 'opr_no', 'setter']) assert.ok(C.quickGuesses(row, f).length, f);
+  });
+}

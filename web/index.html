@@ -319,6 +319,12 @@
   @media (hover: hover) { .panel dd.edit:hover { box-shadow: inset 0 0 0 1px var(--field-line); } }
   .panel dd.edit:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
   .panel dd.human { background: #E2EFDA; color: #375623; }
+  /* 183 红格子、橙格子：值右边直接摆「对的」和猜的值；放不下折到下一行；按钮 44 见方以上，数字不挤 */
+  .panel dt.q { align-self: start; padding-top: 13px; }
+  .panel .cellrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 3px 0; min-width: 0; }
+  .panel .cellrow dd.edit { flex: 0 0 auto; max-width: 100%; margin-left: 0; }
+  .panel .cellrow .quick { min-width: 52px; height: auto; min-height: 44px; padding: 4px 12px; max-width: 100%; white-space: normal; word-break: break-word; background: #fff; border-color: var(--field-line); }
+  .panel .cellrow .qalt { font-weight: 600; }
   .panel .note.ok { color: #375623; }
   .panel .cell-ed { grid-column: 1 / -1; display: grid; gap: 8px; padding: 8px; margin: 2px 0 8px; background: var(--fill); border-radius: 10px; }
   .panel .cell-ed .field { height: 40px; font-size: 16px; background: #fff; }

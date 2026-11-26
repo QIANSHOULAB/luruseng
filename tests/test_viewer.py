@@ -151,6 +151,25 @@ def test_edit_cell_alts_confirm_sum_and_typos(tmp_path, monkeypatch):
     assert ws['O4'].value == '✓ 人核过'
 
 
+def test_orange_shift_still_offers_both_letters(tmp_path):
+    """183：照老班次猜成 N（橙）、猜错了，点开还能点 D；两遍都认成 D 的红格子也给 N。别的橙格子照提示里认出来的。"""
+    from openpyxl import load_workbook
+    res = make_run(tmp_path, 1)
+    wb = load_workbook(res.xlsx)
+    ws = wb.worksheets[0]
+    ws['M4'].value, ws['M4'].fill = 'N', engine.ORANGE_FILL
+    ws['C4'].fill = engine.ORANGE_FILL
+    ws['O4'].value = ('SHIFT D→N（639 最近 8 回都是夜班；单子上真圈了 D 就改回来）；'
+                      'MACHINE 几遍认得不一样：VM-07 / VM-O1，公司只有 VM-07')
+    wb.save(res.xlsx)
+    r = viewer.load_rows(res.xlsx)[1][0]
+    assert r['alts'] == {1: ['VM-07', 'VM-O1'], 11: ['D', 'N']} and r['red'] == set()
+    out = viewer.edit_cell(res.xlsx, 4, 11, 'D')
+    assert out['value'] == 'D' and not out['still']
+    assert 11 not in viewer.load_rows(res.xlsx)[1][0]['alts']          # 人核过的格子没有猜
+    assert viewer.guesses('SHIFT 几遍认得不一样：D / 空', 11, True, viewer._names(True, [])) == ['D', 'N']
+
+
 def test_edit_cell_types_and_rules():
     from datetime import date, datetime
     d = date(2026, 10, 31)
