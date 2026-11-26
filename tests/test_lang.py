@@ -69,6 +69,16 @@ def english(monkeypatch):
     strings.init()
 
 
+@pytest.fixture
+def unforced(monkeypatch):
+    """不钉语言（新装的样子）。测完一定拨回中文：开窗口偶尔开不出来、这条跳过时也一样，不然英文串到后面的测试。"""
+    monkeypatch.delenv('BANGONG_LANG', raising=False)
+    strings.init()
+    yield
+    monkeypatch.setenv('BANGONG_LANG', 'zh')
+    strings.init()
+
+
 def make_app(tmp_path, monkeypatch, scale=None):
     try:
         import tkinter as tk
@@ -133,9 +143,7 @@ def test_english_rows_fit_at_100_percent(tmp_path, monkeypatch, english):
         close(root)
 
 
-def test_switching_language_saves_and_reopens(tmp_path, monkeypatch):
-    monkeypatch.delenv('BANGONG_LANG', raising=False)
-    strings.init()
+def test_switching_language_saves_and_reopens(tmp_path, monkeypatch, unforced):
     root, app, a = make_app(tmp_path, monkeypatch)
     try:
         assert strings.lang() == 'en' and a.cfg['lang'] == 'en'           # 新装：英文
@@ -154,5 +162,3 @@ def test_switching_language_saves_and_reopens(tmp_path, monkeypatch):
             close(root2)
     finally:
         close(root)
-        monkeypatch.setenv('BANGONG_LANG', 'zh')
-        strings.init()
