@@ -1647,6 +1647,8 @@ if __name__ == '__main__':
             subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'start_why.py'), SHOTS], check=True)
             # 163：手机「拍照」传成白纸——诊断页、画法、白纸不发不认
             subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'blank_163.py'), SHOTS], check=True)
+            # 184：越用越准——配了大管家才有开关、改过的格子打包交、提醒进请求、「不用标红」
+            subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'learn_184.py'), SHOTS], check=True)
         main()
     except BaseException:                    # CI 上不登录看不到日志：挂了写一条注解，运行页上直接看得见
         if os.environ.get('GITHUB_ACTIONS'):

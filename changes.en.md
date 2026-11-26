@@ -2,6 +2,10 @@
 
 When there's a new version, the app shows you the sections newer than the one you have.
 
+## 1.13.10
+- Connected to the Butler? The monk now gets better the more you use it. Boxes you fix, mark Correct or pick a guess for in review go to the Butler along with that photo. It learns which letters it keeps misreading and reminds itself next time, and the boxes you always wave through stop turning red. On desktop, fixes you make in Excel and save count too.
+- On by default. Switch off “Teach the Butler” in Settings and nothing is kept or sent. Not connected to the Butler? Nothing leaves your device and the switch doesn’t even show.
+
 ## 1.13.9
 - Checking in the web app: every red or orange box now shows Correct right next to it, plus the other guesses. Right answer? Tap Correct. Wrong? Tap the right one. It turns green on the spot, no need to open the box first. Tapping the value still opens it so you can type.
 - Shift guessed wrong from someone’s usual shift? Open the box and the other one is there again: D wrong, tap N, and the other way round, on web and desktop. The monk lost those buttons a while back and is copying “D N” a hundred times as penance.

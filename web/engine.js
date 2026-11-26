@@ -3,6 +3,7 @@ import './strings.js';
 import * as C from './core.js';
 import { Miss, fit, BATCH as DAGJ_BATCH } from './dagj.js';
 import { ClaudeMiss } from './claude.js';
+import { withHints } from './learn.js';
 
 const t = (k, v) => globalThis.LURU_I18N.t(k, v);
 
@@ -11,12 +12,22 @@ export class Result {
 }
 
 function two(n) { return String(n).padStart(2, '0'); }
+
+// 184：每条记录每一格头两遍各认成什么（「不用标红」看它，人动过的格子也带上它）。挂在数组上、不进 JSON、不进存的表
+function readsOf(out, reads) {
+  const cand = reads.filter((r) => r.length === out.length).slice(0, 2);
+  const per = out.map((rec, i) => Object.fromEntries(Object.keys(rec).filter((f) => !C.META.has(f))
+    .map((f) => [f, cand.map((r) => String((r[i] || {})[f] ?? ''))])));
+  Object.defineProperty(out, 'reads', { value: per, enumerable: false });
+  return out;
+}
 function when(ms) { const d = new Date(ms); return `${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`; }
 
 export class Engine {
   // prepare(file, enhance) -> base64 JPG；stampIt(file, no, side) -> 印好编号的照片（可空）
   constructor({ keys, model, spec = null, names = [], hints = '', reads = C.READS, log = () => {}, base,
-    fetchImpl, clock = () => Date.now(), sleep = null, prepare, stampIt = null, butler = null, claude = null }) {
+    fetchImpl, clock = () => Date.now(), sleep = null, prepare, stampIt = null, butler = null, claude = null,
+    learned = '', keepSent = false }) {
     this.keys = new C.Keys(keys, clock);
     this.model = C.modelName(model);
     this.spec = spec;
@@ -33,6 +44,9 @@ export class Engine {
     this.butler = butler;                      // 089 dagj.Butler：配上了就每张先问大管家，问不成跳回 Gemini
     this.claude = claude;                      // 167 claude.Claude：配上了大管家的，每张先走 Claude API（钥匙在中转站），没成再问大管家
     this.by = new Map();                       // 照片 -> 谁认的（'claude' / 'dagj' / 'gemini'）
+    this.learned = learned;                    // 184 大管家学会的「常错提醒」：三条路的提示词后面都加上
+    this.keepSent = keepSent;                  // 184 越用越准开着：第一遍送去认的那张留着（照片 -> base64），核对里人动过才带去给大管家
+    this.sent = new Map();
     this.useSchema = true;
     this.fatal = '';
     this.res = new Result();
@@ -67,8 +81,19 @@ export class Engine {
     await this.wait(secs);
   }
 
-  body(b64, schema) {
+  plainBody(b64, schema) {                    // 没加「常错提醒」的那个请求
     return this.spec ? this.spec.body(b64, this.model, schema) : C.buildBody(b64, this.model, schema, this.names, this.hints);
+  }
+
+  body(b64, schema) { return withHints(this.plainBody(b64, schema), this.learned); }
+
+  /** 184 送去认的提示词、那句话、schema（不带「常错提醒」），给大管家重认时用 */
+  promptOf() {
+    const b = this.plainBody('', true);
+    const sys = ((b.systemInstruction || {}).parts || []).map((p) => p.text || '').join('\n\n');
+    const ask = (((b.contents || [])[0] || {}).parts || []).filter((p) => typeof p.text === 'string').map((p) => p.text).join('\n');
+    return { prompt: sys, ask, schema: (b.generationConfig || {}).responseSchema || null,
+      open: !!(this.spec && this.spec.openMode), cols: this.spec ? [...this.spec.columns] : null };
   }
 
   async read(b64, name) {                      // 认一遍：撞了额度换钥匙或者等，断网、谷歌出错重试
@@ -209,9 +234,11 @@ export class Engine {
     const agree = this.spec ? (a, b) => this.spec.agree(a, b) : (a, b) => C.recordsAgree(a, b);
     const vote = this.spec ? (r) => this.spec.vote(r) : (r) => C.vote(r);
     const jpeg = await this.prepare(file, false);
+    if (this.keepSent) this.sent.set(file, jpeg);
     if (this.reads === 1) {
       const [recs, side] = await reader(jpeg, name);
-      return [vote([recs.map(clean)]), side];
+      const one = [recs.map(clean)];
+      return [readsOf(vote(one), one), side];
     }
     const enh = this.prepare(file, true);      // 093：加强那张边认第一遍边做，第一遍不等它（一批交得多，别都堵在做图上）
     enh.catch(() => {});
@@ -236,7 +263,7 @@ export class Engine {
     if (!reads.length) throw errs[0];
     const out = vote(reads);
     if (reads.length === 1) for (const r of out) r.single = true;
-    return [out, C.pickSide(sides)];
+    return [readsOf(out, reads), C.pickSide(sides)];
   }
 
   // items: [{no, file}]（按拍摄顺序编好号）。认完一张马上交给 onPhoto（马上存：页面被关了也只丢手上这几张）；

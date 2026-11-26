@@ -202,6 +202,7 @@
     'log.dagjGone': ['大管家这头把这个浏览器撤了：先走 Gemini，要用再点「连接大管家」', 'The Butler let this browser go. Gemini for now; hit Connect the Butler to come back.'],
     'app.foot': ['照片只发给谷歌认；表格、数据库都存在这个浏览器里', 'Photos go to Google to be read, nowhere else. Sheets and the database stay in this browser'],
     'app.footDagj': ['照片先给 Claude 认，不行再找大管家、谷歌；表格、数据库都存在这个浏览器里', 'Photos go to Claude first, then the Butler or Google if needed. Sheets and the database stay in this browser'],
+    'app.footLearn': ['这台在把核对改过的格子交给大管家学，越用越准', 'This device hands your review fixes to the Butler, so it reads better over time'],
     'app.footLink': ['录入僧电脑版', 'Windows app'],
 
     // 169 任务状态面板：四种说法、一句话、三个数、失败按原因一组一行
@@ -306,6 +307,8 @@
     'row.remember_keys.d': ['钥匙存在这个浏览器里，下次不用再填；公用电脑就关掉', 'Keys stay in this browser so you don’t paste them again. Turn off on shared computers.'],
     'row.redo': ['干过的照片也重干', 'Redo old photos'],
     'row.redo.d': ['测试用：以前认过的照片再放进来照样认一遍，钥匙次数照扣；平时关着，干过的自动跳过', 'For testing: photos read before get read again, on your quota. Off means repeats are skipped.'],
+    'row.learn': ['把改过的格子交给大管家', 'Teach the Butler'],
+    'row.learn.d': ['核对时改过、点过的格子连同那张照片交给大管家，它学会了下回少认错。关了一格都不记、不发', 'Cells you fix or confirm in review, plus that photo, go to the Butler so it misreads less next time. Off means nothing is kept or sent.'],
 
     // 核对
     'view.prev': ['◀ 上一张', '◀ Prev'],
@@ -480,6 +483,9 @@
     'log.namesEmpty': ['名单是空的：没有也能用，SETTER 就照单子抄', 'Roster is empty. That’s fine: SETTER gets copied as written.'],
     'log.redoOn': ['↻ 干过的照片也重干：开了。以前认过的照片再放进来，照样认一遍（钥匙次数照扣），测完记得关', '↻ Redo old photos: on. Photos read before get read again, on your quota. Switch it off when you’re done testing.'],
     'log.redoOff': ['干过的照片也重干：关了，以前干过的照旧自动跳过', 'Redo old photos: off. Repeats get skipped again.'],
+    'log.learnOn': ['把改过的格子交给大管家：开了。核对时改的、点的，大管家拿去学', 'Teach the Butler: on. What you fix in review goes to the Butler to learn from.'],
+    'log.learnOff': ['把改过的格子交给大管家：关了。一格都不记、不发，攒着的也清了', 'Teach the Butler: off. Nothing kept, nothing sent, and the backlog is cleared.'],
+    'log.learnSent': ['📮 改过的格子交给大管家了（{n} 包）', ['📮 Handed the Butler {n} package of review fixes', '📮 Handed the Butler {n} packages of review fixes']],
     'log.backup': ['✓ 备份下载好了：数据库 {n} 条、自建类别 {c} 个（钥匙不在里面）', '✓ Backup downloaded: {n} records, {c} custom types (keys not included)'],
     'log.backupFile': ['录入僧备份_{id}.json', 'Luru-backup_{id}.json'],
     'file.xlsx': ['识别结果_{id}{cat}.xlsx', 'Luru_{id}{cat}.xlsx'],

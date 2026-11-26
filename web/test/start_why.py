@@ -152,6 +152,8 @@ def main():
             path = request.url.split('/lr', 1)[1]
             if path == '/hello':
                 out = {'on': True, 'pub': dagj.b64u(pub)}
+            elif path.startswith('/learn'):           # 184 越用越准：这份测试不管它，大管家还没学到什么、这会儿不收
+                out = {'ok': True, 'learn': None} if path.startswith('/learn/list') else {'ok': False}
             else:
                 body = json.loads(request.post_data)
                 cid, n, ct = body['cid'], dagj.unb64u(body['n']), dagj.unb64u(body['ct'])

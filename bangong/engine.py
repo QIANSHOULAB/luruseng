@@ -33,7 +33,7 @@ from openpyxl.utils import get_column_letter
 
 from .strings import T, join
 
-VERSION = '1.13.9'
+VERSION = '1.13.10'
 APP_NAME = '录入僧'
 SUBTITLE = '施主去玩，贫僧填表'
 TITLE = '入我千手院，凡事尽释手；千僧替牛马，施主自风流。'      # 窗口标题栏只写这一句（Song 定的）
@@ -1133,8 +1133,15 @@ class Engine:
                  clock=time.time, sleep=None, names_path: str | None = None,
                  kb_path: str | None = None, feed_dir: str | None = None, reads: int | None = None,
                  keep_originals: bool = True, discard=recycle, spec=None, collect: bool = False,
-                 redo: bool = False, butler=None, claude=None):
+                 redo: bool = False, butler=None, claude=None, learner=None):
         self.folder = folder
+        self.learner = learner      # 184 learn.Learner：越用越准（配了大管家才有用）
+        self.learned = ''           # 大管家学会的「常错提醒」：三条路的提示词后面都另加一段
+        self.learn_on = False       # 开着越用越准：送去认的那张、两遍各认成什么留着
+        self.known = None           # 那份提醒（「不用标红」看它）
+        self.sent: dict[str, bytes] = {}       # 照片 -> 第一遍送去认的那张（缩之前）
+        self.reads_of: dict[str, list] = {}    # 照片 -> 每条记录每格头两遍各认成什么
+        self.sides: dict[str, str] = {}
         self.butler = butler        # 089 dagj.Butler：配上了就每张先问大管家，问不成跳回 Gemini
         self.claude = claude        # 167 claude.Claude：配上了大管家的，每张先走 Claude API（钥匙在中转站），没成再问大管家
         self.by: dict[str, str] = {}   # 照片 -> 谁认的（'claude' / 'dagj' / 'gemini'）
@@ -1266,13 +1273,19 @@ class Engine:
     def _recognize_with(self, path: str, reader) -> tuple[list[dict], str]:
         """认一张：先认两遍（第二遍用拉过对比度的图），对得上就收；对不上认第三遍，按多数定。
         顺便按多数定单子标题在照片哪一边（印编号的那份照片拿它转正）。"""
+        from . import learn
         jpeg = prepare_image(path)
+        if self.learn_on:
+            self.sent[path] = jpeg
         clean = self.spec.clean if self.spec else clean_record
         agree = self.spec.agree if self.spec else records_agree
         vote_ = self.spec.vote if self.spec else vote
         if self.reads == 1:
             recs, side = self._traced_read(jpeg, path, '原图', reader)
-            return vote_([[clean(r) for r in recs]]), side
+            one = [[clean(r) for r in recs]]
+            out = vote_(one)
+            self.reads_of[path] = learn.reads_of(out, one)
+            return out, side
         plan = [(jpeg, '原图'), (None, '加强')]       # 093：加强那张轮到了再做，第一遍不等它
         reads, errs, sides = [], [], []
         while plan:
@@ -1297,6 +1310,7 @@ class Engine:
         if not reads:
             raise errs[0]
         out = vote_(reads)
+        self.reads_of[path] = learn.reads_of(out, reads)
         if len(reads) == 1:
             for r in out:
                 r['single'] = True
@@ -1343,10 +1357,44 @@ class Engine:
         except Exception:
             pass
 
-    def _body(self, jpeg: bytes, schema: bool) -> dict:
+    def _plain_body(self, jpeg: bytes, schema: bool) -> dict:
         if self.spec:
             return self.spec.body(jpeg, self.model, schema)
         return build_body(jpeg, self.model, schema, self.names, self.hints)
+
+    def _body(self, jpeg: bytes, schema: bool) -> dict:
+        from . import learn
+        return learn.with_hints(self._plain_body(jpeg, schema), self.learned)
+
+    def prompt_of(self) -> dict:
+        """184 送去认的提示词、那句话、schema（不带「常错提醒」），给大管家重认时用"""
+        b = self._plain_body(b'', True)
+        return {'prompt': '\n\n'.join(p.get('text', '') for p in b['systemInstruction']['parts']),
+                'ask': '\n'.join(p['text'] for p in b['contents'][0]['parts'] if 'text' in p),
+                'schema': b['generationConfig'].get('responseSchema'),
+                'open': bool(self.spec and self.spec.open_mode), 'cols': list(self.spec.columns) if self.spec else None}
+
+    def _learn_page(self, book, run: str, no: int, path: str, recs: list[dict]):
+        """184 认完一张写进表以后：「不用标红」的拿掉红；开着越用越准就把这张谁认的、两遍各认成什么、送去认的那张留下"""
+        from . import dagj, learn
+        reads = self.reads_of.pop(path, None) or []
+        jpeg = self.sent.pop(path, None)
+        cat = self.spec.name if self.spec else learn.BUILTIN
+        try:
+            learn.unred_book(book, len(recs), cat, reads, self.known)
+        except Exception:
+            pass
+        if not self.learn_on or self.learner is None:
+            return
+        by = self.by.get(path, '')
+        model = (((self.claude.cache or {}).get('model') or '') if by == 'claude' and self.claude is not None
+                 else self.model if by == 'gemini' else '')
+        try:
+            data = (jpeg if by == 'gemini' else dagj.fit(jpeg)) if jpeg and recs else None
+            self.learner.page(run, no, {'by': learn.who(by), 'model': model, 'side': self.sides.get(path, ''), 'reads': reads,
+                                        'data': data, **self.prompt_of()})
+        except Exception:
+            pass                                        # 留不下：人改了也只交格子
 
     def _read(self, jpeg: bytes, path: str) -> tuple[list[dict], str]:
         body = self._body(jpeg, self.use_schema)
@@ -1449,6 +1497,14 @@ class Engine:
             except Exception as e:
                 self.log(T('eng.dbErr', e=f'{type(e).__name__}: {e}'))
                 self.snapshot, self.hints = None, ''
+        if self.learner is not None:                # 184：大管家学会的提醒、越用越准开没开
+            try:
+                cat = self.spec.name if self.spec else '刀单'
+                self.learned = self.learner.block(cat)
+                self.learn_on = self.learner.active()
+                self.known = self.learner.known()
+            except Exception:
+                self.learned, self.learn_on, self.known = '', False, None
         ledger_path = os.path.join(out_dir, LEDGER)
         old_ledger = os.path.join(out_dir, OLD_LEDGER)
         if not os.path.exists(ledger_path) and os.path.exists(old_ledger):
@@ -1526,6 +1582,7 @@ class Engine:
                 self._collect(no, p, width, side, err, t0)
             if recs is None:
                 return no, p, h, None, err
+            self.sides[p] = side
             try:                                    # 认完了才印编号：送去识别的永远是原图
                 os.makedirs(done_dir, exist_ok=True)
                 stamp_number(p, no, os.path.join(done_dir, f'{no:0{width}d}.jpg'), side)
@@ -1556,6 +1613,8 @@ class Engine:
                         name = os.path.basename(p)
                         tag = f'{no:0{width}d}'
                         book.add(no, recs, err)
+                        if recs:
+                            self._learn_page(book, self.run_name, no, p, recs)
                         if recs is not None:
                             res.ok += 1
                             res.records += len(recs)
@@ -1590,6 +1649,12 @@ class Engine:
             else:
                 res.stopped_reason = '手动停止'
                 self.log(T('eng.stopped'))
+        if self.learn_on and self.learner is not None and (res.ok or res.failed):
+            try:                                    # 184：抄一份刚写进去的表当「原样」（以后跟人存过盘的比）
+                self.learner.end_run(self.run_name, getattr(book, 'path', res.xlsx), self.spec.name if self.spec else '刀单',
+                                     self.learner.ver())
+            except Exception as e:
+                self.log(T('eng.reportErr', e=f'{type(e).__name__}: {e}'))
         if res.ok == 0 and res.failed == 0:
             try:
                 os.remove(res.xlsx)

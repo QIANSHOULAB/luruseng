@@ -10,7 +10,9 @@ SETTINGS_VER = 1
 
 # (键, 标题的字, 说明的字)；字在 strings.py（row.<键>、row.<键>.d），顺序就是设置卡片里的顺序
 ROWS = [(k, f'row.{k}', f'row.{k}.d') for k in
-        ('startup', 'hide_on_close', 'auto_open', 'keep_originals', 'auto_update', 'remember_keys', 'shortcuts', 'redo', 'report')]
+        ('startup', 'hide_on_close', 'auto_open', 'keep_originals', 'auto_update', 'remember_keys', 'shortcuts', 'redo', 'learn',
+         'report')]
+PAIRED_ONLY = {'learn'}     # 184：配了大管家才露的开关
 
 NEW = {                     # 新装的电脑
     'auto': False,          # 来图就干：先手动点「开始工作」用熟了再开
@@ -23,6 +25,7 @@ NEW = {                     # 新装的电脑
     'shortcuts': True,
     'redo': False,          # 干过的照片也重干：测试用（Song 2026-11-02 要的），谁的电脑都默认关
     'report': False,        # 发数据给方丈：谁的电脑都默认关，Song 装到同事电脑上时自己打开
+    'learn': True,          # 184 把改过的格子交给大管家：默认开（Song 11-26），只有配了大管家的才记、才发
 }
 
 OLD = {k: True for k in NEW}  # 用过的电脑：以前就是这样，全开……

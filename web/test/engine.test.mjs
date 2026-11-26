@@ -649,3 +649,6 @@ for (const path of ['gemini', 'dagj', 'claude']) {
     for (const f of ['machine', 'opr_no', 'setter']) assert.ok(C.quickGuesses(row, f).length, f);
   });
 }
+
+// 184 越用越准的那几条也跟着跑（CI 的单测清单在 web.yml 里，这台推不了 workflow：挂在这里）
+import './learn.test.mjs';

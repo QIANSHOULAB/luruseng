@@ -6,7 +6,7 @@ import './strings.js';
 const t = (k, v) => globalThis.LURU_I18N.t(k, v);
 const list = (a) => globalThis.LURU_I18N.list(a);
 
-export const VERSION = '1.13.9';
+export const VERSION = '1.13.10';
 export const MANUAL_STOP = '手动停止';      // 点了「停止」（只当记号比，给人看的字在 strings.js）
 export const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 export const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
@@ -1634,7 +1634,7 @@ export function editValue(key, text, { cat = BUILTIN, orig = undefined, today = 
 }
 
 // 核对提示里的一句是哪一格的：开头写着格子名（刀单是 MACHINE 这样的大写，自建类别是列名）；名字有长有短，取最长对得上的
-function noteOwner(piece, names) {
+export function noteOwner(piece, names) {
   let best = null;
   for (const nm of names) if (piece.startsWith(nm + ' ') && (!best || nm.length > best.length)) best = nm;
   return best;

@@ -9,9 +9,10 @@ import * as F from './fill.js';
 import { Engine } from './engine.js';
 import * as PR from './pair.js';
 import { Inbox } from './inbox.js';
-import { Butler } from './dagj.js';
+import { Butler, fit, label as pairLabel } from './dagj.js';
 import { Claude } from './claude.js';
 import { Quad } from './quadui.js';
+import * as LN from './learn.js';
 
 const $ = (s) => document.querySelector(s);
 const I18N = globalThis.LURU_I18N;
@@ -21,8 +22,8 @@ const XLSX_LIB = new URL('./vendor/xlsx.full.min.js', import.meta.url).href;
 const JSZIP_LIB = new URL('./vendor/jszip.min.js', import.meta.url).href;
 const QR_LIB = new URL('./vendor/qrcode.js', import.meta.url).href;
 const CONTACT = ['oilsongchengmin', 'gmail.com'].join('@');
-const SETTINGS = ['auto_open', 'remember_keys', 'redo'];          // 字在 strings.js 的 row.<键>、row.<键>.d
-const DEFAULTS = { category: C.BUILTIN, model: C.DEFAULT_MODEL, auto: false, auto_open: true, remember_keys: true, redo: false };
+const SETTINGS = ['auto_open', 'remember_keys', 'redo', 'learn'];   // 字在 strings.js 的 row.<键>、row.<键>.d；learn（184）只有配了大管家才露
+const DEFAULTS = { category: C.BUILTIN, model: C.DEFAULT_MODEL, auto: false, auto_open: true, remember_keys: true, redo: false, learn: true };
 
 const S = {
   st: null, cfg: { ...DEFAULTS }, cats: [], queue: [], seen: new Set(), eng: null, busy: false,
@@ -786,9 +787,13 @@ async function start(auto = false, woke = false, steal = false) {
     }
     const cat = run ? run.cat : $('#cat').value;
     const { spec, snapshot, names, hints, what } = await rules(cat);
+    const learnOn = S.learn.active();              // 184 越用越准：配了大管家、开关开着才记
+    const learned = S.learn.block(cat);            // 大管家学会的「常错提醒」：三条路的提示词后面都加上
+    const known = S.learn.paired ? S.learn.list : null;
     await check();
     if (!run) {
       run = await newRun(cat, todoQ.length, spec);
+      if (S.learn.paired) run.learnVer = S.learn.ver();
       items = todoQ.map((q, i) => ({ no: i + 1, file: q.file, q }));
       Object.assign(work, { run: run.id, items: items.map((it) => ({ no: it.no, qid: it.q.id, hash: it.q.hash, name: it.file.name })) });
       delete work.want;                          // 编好号了：往后靠 items 认照片
@@ -814,7 +819,7 @@ async function start(auto = false, woke = false, steal = false) {
 
     const base = total - items.length;             // 接着干的：之前已经干完（或者记过）几张
     eng = S.eng = new Engine({
-      keys: [k1, k2], model, spec, names, hints, butler: S.dagj, claude: S.claude,
+      keys: [k1, k2], model, spec, names, hints, butler: S.dagj, claude: S.claude, learned, keepSent: learnOn,
       log: (m, wait) => {
         log(m);
         if (wait) { const [k, v] = waitLine(wait); status(k, v); phoneSay(t(k, v), true); }
@@ -841,6 +846,8 @@ async function start(auto = false, woke = false, steal = false) {
         },
         onPhoto: async (it, recs, err, side, stamped, by) => {   // 认完一张马上存：表、编号照片、干过的记录，最后清掉存的原照片
           const tag = tagOf(it.no), name = it.file.name;
+          const sent = eng.sent.get(it.file);
+          eng.sent.delete(it.file);
           if (!(await still())) return;
           if (recs === null) {
             C.placeRows(run.rows, [{ no: it.no, kind: 'blank', fill: 'red', retry: true, note: `✗ 识别失败：${err}（照片还在列表里，再点开始会重干）` }]);
@@ -850,7 +857,20 @@ async function start(auto = false, woke = false, steal = false) {
             await saveRun();
             return;
           }
-          C.placeRows(run.rows, recs.length ? recs.map((rec) => ({ no: it.no, ...assess(rec) }))
+          const brain = by === 'claude' ? ((S.claude.cache || {}).model || '') : by === 'gemini' ? model : '';
+          const made = (rec, i) => {                     // 184：两遍各认成什么；「不用标红」的拿掉红；开着越用越准才留着它
+            const row = { no: it.no, ...assess(rec) };
+            const rd = recs.reads && recs.reads[i];
+            if (rd) { row.reads = rd; LN.unred(row, known, cat); if (!learnOn) delete row.reads; }
+            if (learnOn) { row.by = LN.who(by); row.model = brain; }
+            return row;
+          };
+          if (learnOn && sent && recs.length) {
+            try {
+              await S.learn.keepPage(id, it.no, { data: by === 'gemini' ? sent : await fit(sent), ...eng.promptOf(), side: side || '', by: LN.who(by), model: brain });
+            } catch (e) { /* 留不下照片：人改了也只交格子 */ }
+          }
+          C.placeRows(run.rows, recs.length ? recs.map(made)
             : [{ no: it.no, kind: 'blank', fill: 'red', note: spec ? `这张照片里没认出「${cat}」的记录` : '这张照片里没认出刀具破损记录' }]);
           if (!spec) C.settle(run.rows);               // 这批里互相看一眼：同一个 MO 的机台、别的单子的日期、同一个 MO 的调试员
           if (stamped) {
@@ -916,6 +936,7 @@ async function start(auto = false, woke = false, steal = false) {
     if (mine && await still()) await S.st.del('kv', 'work').catch(() => {});   // 这一笔了结了（干完、停了、出错了）；页面被关、被抢走才留着
     if (release) release();
     setBusy(false);
+    if (S.learn.active()) S.learn.send().catch(() => {});      // 184：干完一批，排着的改过的格子再交一次
     for (const q of S.queue) q.taken = false;     // 没认成、留在列表里的：十字又能拖了
     S.quad.render();
     refreshQueue();
@@ -1076,6 +1097,32 @@ function refreshDagj() {
   const foot = $('#foot');                      // 167 以后：连了大管家的先走 Claude
   foot.dataset.i18n = on ? 'app.footDagj' : 'app.foot';
   foot.textContent = t(foot.dataset.i18n);
+  $('#learnfoot').hidden = !(on && S.cfg.learn !== false);    // 184：这台在把核对改过的格子交给大管家
+  const box = $('#setrows input[data-key="learn"]');
+  if (box) box.closest('.srow').hidden = !on;                 // 没配大管家：开关都不露
+}
+
+// ---------------------------------------------------------------- 184 越用越准
+function learnNow() {                            // 这批核完了（关了核对、换了批）：不等 10 分钟，打包交
+  if (!S.learn || !S.learn.active()) return;
+  S.learn.pack(true).then((n) => (n ? S.learn.send() : null)).catch(() => {});
+}
+
+function setupLearn() {
+  S.learn = new LN.Learner({
+    st: S.st, butler: S.dagj, on: () => S.cfg.learn !== false, app: `web ${C.VERSION}`, device: () => pairLabel(),
+    runOf: async (id) => (S.run && S.run.id === id ? S.run : V.run && V.run.id === id ? V.run : S.st.get('runs', id)),
+    log: (r) => log(t('log.learnSent', { n: r.sent })),
+  });
+}
+
+async function learnBoot() {                     // 开页面：要那份「常错提醒」、清掉过期的照片、到点的打包、排着的交
+  await S.learn.load();
+  if (!S.dagj.paired) return;
+  await S.learn.refresh();
+  await S.learn.tidy(await S.st.keys('runs')).catch(() => {});
+  await S.learn.pack(false);
+  if (S.learn.active()) await S.learn.send();
 }
 
 function setupDagj() {
@@ -1084,6 +1131,7 @@ function setupDagj() {
   let was = S.dagj.paired;
   S.dagj.onChange = () => {
     refreshDagj();
+    if (!was && S.dagj.paired && S.learn) S.learn.refresh().then(() => S.learn.send()).catch(() => {});   // 184 配上了：要那份、交排着的
     if (was && !S.dagj.paired) log(t('log.dagjGone'));
     was = S.dagj.paired;
   };
@@ -1177,6 +1225,12 @@ function setupSettings() {
       S.cfg[key] = box.checked;
       saveCfg(true);
       if (key === 'redo') log(t(box.checked ? 'log.redoOn' : 'log.redoOff'));
+      if (key === 'learn') {                     // 184：关了一格都不记、不发，攒着的也清掉
+        log(t(box.checked ? 'log.learnOn' : 'log.learnOff'));
+        if (!box.checked) S.learn.forgetAll().catch(() => {});
+        else learnNow();
+        refreshDagj();
+      }
     };
     rows.appendChild(r);
   }
@@ -1196,6 +1250,7 @@ function setupSettings() {
     $('#setnote').textContent = '';
     $('#setnote').classList.remove('strong');
     for (const box of rows.querySelectorAll('input')) box.checked = !!S.cfg[box.dataset.key];
+    refreshDagj();                                  // 184：越用越准那个开关只有配了大管家才露
     $('#seterr').textContent = S.st.kind === 'memory' ? t('set.private') : '';
     const u = await ST.usage();
     const kb = await kbDb();
@@ -1352,7 +1407,7 @@ function quickRow(dd, rec, k, f, label) {
       const now = Date.now();
       if (now - V.tapAt < TAP_GAP) return;
       V.tapAt = now;
-      saveCell(rec, k, f, label, value);
+      saveCell(rec, k, f, label, value, 'guess');
     };
     row.appendChild(b);
   };
@@ -1385,7 +1440,7 @@ function openCell(dl, dd, rec, k, f, label) {
     const box = Object.assign(document.createElement('div'), { className: 'alts' });
     for (const a of alts) {
       const b = Object.assign(document.createElement('button'), { type: 'button', className: 'pill alt', textContent: a });
-      b.onclick = () => saveCell(rec, k, f, label, a);
+      b.onclick = () => saveCell(rec, k, f, label, a, 'guess');
       box.appendChild(b);
     }
     ed.appendChild(box);
@@ -1414,8 +1469,11 @@ async function kbSnapshot() {                   // 拿样板资料当准绳（�
   return kb.records.length || kb.people.length ? new C.Snapshot(kb.records, kb.people, kb.lists) : null;
 }
 
-async function saveCell(rec, k, f, label, text) {
+// act（184 越用越准）：edit 打字改的、guess 点了猜的值；text 没给就是「对的」（ok）
+async function saveCell(rec, k, f, label, text, act = 'edit') {
   const before = C.showValue(rec.values[f]);
+  const wrote = C.copyValue(rec.values[f]);
+  const color = (rec.red || []).includes(f) ? 'red' : (rec.orange || []).includes(f) ? 'orange' : '';
   const builtin = V.run.cat === C.BUILTIN;
   const shiftWas = [C.showValue(rec.values.shift), (rec.red || []).includes('shift')];
   C.checkCell(rec, f, { text, cat: V.run.cat, today: runDay(V.run), roster: builtin ? await roster() : [],
@@ -1425,6 +1483,8 @@ async function saveCell(rec, k, f, label, text) {
   const shiftMoved = builtin && f === 'setter' && (rec.orange || []).includes('shift')
     && (shiftNow !== shiftWas[0] || (shiftWas[1] && !(rec.red || []).includes('shift')));
   try { await S.st.put('runs', V.run.id, V.run); } catch (e) { $('#vinfo').textContent = t('view.saveErr', { e: e.message }); return; }
+  S.learn.touch(V.run, rec, k, f, { before: wrote, after: C.copyValue(rec.values[f]), act: text === undefined ? 'ok' : act, color })
+    .catch(() => {});                                // 记不下不耽误改表
   const still = (rec.red || []).includes(f);
   let msg = still ? t('view.still', { label, v: after || t('empty'), why: I18N.note(rec.notes.split('；').pop()) })
     : text === undefined || after === before ? t('view.checked', { label }) : t('view.changed', { label, v: after || t('empty') });
@@ -1653,10 +1713,11 @@ function setupViewer() {
   $('#check').onclick = () => openViewer();
   $('#vclose').onclick = () => dlg.close();
   dlg.addEventListener('close', () => {             // 关了就清空：下回打开不先闪一下上回那张
+    learnNow();                                    // 184：核完了，人动过的格子打包交给大管家
     if (V.url) { URL.revokeObjectURL(V.url); V.url = ''; }
     for (const id of ['#vphoto', '#vpanel', '#vinfo']) $(id).textContent = '';
   });
-  $('#vruns').onchange = () => loadRun($('#vruns').value);
+  $('#vruns').onchange = () => { learnNow(); loadRun($('#vruns').value); };
   $('#vprev').onclick = () => step(-1);
   $('#vnext').onclick = () => step(1);
   const jump = () => {
@@ -1936,6 +1997,7 @@ async function boot() {
   setupNew();
   setupNames();
   setupDagj();
+  setupLearn();
   setupSettings();
   setupViewer();
   setupCompany();
@@ -1947,6 +2009,8 @@ async function boot() {
   await refreshCategory(true);
   const back = await restore();                    // 上回的照片还在浏览器里：放回列表
   if (back) refreshQueue();
+  learnBoot().catch(() => {});                     // 184：要「常错提醒」、交排着的改过的格子（不挡开工）
+  setInterval(() => { S.learn.tick().catch(() => {}); }, 60_000);
   await wakeUp(back);                              // 上回干到一半被关了：自己接着干
   setupPhone();
   const pair = await S.st.get('kv', 'phone').catch(() => null);   // 配过对：挂上长连接等手机传图

@@ -14,7 +14,7 @@ from datetime import datetime
 from tkinter import filedialog
 from tkinter import font as tkfont
 
-from . import autopilot, claude, dagj, engine, report, settings, sheets, strings, tables, updater
+from . import autopilot, claude, dagj, engine, learn, report, settings, sheets, strings, tables, updater
 from . import macui as ui
 from .strings import T
 
@@ -297,6 +297,11 @@ class App:
         self.claude = claude.Claude(self.butler)   # 167：配上了大管家的，先走 Claude API（钥匙在中转站）
         cfg = load_config()
         self.cfg = cfg
+        # 184 越用越准：配了大管家、⚙ 里开着，核对里改过的格子交给大管家学（%APPDATA%\录入僧\learn）
+        self.learner = learn.Learner(os.path.join(config_dir(), 'learn'), self.butler, app=f'desktop {engine.VERSION}',
+                                     on=lambda: self.cfg.get('learn', True) is not False)
+        self.learning = False
+        self.next_learn = 0.0
         strings.init(cfg.get('lang'))           # 默认英文；老电脑照旧中文（settings.upgrade）；BANGONG_LANG 盖过设置
         ui.init_scale(root)                     # 屏幕放大 125%/150%：所有尺寸跟着放大，字和图才清楚
 
@@ -442,6 +447,8 @@ class App:
                                 height=32, radius=8, padx=12)
         self.dagj_on = tk.Label(self.dagj_box, text=T('app.dagjOn'), bg=ui.CARD, fg=ui.GREY, font=(fam, size - 1),
                                 anchor='w', justify='left', wraplength=px(260))
+        self.learn_on = tk.Label(self.dagj_box, text=T('app.learnOn'), bg=ui.CARD, fg=ui.GREY, font=(fam, size - 2),
+                                 anchor='w', justify='left', wraplength=px(260))   # 184：这台在把改过的格子交给大管家
         self.refresh_dagj()
 
         # ---- 下面：日志
@@ -499,6 +506,8 @@ class App:
         if self.auto.get():
             self.write(T('log.autoOn'))
         root.after(3000, self.tick)
+        if self.butler.paired:
+            root.after(1500, lambda: self.learn_bg('boot'))   # 184：要「常错提醒」、交排着的改过的格子
         if '--background' in args:
             root.after(200, root.iconify)
 
@@ -569,7 +578,7 @@ class App:
         cat = self.category.get()
         common = dict(log=self.log, progress=lambda d, t: self.q.put(('prog', (d, t))), stop=self.stop,
                       keep_originals=self.cfg.get('keep_originals', True), collect=bool(self.cfg.get('report')),
-                      redo=bool(self.cfg.get('redo')), butler=self.butler, claude=self.claude)
+                      redo=bool(self.cfg.get('redo')), butler=self.butler, claude=self.claude, learner=self.learner)
         if cat == tables.BUILTIN:                    # 刀单：专门的那一套
             eng = engine.Engine(self.folder.get(), [k1, k2], self.model.get(), names_path=names_path(),
                                 kb_path=kb_path(), feed_dir=feed_dir(), **common)
@@ -660,9 +669,57 @@ class App:
         return self.dialog
 
     def refresh_dagj(self):
-        for w in (self.dagj_btn, self.dagj_on):
+        for w in (self.dagj_btn, self.dagj_on, self.learn_on):
             w.pack_forget()
         (self.dagj_on if self.butler.paired else self.dagj_btn).pack(anchor='w', pady=(14, 0))
+        if self.learner.active():
+            self.learn_on.pack(anchor='w', pady=(4, 0))
+
+    # ---------- 184 越用越准：比、打包、交都在后台，不挡窗口
+    def learn_bg(self, what: str = 'tick'):
+        if self.learning:
+            if what != 'tick':                      # 正在交：等它交完再来（关了核对那一下不能丢）
+                self.root.after(2000, lambda: self.learn_bg(what))
+            return
+        self.learning = True
+        lr = self.learner
+
+        def go():
+            out = None
+            try:
+                if what == 'boot':                  # 开程序 / 配上对：要那份提醒，比一比、打包、交
+                    lr.refresh()
+                    lr.scan()
+                    lr.pack(False)
+                    lr.tidy()
+                    out = lr.send() if lr.queued() else None
+                elif what == 'now':                 # 关了核对（这批核完了）：不等 10 分钟
+                    lr.scan()
+                    lr.pack(True)
+                    out = lr.send() if lr.queued() else None
+                elif what == 'send':
+                    out = lr.send() if lr.queued() else None
+                else:
+                    out = lr.tick()
+            except Exception:
+                out = None
+            self.q.put(('call', lambda: self._learned(out)))
+        threading.Thread(target=go, daemon=True).start()
+
+    def _learned(self, out):
+        self.learning = False
+        if out and out.get('sent'):
+            self.write(T('log.learnSent', n=out['sent']))
+
+    def learn_touch(self, *a):
+        try:
+            self.learner.touch(*a)
+        except Exception:
+            pass
+
+    def _viewer_closed(self, e):
+        if e.widget is self.viewer:
+            self.learn_bg('now')
 
     def open_dagj(self):
         self._dialog(DagjCard)
@@ -722,7 +779,8 @@ class App:
             self.viewer.destroy()
         self.viewer = Viewer(self.root, self.folder.get(), run_dir or self.last_photos or None,
                              on_checked=self.feed_checked, busy=self.busy_dir, roster=self.roster,
-                             snapshot=self.snapshot)
+                             snapshot=self.snapshot, on_touch=self.learn_touch)
+        self.viewer.bind('<Destroy>', self._viewer_closed, add='+')    # 184：关了核对 = 这批核完了
 
     def snapshot(self):
         """样板资料（核对里改了 SETTER，班次照这个人以前的班次再猜一遍）；没有就 None。"""
@@ -809,6 +867,9 @@ class App:
         if getattr(sys, 'frozen', False) and not self.checking and time.time() >= self.next_update:
             self.next_update = time.time() + updater.CHECK_EVERY
             self.check_update()                     # 自动更新开着：自己下、空闲时换；关着：只提醒
+        if time.time() >= self.next_learn and self.learner.active():     # 184：每分钟看一眼：到点打包，隔 10 分钟交一次
+            self.next_learn = time.time() + 60
+            self.learn_bg('tick')
         if self.cfg.get('report') and not self.sending and time.time() >= self.next_send:
             self.send_reports()                     # 发数据给方丈：闲着的时候才发，不跟认照片抢网
         if self.auto.get() and (self.key1.get().strip() or self.key2.get().strip() or self.butler.paired):
@@ -1027,6 +1088,11 @@ class App:
             self.next_update = min(self.next_update, time.time() + 5)
         if key == 'redo':
             self.write(T('log.redoOn' if value else 'log.redoOff'))
+        if key == 'learn':                          # 184：关了一格都不记、不发，攒着的也清掉
+            self.write(T('log.learnOn' if value else 'log.learnOff'))
+            if not value:
+                threading.Thread(target=self.learner.forget_all, daemon=True).start()
+            self.refresh_dagj()
         if key == 'report':
             if value:
                 self.write(T('log.reportOn'))
@@ -1077,6 +1143,8 @@ class App:
                     self.refresh_dagj()
                     if was and not self.butler.paired:
                         self.write(T('log.dagjGone'))
+                    if not was and self.butler.paired:
+                        self.learn_bg('boot')           # 184 配上了：要那份提醒、交排着的
                 elif kind == 'fed':
                     self.feeding = False
                     self.feed_btn.config(state='normal')
@@ -1088,6 +1156,8 @@ class App:
                 elif kind == 'done':
                     self.start_btn.config(state='normal')
                     self.stop_btn.config(state='disabled')
+                    if self.learner.active():
+                        self.learn_bg('send')           # 184：干完一批，排着的改过的格子再交一次
                     if val and val.xlsx:
                         self.last_xlsx = val.xlsx
                         self.last_photos = val.photos_dir
@@ -1144,7 +1214,8 @@ class SettingsCard(tk.Toplevel):
         tk.Label(lleft, text=T('set.langD'), font=(fam, 9), bg=ui.CARD, fg=ui.GREY, anchor='w').pack(anchor='w', pady=(1, 0))
         ui.separator(g).pack(fill='x')
         self.vars = {}
-        for i, (key, title, desc) in enumerate(settings.ROWS):
+        rows = [r for r in settings.ROWS if r[0] not in settings.PAIRED_ONLY or app.butler.paired]   # 184：没配大管家不露
+        for i, (key, title, desc) in enumerate(rows):
             row = tk.Frame(g, bg=ui.CARD)
             row.pack(fill='x', pady=4)
             v = tk.BooleanVar(value=bool(app.cfg.get(key)))
@@ -1156,7 +1227,7 @@ class SettingsCard(tk.Toplevel):
             tk.Label(left, text=T(desc), font=(fam, 9), bg=ui.CARD, fg=ui.GREY, anchor='w', justify='left',
                      wraplength=ui.px(560)).pack(anchor='w', pady=(1, 0))
             self.vars[key] = v
-            if i < len(settings.ROWS) - 1:
+            if i < len(rows) - 1:
                 ui.separator(g).pack(fill='x')
         ui.separator(g).pack(fill='x', pady=(0, 12))
         self.contact = say = tk.Frame(g, bg=ui.CARD)           # 找方丈的话、千手院总舵网址（点了就去）

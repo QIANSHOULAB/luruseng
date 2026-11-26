@@ -119,14 +119,16 @@ export class Butler {
     this.onChange();
   }
 
-  async _json(path, { method = 'GET', body, ms = 20_000, signal } = {}) {
+  async _json(path, { method = 'GET', body, ms = 20_000, signal, headers = {} } = {}) {
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(new Error('timeout')), ms);
     const off = () => ctl.abort(signal.reason);
     if (signal) signal.addEventListener('abort', off, { once: true });
     try {
       const r = await this.fetch(this.relay + path, {
-        method, signal: ctl.signal, ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}),
+        method, signal: ctl.signal,
+        ...(body || Object.keys(headers).length ? { headers: { ...headers, ...(body ? { 'Content-Type': 'application/json' } : {}) } } : {}),
+        ...(body ? { body: JSON.stringify(body) } : {}),
       });
       let j = {};
       try { j = await r.json(); } catch (e) { /* 不是 JSON */ }
@@ -247,5 +249,41 @@ export class Butler {
         if (++errs >= 2) throw new Miss('大管家：' + String(ans.error || '').slice(0, 120), false);
       }
     } finally { this._free(); }
+  }
+
+  // ---------------------------------------------------------------- 184 录入僧越用越准（learn.js 管记、管排队，这里只管封好交过去）
+  /** 一包「人改过的格子」交给大管家（跟 /lr/ask 一样封）。
+   *  -> {ok, got}：大管家收下了（删这包）/ {split}：太大（413）/ {gone}：配对没了（拆不开、被撤）/ {later, why}：过一阵再交 */
+  async learn(pkg) {
+    const p = this.info;
+    if (!p) return { gone: true };
+    let key, ct;
+    const n = rand(12);
+    try {
+      key = await crypto.subtle.importKey('raw', unb64u(p.key), 'AES-GCM', false, ['encrypt', 'decrypt']);
+      ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: n, additionalData: enc.encode('luru/learn/' + p.cid) }, key,
+        enc.encode(JSON.stringify(pkg)));
+    } catch (e) { return { later: true, why: String((e && e.message) || e) }; }
+    const [st, r] = await this._json('/learn', { method: 'POST', ms: 120_000, body: { cid: p.cid, n: b64u(n), ct: b64u(ct) } });
+    if (st === 413) return { split: true };
+    if (st === 403 && (r.revoked || r.unknown)) { this.forget(); return { gone: true }; }
+    if (st !== 200) return { later: true, why: String(st || r.error || '') };
+    // forget:true 在这里不是「忘掉配对」：还没装新版的大管家拆不开学的包也这么回。照 {ok:false} 办：留着，过一阵再交
+    if (!r.ok) return { later: true, why: r.forget ? 'forget' : 'not ok' };
+    try {
+      const out = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64u(r.n), additionalData: enc.encode('luru/learned/' + p.cid) }, key, unb64u(r.ct));
+      const ans = JSON.parse(dec.decode(out));
+      if (ans && ans.ok) return { ok: true, got: ans.got };
+    } catch (e) { /* 回执拆不开：当没收到，过一阵再交（大管家那头按 id 去重） */ }
+    return { later: true, why: 'receipt' };
+  }
+
+  /** 大管家学会的那份「常错提醒」：-> {learn}（learn 可能是 null = 还没学到什么）；没配对、拿不到 -> null */
+  async learnList() {
+    const p = this.info;
+    if (!p) return null;
+    const [st, r] = await this._json('/learn/list', { headers: { 'x-lr-cid': p.cid } });
+    if (st === 200 && r && r.ok) return { learn: r.learn && typeof r.learn === 'object' ? r.learn : null };
+    return null;
   }
 }

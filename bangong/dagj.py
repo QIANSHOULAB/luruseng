@@ -97,8 +97,8 @@ def _post(url, body, timeout):
     return _open(req, timeout)
 
 
-def _get(url, timeout):
-    return _open(urllib.request.Request(url, headers={'User-Agent': UA}), timeout)
+def _get(url, timeout, headers=None):
+    return _open(urllib.request.Request(url, headers={'User-Agent': UA, **(headers or {})}), timeout)
 
 
 def _open(req, timeout):
@@ -299,3 +299,45 @@ class Butler:
                 errs += 1
                 if errs >= 2:
                     raise Miss('大管家：' + str(ans.get('error', ''))[:120], down=False)
+
+    # ---------------------------------------------------------------- 184 录入僧越用越准（learn.py 管记、管排队，这里只管封好交过去）
+    def learn(self, pkg: dict) -> dict:
+        """一包「人改过的格子」交给大管家（跟 /lr/ask 一样封）。-> {'ok': True, 'got': n}：收下了（删这包）/
+        {'split': True}：太大（413）/ {'gone': True}：配对被撤 / {'later': True, 'why': …}：过一阵再交。
+        forget:true 在这里不是「忘掉配对」：还没装新版的大管家拆不开学的包也这么回，照 {ok:false} 办，留着过一阵再交。"""
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        p = self.pair_info
+        if not p:
+            return {'gone': True}
+        aes = AESGCM(unb64u(p['key']))
+        n = secrets.token_bytes(12)
+        ct = aes.encrypt(n, json.dumps(pkg, ensure_ascii=False).encode(), b'luru/learn/' + p['cid'].encode())
+        st, r = _post(self.relay + '/learn', {'cid': p['cid'], 'n': b64u(n), 'ct': b64u(ct)}, 120)
+        r = r if isinstance(r, dict) else {}
+        if st == 413:
+            return {'split': True}
+        if st == 403 and (r.get('revoked') or r.get('unknown')):
+            self.forget()
+            return {'gone': True}
+        if st != 200:
+            return {'later': True, 'why': str(st or r.get('error', ''))}
+        if not r.get('ok'):
+            return {'later': True, 'why': 'forget' if r.get('forget') else 'not ok'}
+        try:
+            ans = json.loads(aes.decrypt(unb64u(r['n']), unb64u(r['ct']), b'luru/learned/' + p['cid'].encode()))
+            if ans.get('ok'):
+                return {'ok': True, 'got': ans.get('got')}
+        except Exception:
+            pass                                    # 回执拆不开：当没收到，过一阵再交（大管家那头按 id 去重）
+        return {'later': True, 'why': 'receipt'}
+
+    def learn_list(self):
+        """大管家学会的那份「常错提醒」：-> {'learn': …}（可能是 None = 还没学到什么）；没配对、拿不到 -> None"""
+        p = self.pair_info
+        if not p:
+            return None
+        st, r = _get(self.relay + '/learn/list', 20, {'x-lr-cid': p['cid']})
+        if st == 200 and isinstance(r, dict) and r.get('ok'):
+            got = r.get('learn')
+            return {'learn': got if isinstance(got, dict) else None}
+        return None

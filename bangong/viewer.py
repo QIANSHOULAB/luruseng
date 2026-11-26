@@ -391,9 +391,10 @@ class Viewer(tk.Toplevel):
     busy()：正在干的那批的编号照片文件夹，那批的表干完会整本重写，先不让改。"""
 
     def __init__(self, master, folder: str, run_dir: str | None = None, start: int | None = None,
-                 on_checked=None, busy=None, roster=None, snapshot=None):
+                 on_checked=None, busy=None, roster=None, snapshot=None, on_touch=None):
         super().__init__(master)
         self.folder = folder
+        self.on_touch = on_touch                              # 184 越用越准：核对里动了一格，交给 learn.Learner 记下
         self.on_checked, self.busy = on_checked, busy
         self.roster = roster or (lambda: [])                  # 名单：SETTER 只打工号也补上名字
         self.snapshot = snapshot or (lambda: None)            # 样板资料：改了 SETTER，班次照这个人以前的班次再猜
@@ -645,7 +646,7 @@ class Viewer(tk.Toplevel):
             row.pack(fill='x', pady=(ui.px(8), 0))
             for a in alts:
                 ui.Pill(row, text=a, radius=8, height=32, padx=12, bg=ui.CARD, font=(fam, 10, 'bold'),
-                        command=lambda a=a: self.save_cell(k, i, a)).pack(side='left', padx=(0, ui.px(6)))
+                        command=lambda a=a: self.save_cell(k, i, a, 'guess')).pack(side='left', padx=(0, ui.px(6)))
         btns = tk.Frame(f, bg=ui.CARD)
         btns.pack(fill='x', pady=(ui.px(8), 0))
         ui.Pill(btns, text=T('view.save'), primary=True, radius=8, height=32, padx=16, bg=ui.CARD, font=(fam, 10, 'bold'),
@@ -667,8 +668,8 @@ class Viewer(tk.Toplevel):
         self.editor, self.editor_var = f, var
         return f
 
-    def save_cell(self, k: int, i: int, text: str | None):
-        """「改好了」/ 回车（text 是框里的字）、点候选（text 是那个写法）、「对的」（text 是 None）：写回表里。"""
+    def save_cell(self, k: int, i: int, text: str | None, act: str = 'edit'):
+        """「改好了」/ 回车（text 是框里的字）、点候选（text 是那个写法，act=guess）、「对的」（text 是 None）：写回表里。"""
         if self._busy_here():
             self.info.set(T('view.busy'))
             return
@@ -693,6 +694,14 @@ class Viewer(tk.Toplevel):
         except Exception as e:
             self.info.set(T('view.err', e=f'{type(e).__name__}: {e}'))
             return
+        if self.on_touch:                                   # 184：人动了这一格（写进表的、人定的、原来什么颜色）
+            try:
+                col = engine.FIELDS[i] if rec.get('builtin') else label
+                color = 'red' if i in rec['red'] else 'orange' if i in rec.get('fixed', ()) else ''
+                self.on_touch(self.xlsx, no, k, col, rec['raw'][i], res['data'].get(col, ''),
+                              'ok' if text is None else act, color)
+            except Exception:
+                pass                                        # 记不下不耽误改表
         if res['still']:
             msg = T('view.still', label=label, v=res['value'] or T('empty'), why=note_text(res['why']))
         elif text is None or res['value'] == before:
