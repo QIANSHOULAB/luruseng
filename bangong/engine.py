@@ -33,7 +33,7 @@ from openpyxl.utils import get_column_letter
 
 from .strings import T, join
 
-VERSION = '1.13.6'
+VERSION = '1.13.8'
 APP_NAME = '录入僧'
 SUBTITLE = '施主去玩，贫僧填表'
 TITLE = '入我千手院，凡事尽释手；千僧替牛马，施主自风流。'      # 窗口标题栏只写这一句（Song 定的）
@@ -1240,7 +1240,8 @@ class Engine:
     def _claude_read(self, jpeg: bytes, path: str) -> tuple[list[dict], str]:
         """167 Claude 认一遍：交的是翻过来的 Gemini 请求，回来的也翻回 Gemini 的样子。认不出的整张换（ClaudeMiss，down=False）。"""
         from . import claude, dagj
-        data = self.claude.read(self._body(dagj.fit(jpeg), True), self.stop)
+        data = self.claude.read(self._body(dagj.fit(jpeg), True), self.stop,
+                                lambda s: self.log(T('eng.claudeSlow', name=os.path.basename(path), s=s)))
         if self.stop.is_set():
             raise Stopped()
         try:

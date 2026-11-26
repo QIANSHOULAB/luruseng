@@ -363,6 +363,7 @@ function relay(srv, { mode = () => 'ok', conf = { luru: { model: 'claude-opus-5-
     const body = JSON.parse(init.body);
     R.msgs.push(body);
     const m = mode(R.msgs.length, body);
+    if (m && m.status) return new Response(JSON.stringify(m.body || { type: 'error', error: { type: 'rate_limit_error', message: 'slow down' } }), { status: m.status, headers: m.headers || {} });
     if (m === 'quota') return new Response(JSON.stringify({ why: 'quota', until: 1 }), { status: 503 });
     if (m === '500') return new Response(JSON.stringify({ type: 'error', error: { type: 'api_error', message: 'Internal server error' } }), { status: 500 });
     if (m === 'noformat' && body.output_config.format) {
@@ -374,7 +375,7 @@ function relay(srv, { mode = () => 'ok', conf = { luru: { model: 'claude-opus-5-
     const text = obj.candidates[0].content.parts[0].text;
     const said = m === 'noformat' ? '好的：\n```json\n' + text + '\n```' : text;
     return new Response(JSON.stringify({ id: 'msg', type: 'message', role: 'assistant', model: body.model, stop_reason: 'end_turn',
-      content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: said }], usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200 });
+      content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: said }], usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200, headers: (m && m.ok) || {} });
   };
   return R;
 }
@@ -498,4 +499,110 @@ test('167 structured output refused: asked again with the schema in the words, J
   assert.equal(a.useFormat, false);
   assert.ok(R.msgs.at(-1).messages[0].content.at(-1).text.includes('只输出 JSON'));
   assert.ok(new ClaudeMiss('x', { quota: true }) instanceof Miss);
+});
+
+// ---------------------------------------------------------------- 180 限速：429 照 retry-after 等、排回队尾；剩的 token 不够先等
+/** 假钟：「睡」就是把钟拨快，睡了多久记下来 */
+function fakeTime(at = Date.parse('2026-11-26T03:00:00Z')) {
+  const t = { now: at, waits: [] };
+  t.sleep = async (ms) => { t.waits.push(ms); t.now += ms; };
+  return t;
+}
+const paced = (R, b, t) => new Claude({ butler: b, fetchImpl: R.fetch, clock: () => t.now, sleep: t.sleep });
+const imageOf = (m) => m.messages[0].content.find((x) => x.type === 'image').source.data;
+
+test('180 429 with retry-after: waits that long, then Claude reads the photo; nothing falls back', async () => {
+  const srv = server();
+  const t = fakeTime();
+  const R = relay(srv, { mode: (n) => (n === 1 ? { status: 429, headers: { 'retry-after': '7' } } : 'ok') });
+  const b = butler(async () => { throw new Error('不该问大管家'); });
+  const a = paced(R, b, t);
+  const { res, out, logs } = await goB(photos(1), srv, b, { reads: 2, claude: a });
+  assert.equal(res.ok, 1);
+  assert.equal(out[0].by, 'claude');
+  assert.equal(R.msgs.length, 3);                              // 撞一下、重发、第二遍
+  assert.deepEqual(t.waits, [7000]);
+  assert.equal(b.calls, 0);
+  assert.equal(a.misses, 0);
+  assert.ok(logs.some((m) => m.includes('限速') && m.includes('7 秒')), logs);
+  assert.ok(!logs.some((m) => m.includes('没认成')), logs);
+});
+
+test('180 the same photo hits 429 three times (no retry-after: 20 s each): only then the butler', async () => {
+  const srv = server();
+  const t = fakeTime();
+  const R = relay(srv, { mode: () => ({ status: 429 }) });
+  const b = butler(fromSrv(srv));
+  const a = paced(R, b, t);
+  const { out, logs } = await goB(photos(1), srv, b, { reads: 2, claude: a });
+  assert.equal(R.msgs.length, 3);
+  assert.deepEqual(t.waits, [20000, 20000]);
+  assert.equal(out[0].by, 'dagj');
+  assert.equal(a.misses, 1);
+  assert.ok(logs.some((m) => m.includes('Claude 没认成') && m.includes('429 连撞 3 次')), logs);
+});
+
+test('180 the relay daily limit (429 why day) is not a rate limit: straight to the butler, no waiting', async () => {
+  const srv = server();
+  const t = fakeTime();
+  const R = relay(srv, { mode: () => ({ status: 429, body: { why: 'day', max: 400 } }) });
+  const b = butler(fromSrv(srv));
+  const { out } = await goB(photos(1), srv, b, { reads: 2, claude: paced(R, b, t) });
+  assert.equal(R.msgs.length, 1);
+  assert.deepEqual(t.waits, []);
+  assert.equal(out[0].by, 'dagj');
+});
+
+test('180 not enough input tokens left for another photo: waits for the reset before sending', async () => {
+  const srv = server();
+  const t = fakeTime();
+  const sent = [];
+  const R = relay(srv, { mode: (n) => {
+    sent.push(t.now);
+    return { ok: { 'anthropic-ratelimit-input-tokens-remaining': n === 1 ? '3000' : '400000', 'anthropic-ratelimit-input-tokens-reset': new Date(t.now + 30_000).toISOString() } };
+  } });
+  const b = butler(async () => { throw new Error('不该问大管家'); });
+  const { out } = await goB(photos(2), srv, b, { reads: 1, claude: paced(R, b, t) });
+  assert.ok(out.every((p) => p.by === 'claude'));
+  assert.deepEqual(t.waits, []);                               // 两张一起发的时候还不知道剩多少
+  const a = paced(R, b, t);
+  R.msgs.length = 0; sent.length = 0;
+  const two = await goB(photos(1), srv, b, { reads: 2, claude: a });
+  assert.equal(two.out[0].by, 'claude');
+  assert.deepEqual(t.waits, [30000]);                          // 第一遍回来说只剩 3000：第二遍等到补满
+  assert.equal(sent[1] - sent[0], 30000);
+  await goB(photos(1), srv, b, { reads: 2, claude: a });
+  assert.deepEqual(t.waits, [30000]);                          // 剩得多：不等
+});
+
+test('180 the one that hit 429 goes to the back of the queue (four at a time)', async () => {
+  const srv = server();
+  const t = fakeTime();
+  const R = relay(srv, { mode: (n) => (n === 1 ? { status: 429, headers: { 'retry-after': '3' } } : 'ok') });
+  const a = paced(R, butler(fromSrv(srv)), t);
+  const body = (i) => C.buildBody(Buffer.from(`img${i}`).toString('base64'), C.DEFAULT_MODEL, true);
+  const num = (m) => Number(Buffer.from(imageOf(m), 'base64').toString().slice(3));
+  let release;
+  const held = new Promise((ok) => { release = ok; });         // 1、2、3 一直占着位子：只剩一个位子轮着用
+  a.fetch = async (url, init) => {
+    if (String(url).endsWith('/ai/conf')) return R.fetch(url, init);
+    const m = JSON.parse(init.body);
+    R.msgs.push(m);
+    if (R.msgs.length === 1) return new Response('{}', { status: 429, headers: { 'retry-after': '3' } });
+    if (R.msgs.length === 7) release();
+    if ([1, 2, 3].includes(num(m))) await held;
+    return new Response(JSON.stringify({ type: 'message', role: 'assistant', model: m.model, stop_reason: 'end_turn', content: [{ type: 'text', text: '{"records":[]}' }] }), { status: 200 });
+  };
+  await Promise.all([0, 1, 2, 3, 4, 5].map((i) => a.read(body(i))));
+  assert.deepEqual(R.msgs.map(num), [0, 1, 2, 3, 4, 5, 0]);    // 撞了的排在等着的 4、5 后面
+});
+
+test('180 stop while waiting: no more requests', async () => {
+  const srv = server();
+  const R = relay(srv, { mode: () => ({ status: 429, headers: { 'retry-after': '60' } }) });
+  const a = claudeOf(R, butler(fromSrv(srv)));
+  const ctl = new AbortController();
+  const body = C.buildBody('QUJD', C.DEFAULT_MODEL, true);
+  await assert.rejects(a.read(body, ctl.signal, () => setTimeout(() => ctl.abort(), 20)), (e) => e instanceof ClaudeMiss && e.down === false);
+  assert.equal(R.msgs.length, 1);
 });

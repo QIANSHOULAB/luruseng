@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import threading
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -33,6 +34,8 @@ class Relay:
                 return 200, {'ok': True, 'conf': CONF, 'key': self.key, 'rest': None}
             self.msgs.append(body)
             m = self.mode(len(self.msgs), body)
+        if isinstance(m, tuple):                 # (状态码, 回答, 回答头)
+            return m
         if m == 'quota':
             return 503, {'why': 'quota', 'until': 1}
         if m == '500':
@@ -156,3 +159,101 @@ def test_structured_output_refused_schema_in_words(tmp_path):
     res, logs, _ = run(tmp_path / 'in', b, a)
     assert res.ok == 2 and a.use_format is False
     assert sum(1 for m in logs if m.endswith(' · C')) == 2
+
+
+# ---------------------------------------------------------------- 180 限速：429 照 retry-after 等、排回队尾；剩的 token 不够先等
+def limited(retry=None, why=None):
+    return 429, ({'why': why} if why else {'type': 'error', 'error': {'type': 'rate_limit_error', 'message': 'slow down'}}), \
+        ({'retry-after': str(retry)} if retry is not None else {})
+
+
+class FakeTime:
+    """假钟：「睡」就是把钟拨快，睡了多久记下来。"""
+
+    def __init__(self):
+        self.now = datetime(2026, 11, 26, 3, 0, 0, tzinfo=timezone.utc).timestamp()
+        self.waits = []
+
+    def clock(self):
+        return self.now
+
+    def sleep(self, s):
+        self.waits.append(round(s, 3))
+        self.now += s
+
+
+def paced(b, r, t):
+    return claude.Claude(b, call=r, clock=t.clock, sleep=t.sleep)
+
+
+def test_429_waits_retry_after_then_claude_reads_it(tmp_path):
+    make_images(tmp_path / 'in', 1)
+    t = FakeTime()
+    r = Relay(mode=lambda n, body: limited(7) if n == 1 else 'ok')
+    b = fake(tmp_path, lambda body, n: (_ for _ in ()).throw(AssertionError('不该问大管家')))
+    a = paced(b, r, t)
+    res, logs, _ = run(tmp_path / 'in', b, a, reads=2)
+    assert (res.ok, len(r.msgs), b.calls, a.misses) == (1, 3, 0, 0)
+    assert t.waits == [7]
+    assert any('限速' in m and '7 秒' in m for m in logs)
+    assert not any('没认成' in m for m in logs)
+    assert any(m.endswith(' · C') for m in logs)
+
+
+def test_three_429_on_the_same_photo_then_the_butler(tmp_path):
+    make_images(tmp_path / 'in', 1)
+    t = FakeTime()
+    r = Relay(mode=lambda n, body: limited())
+    b = fake(tmp_path, lambda body, n: answer(body))
+    a = paced(b, r, t)
+    res, logs, _ = run(tmp_path / 'in', b, a, reads=2)
+    assert (res.ok, len(r.msgs), a.misses) == (1, 3, 1)
+    assert t.waits == [20, 20]
+    assert any('429 连撞 3 次' in m for m in logs)
+    assert any(m.endswith(' · 管') for m in logs)
+
+
+def test_relay_daily_limit_is_not_a_rate_limit(tmp_path):
+    make_images(tmp_path / 'in', 1)
+    t = FakeTime()
+    r = Relay(mode=lambda n, body: limited(why='day'))
+    b = fake(tmp_path, lambda body, n: answer(body))
+    res, logs, _ = run(tmp_path / 'in', b, paced(b, r, t), reads=2)
+    assert (res.ok, len(r.msgs), t.waits) == (1, 1, [])
+    assert any(m.endswith(' · 管') for m in logs)
+
+
+def test_not_enough_tokens_left_waits_for_the_reset(tmp_path):
+    make_images(tmp_path / 'in', 1)
+    t = FakeTime()
+    sent = []
+
+    def mode(n, body):
+        sent.append(t.now)
+        reset = datetime.fromtimestamp(t.now + 30, timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        text = json.dumps({'title_side': 'top', 'records': [REC]})
+        return (200, {'type': 'message', 'model': body['model'], 'stop_reason': 'end_turn', 'content': [{'type': 'text', 'text': text}]},
+                {'anthropic-ratelimit-input-tokens-remaining': '3000' if n == 1 else '400000', 'anthropic-ratelimit-input-tokens-reset': reset})
+    r = Relay(mode=mode)
+    b = fake(tmp_path, lambda body, n: (_ for _ in ()).throw(AssertionError('不该问大管家')))
+    a = paced(b, r, t)
+    res, logs, _ = run(tmp_path / 'in', b, a, reads=2)
+    assert res.ok == 1 and any(m.endswith(' · C') for m in logs)
+    assert t.waits == [30] and sent[1] - sent[0] == 30           # 第一遍回来说只剩 3000：第二遍等到补满
+    make_images(tmp_path / 'more', 1)
+    run(tmp_path / 'more', b, a, reads=2)
+    assert t.waits == [30]                                       # 剩得多：不等
+
+
+def test_stop_while_waiting(tmp_path):
+    r = Relay(mode=lambda n, body: limited(60))
+    b = fake(tmp_path, lambda body, n: answer(body))
+    a = claude.Claude(b, call=r)
+    stop = threading.Event()
+    try:
+        a.read(engine.build_body(b'x', engine.DEFAULT_MODEL), stop, lambda s: stop.set())
+    except claude.ClaudeMiss as e:
+        assert e.down is False
+    else:
+        raise AssertionError('该停')
+    assert len(r.msgs) == 1

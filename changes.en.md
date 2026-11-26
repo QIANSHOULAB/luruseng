@@ -2,6 +2,9 @@
 
 When there's a new version, the app shows you the sections newer than the one you have.
 
+## 1.13.8
+- Connected to the Butler and Claude says “slow down”? The monk now waits as long as Claude asks, sends that page to the back of the line and carries on, instead of giving up on the first bump. Only after three in a row on the same page does it go to the Butler. Web and desktop alike.
+
 ## 1.13.7
 - The web app got a facelift. Keys, model and Auto-start moved behind the gear, so the main page is just the stuff you work with.
 - The wall of log lines is gone. A status panel on the right says Ready, Working, Done or Needs you, with three numbers: in, read, failed. Failures are grouped by cause (“3 blank pages: reshoot them”); tap one to see which numbers. The line-by-line log is still there under Details.

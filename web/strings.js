@@ -520,6 +520,7 @@
     'eng.dagjRest': ['↪ 大管家连着 3 张没认成，5 分钟里先走 Gemini', '↪ The Butler missed 3 in a row. Gemini for the next 5 minutes.'],
     'eng.claudeMiss': ['↪ {name} Claude 没认成（{why}），换老办法', '↪ {name}: Claude passed ({why}). Back to the usual route.'],
     'eng.claudeRest': ['↪ Claude 连着 3 张没认成，5 分钟里先走老办法', '↪ Claude missed 3 in a row. Usual route for the next 5 minutes.'],
+    'eng.claudeSlow': ['⏸ {name} Claude 限速，{s} 秒后接着认', '⏸ {name}: Claude rate limit. Trying again in {s}s'],
     'eng.claudeQuota': ['↪ Claude 先歇着（{why}），大管家和 Gemini 顶上，30 分钟后再看', '↪ Claude is sitting this one out ({why}). Butler and Gemini take over; checking again in 30 minutes.'],
     'eng.by.claude': ['C', 'C'],
     'eng.by.dagj': ['管', 'Butler'],

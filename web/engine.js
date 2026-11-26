@@ -182,8 +182,9 @@ export class Engine {
     return out;
   }
 
-  async claudeRead(b64) {                      // 167 Claude 认一遍：交的是翻过来的 Gemini 请求，回来的也翻回 Gemini 的样子
-    const data = await this.claude.read(this.body(await fit(b64), true), this.halt.signal);
+  async claudeRead(b64, name) {                // 167 Claude 认一遍：交的是翻过来的 Gemini 请求，回来的也翻回 Gemini 的样子
+    const data = await this.claude.read(this.body(await fit(b64), true), this.halt.signal,
+      (s) => this.log(t('eng.claudeSlow', { name, s })));   // 180：撞限速只在「细节」里说一声，面板照旧「在干活」
     if (this.stopped) throw new C.Stopped('stopped');
     try {
       return this.spec ? this.spec.parse(data) : C.parseResponse(data);
